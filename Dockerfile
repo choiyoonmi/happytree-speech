@@ -1,6 +1,8 @@
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+# ffmpeg: 오디오 변환용 / libssl·libasound: Azure Speech SDK 필수 라이브러리
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg ca-certificates libssl-dev libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

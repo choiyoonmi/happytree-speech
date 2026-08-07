@@ -1,5 +1,6 @@
 import os
 import io
+import asyncio
 import json
 import base64
 import uuid
@@ -234,16 +235,69 @@ def decode_audio(raw: bytes):
     raise HTTPException(400, "오디오를 읽을 수 없어요. " + " | ".join(errors[:3]))
 
 
+def assess_with_sdk(wav_path: str, reference: str):
+    """Azure Speech SDK로 발음평가. REST API는 점수를 누락하는 알려진 문제가 있어 SDK를 사용."""
+    import azure.cognitiveservices.speech as speechsdk
+
+    speech_config = speechsdk.SpeechConfig(subscription=AZURE_KEY, region=AZURE_REGION)
+    speech_config.speech_recognition_language = "en-US"
+    audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
+
+    pa_config = speechsdk.PronunciationAssessmentConfig(
+        reference_text=reference,
+        grading_system=speechsdk.PronunciationAssessmentGradingSystem.HundredMark,
+        granularity=speechsdk.PronunciationAssessmentGranularity.Word,
+        enable_miscue=len(reference.strip().split()) > 2,
+    )
+
+    recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+    pa_config.apply_to(recognizer)
+    result = recognizer.recognize_once()
+
+    if result.reason == speechsdk.ResultReason.Canceled:
+        det = result.cancellation_details
+        raise HTTPException(502, f"Azure 취소됨: {det.reason} {det.error_details or ''}"[:300])
+
+    if result.reason != speechsdk.ResultReason.RecognizedSpeech:
+        return {"ok": False, "status": str(result.reason).split(".")[-1], "text": ""}
+
+    pa = speechsdk.PronunciationAssessmentResult(result)
+    raw = result.properties.get(speechsdk.PropertyId.SpeechServiceResponse_JsonResult) or "{}"
+
+    words = []
+    try:
+        for w in (pa.words or []):
+            words.append({
+                "word": w.word,
+                "accuracy": w.accuracy_score,
+                "errorType": w.error_type,
+            })
+    except Exception:
+        pass
+
+    return {
+        "ok": pa.pronunciation_score is not None,
+        "status": "Success",
+        "text": result.text or "",
+        "pron": pa.pronunciation_score,
+        "accuracy": pa.accuracy_score,
+        "fluency": pa.fluency_score,
+        "completeness": pa.completeness_score,
+        "words": words,
+        "raw": raw,
+    }
+
+
 @app.post("/api/assess")
 async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: str = Form("")):
     if not AZURE_KEY:
         raise HTTPException(500, "서버에 AZURE_SPEECH_KEY가 설정되어 있지 않아요.")
 
-    raw = await audio.read()
-    if not raw:
+    raw_bytes = await audio.read()
+    if not raw_bytes:
         raise HTTPException(400, "오디오 파일이 비어있어요.")
 
-    seg, decoder = decode_audio(raw)
+    seg, decoder = decode_audio(raw_bytes)
     orig_dbfs = seg.dBFS
     orig_ms = len(seg)
     seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
@@ -251,120 +305,64 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: st
         seg = seg.apply_gain(min(-20 - seg.dBFS, 25))
     pad = AudioSegment.silent(duration=300, frame_rate=16000).set_channels(1).set_sample_width(2)
     seg = pad + seg + pad
-    buf = io.BytesIO()
-    seg.export(buf, format="wav")
-    wav_bytes = buf.getvalue()
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        wav_path = f.name
+    seg.export(wav_path, format="wav")
 
     audio_info = {
         "durationMs": orig_ms,
         "dBFS": None if orig_dbfs == float("-inf") else round(orig_dbfs, 1),
-        "bytesIn": len(raw),
-        "wavBytes": len(wav_bytes),
+        "bytesIn": len(raw_bytes),
         "decoder": decoder,
         "contentType": audio.content_type,
+        "engine": "sdk",
     }
 
-    is_short = len(text.strip().split()) <= 2
-
-    async def call_azure(reference, enable_miscue, mode):
-        cfg = {
-            "ReferenceText": reference,
-            "GradingSystem": "HundredMark",
-            "Granularity": "Word",
-            "EnableMiscue": enable_miscue,
-        }
-        hdr = base64.b64encode(json.dumps(cfg).encode("utf-8")).decode("utf-8")
-        url = f"https://{AZURE_REGION}.stt.speech.microsoft.com/speech/recognition/{mode}/cognitiveservices/v1"
-        async with httpx.AsyncClient(timeout=30) as client:
-            return await client.post(
-                url,
-                params={"language": "en-US", "format": "detailed"},
-                headers={
-                    "Ocp-Apim-Subscription-Key": AZURE_KEY,
-                    "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
-                    "Accept": "application/json",
-                    "Pronunciation-Assessment": hdr,
-                },
-                content=wav_bytes,
-            )
-
-    def extract(resp):
-        if resp.status_code != 200:
-            return None, None, resp.status_code
-        d = resp.json()
-        nb = (d.get("NBest") or [{}])[0]
-        return d, nb.get("PronunciationAssessment") or {}, 200
-
-    # 1차: 짧은 단어는 interactive 모드가 인식률이 높음
     try:
-        mode = "interactive" if is_short else "conversation"
-        resp = await call_azure(text, not is_short, mode)
-    except httpx.RequestError as e:
-        raise HTTPException(502, f"Azure 요청 실패: {e}")
-
-    data, pa, code = extract(resp)
-    if code != 200:
-        raise HTTPException(502, f"Azure 오류 ({code}): {resp.text[:300]}")
-
-    # 2차: 실패하면 반대 모드로 한 번 더 시도
-    if not pa:
+        r = await asyncio.to_thread(assess_with_sdk, wav_path, text)
+    finally:
         try:
-            resp2 = await call_azure(text, False, "conversation" if is_short else "interactive")
-            data2, pa2, code2 = extract(resp2)
-            if code2 == 200 and pa2:
-                data, pa = data2, pa2
-        except httpx.RequestError:
+            os.unlink(wav_path)
+        except Exception:
             pass
 
-    status = data.get("RecognitionStatus", "")
-    nbest = (data.get("NBest") or [{}])[0]
-
-    if not pa:
+    if not r.get("ok"):
+        status = r.get("status", "")
         dur = audio_info["durationMs"]
         db = audio_info["dBFS"]
         if db is None:
             note = "녹음이 완전히 무음이에요. 마이크가 켜져 있는지 확인해주세요."
         elif dur < 500:
-            note = f"녹음이 너무 짧아요 ({dur/1000:.1f}초). 단어를 조금 길게 늘여서 읽어볼까요?"
-        elif status == "InitialSilenceTimeout":
-            note = "녹음 앞부분이 조용해서 인식이 멈췄어요. 버튼을 누르고 바로 읽어볼까요?"
+            note = f"녹음이 너무 짧아요 ({dur/1000:.1f}초). 조금 더 길게 읽어볼까요?"
         elif status == "NoMatch":
-            note = "읽은 내용이 교재 내용과 다르게 들렸어요. 다시 한번 또박또박 읽어볼까요?"
-        elif status == "BabbleTimeout":
-            note = "주변 소음이 커요. 조용한 곳에서 다시 녹음해볼까요?"
-        elif status and status != "Success":
-            note = f"인식되지 않았어요 ({status}). 다시 녹음해볼까요?"
+            note = "읽은 내용이 잘 인식되지 않았어요. 다시 한번 또박또박 읽어볼까요?"
         else:
-            note = "인식되지 않았어요. 다시 한번 녹음해볼까요?"
-        result = {
-            "recognizedText": data.get("DisplayText", ""),
+            note = f"인식되지 않았어요 ({status}). 다시 녹음해볼까요?"
+        out = {
+            "recognizedText": r.get("text", ""),
             "accuracyScore": None, "fluencyScore": None,
             "completenessScore": None, "pronScore": None,
             "words": [], "status": status, "note": note, "audio": audio_info,
         }
         if debug:
-            result["raw"] = json.dumps(data)[:1500]
-        return result
+            out["raw"] = (r.get("raw") or "")[:1500]
+        return out
 
-    words = []
-    for w in nbest.get("Words", []):
-        wpa = w.get("PronunciationAssessment") or {}
-        words.append({
-            "word": w.get("Word"),
-            "accuracy": wpa.get("AccuracyScore"),
-            "errorType": wpa.get("ErrorType"),
-        })
-
-    return {
-        "recognizedText": data.get("DisplayText", ""),
-        "accuracyScore": pa.get("AccuracyScore"),
-        "fluencyScore": pa.get("FluencyScore"),
-        "completenessScore": pa.get("CompletenessScore"),
-        "pronScore": pa.get("PronScore"),
-        "words": words,
-        "status": status,
+    out = {
+        "recognizedText": r.get("text", ""),
+        "accuracyScore": r.get("accuracy"),
+        "fluencyScore": r.get("fluency"),
+        "completenessScore": r.get("completeness"),
+        "pronScore": r.get("pron"),
+        "words": r.get("words", []),
+        "status": "Success",
         "audio": audio_info,
     }
+    if debug:
+        out["raw"] = (r.get("raw") or "")[:1500]
+    return out
 
 
 @app.post("/api/suggest-comment/{assignment_id}/{student_id}")
@@ -664,10 +662,17 @@ async def diag():
         "azure_key_set": bool(AZURE_KEY),
         "azure_region": AZURE_REGION,
         "ffmpeg": None,
+        "sdk": None,
         "azure_reachable": None,
         "azure_status": None,
         "azure_message": None,
     }
+
+    try:
+        import azure.cognitiveservices.speech as _s
+        out["sdk"] = "설치됨"
+    except Exception as e:
+        out["sdk"] = f"설치 안 됨 ({e})"
 
     ff = shutil.which("ffmpeg")
     out["ffmpeg"] = ff or "설치되지 않음"
