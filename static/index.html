@@ -365,6 +365,7 @@ function StudentView({ student, onLogout }) {
   const [round, setRound] = useState(0);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [saveMsg, setSaveMsg] = useState("");
   const [done, setDone] = useState(false);
 
   const mine = assignments.filter(a =>
@@ -403,7 +404,13 @@ function StudentView({ student, onLogout }) {
     setSub(prev => {
       const items = prev.items.map(x => x.slice());
       items[idx][take] = val;
-      return { ...prev, items };
+      const next = { ...prev, items };
+      // 녹음할 때마다 서버에 바로 저장 (제출 전이라도 유실되지 않도록)
+      apiPost(`/submission/${open.id}/${student.id}`, { items })
+        .then(() => setSaveMsg("자동 저장됨"))
+        .catch(() => setSaveMsg("자동 저장 실패 — 인터넷 연결을 확인해주세요"));
+      setTimeout(()=>setSaveMsg(""), 2500);
+      return next;
     });
   };
 
@@ -472,6 +479,7 @@ function StudentView({ student, onLogout }) {
         <div style={{ position:"fixed", bottom:0, left:0, right:0, padding:14, background:"var(--cream)", borderTop:"1px solid var(--line)" }}>
           <div style={{ maxWidth:640, margin:"0 auto" }}>
             {msg && <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:"var(--navy)", marginBottom:8 }}>{msg}</div>}
+            {!msg && saveMsg && <div style={{ textAlign:"center", fontSize:11, color:"var(--navy-soft)", marginBottom:8 }}>{saveMsg}</div>}
             <button className="btn full" onClick={submit}>제출하기</button>
           </div>
         </div>
