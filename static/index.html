@@ -115,6 +115,13 @@ function nowStr() {
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
 }
 
+function splitMeaning(line) {
+  // "apple / 사과" 또는 "apple - 사과" 형태를 분리
+  const m = line.split(/\s+[/|\-–]\s+/);
+  if (m.length >= 2) return { text: m[0].trim(), meaning: m.slice(1).join(" ").trim() };
+  return { text: line.trim(), meaning: "" };
+}
+
 function useVoice() {
   const [voice, setVoice] = useState(null);
   useEffect(() => {
@@ -208,7 +215,7 @@ function Login({ onStudent, onAdmin }) {
 }
 
 // ---------- Recorder ----------
-function Recorder({ index, text, take, round, onSaved, voice }) {
+function Recorder({ index, text, meaning, take, round, onSaved, voice }) {
   const [rec, setRec] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -293,7 +300,10 @@ function Recorder({ index, text, take, round, onSaved, voice }) {
           <div style={{ fontSize:11, fontWeight:700, color:"var(--gold)" }}>
             {index+1}{take ? " · 완료" : ""}
           </div>
-          <div style={{ fontSize:16, fontWeight:500, wordBreak:"break-word" }}>{text}</div>
+          <div style={{ fontSize:20, fontWeight:600, wordBreak:"break-word", lineHeight:1.4 }}>{text}</div>
+          {meaning && (
+            <div style={{ fontSize:15, color:"var(--navy-soft)", marginTop:4, fontWeight:500 }}>{meaning}</div>
+          )}
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
           <button onClick={()=>speak(text, voice, 0.7)}
@@ -472,8 +482,8 @@ function StudentView({ student, onLogout }) {
           )}
 
           {open.items.map((t,i) => (
-            <Recorder key={`${round}-${i}`} index={i} text={t} take={sub.items[i][round]}
-              round={round} onSaved={onSaved} voice={voice} />
+            <Recorder key={`${round}-${i}`} index={i} text={t} meaning={(open.meanings||[])[i]}
+              take={sub.items[i][round]} round={round} onSaved={onSaved} voice={voice} />
           ))}
         </div>
         <div style={{ position:"fixed", bottom:0, left:0, right:0, padding:14, background:"var(--cream)", borderTop:"1px solid var(--line)" }}>
@@ -613,6 +623,22 @@ function AdminAssignments({ students, assignments, reload, voice }) {
   const [mode, setMode] = useState("all");
   const [classes, setClasses] = useState([]); const [ids, setIds] = useState([]);
   const [err, setErr] = useState(""); const [pdfBusy, setPdfBusy] = useState(false);
+  const [trBusy, setTrBusy] = useState(false);
+
+  const autoTranslate = async () => {
+    const lines = list.split("\n").map(s=>s.trim()).filter(Boolean);
+    if (!lines.length) return setErr("먼저 목록을 입력해주세요.");
+    setTrBusy(true); setErr("");
+    try {
+      const parsed = lines.map(splitMeaning);
+      const need = parsed.map((p,i) => p.meaning ? null : i).filter(i => i !== null);
+      if (!need.length) { setErr("이미 모든 항목에 한글 뜻이 있어요."); setTrBusy(false); return; }
+      const r = await apiPost("/translate", { texts: need.map(i => parsed[i].text) });
+      need.forEach((idx, k) => { parsed[idx].meaning = r.translations[k] || ""; });
+      setList(parsed.map(p => p.meaning ? `${p.text} / ${p.meaning}` : p.text).join("\n"));
+    } catch (e) { setErr(e.message); }
+    setTrBusy(false);
+  };
 
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
 
@@ -654,8 +680,11 @@ function AdminAssignments({ students, assignments, reload, voice }) {
   };
 
   const create = async () => {
-    const items = list.split("\n").map(s=>s.trim()).filter(Boolean);
-    if (!title.trim() || !items.length) return setErr("제목과 목록을 입력해주세요.");
+    const lines = list.split("\n").map(s=>s.trim()).filter(Boolean);
+    if (!title.trim() || !lines.length) return setErr("제목과 목록을 입력해주세요.");
+    const parsed = lines.map(splitMeaning);
+    const items = parsed.map(p => p.text);
+    const meanings = parsed.map(p => p.meaning);
     let assignedIds = [];
     if (mode === "class") {
       if (!classes.length) return setErr("반을 선택해주세요.");
@@ -666,7 +695,7 @@ function AdminAssignments({ students, assignments, reload, voice }) {
     }
     try {
       await apiPost("/assignments", {
-        title, type, items, dueDate: due || null, rounds, assignedIds,
+        title, type, items, meanings, dueDate: due || null, rounds, assignedIds,
         assignedClasses: mode==="class" ? classes : []
       });
       setTitle(""); setList(""); setDue(""); setRounds(3); setMode("all"); setClasses([]); setIds([]);
@@ -722,11 +751,15 @@ function AdminAssignments({ students, assignments, reload, voice }) {
                 <input type="file" accept=".pdf" style={{display:"none"}} disabled={pdfBusy}
                   onChange={e=>{ const f=e.target.files[0]; if(f) readPdf(f); e.target.value=""; }} />
               </label>
+              <button className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}
+                onClick={autoTranslate} disabled={trBusy}>
+                {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
+              </button>
             </div>
           </div>
           <div style={{height:6}} />
           <textarea className="field" rows={6} value={list} onChange={e=>setList(e.target.value)}
-            placeholder={"apple\nbanana\ncherry"} />
+            placeholder={"apple / 사과\nbanana / 바나나\n\n한글 뜻은 '/' 뒤에 쓰거나, 영어만 넣고 '한글뜻 자동'을 누르세요."} />
           {list.trim() && (
             <div className="row" style={{ marginTop:8 }}>
               {list.split("\n").map(s=>s.trim()).filter(Boolean).slice(0,6).map((w,i)=>(
@@ -867,7 +900,10 @@ function AdminReview({ students, assignments }) {
               const takes = normalizeTakes(sub.items[i]).slice(0, a.rounds || 3);
               return (
                 <div key={i} className="card">
-                  <div style={{ fontWeight:500, marginBottom:8 }}>{i+1}. {text}</div>
+                  <div style={{ fontWeight:500, marginBottom:8 }}>
+                    {i+1}. {text}
+                    {(a.meanings||[])[i] && <span className="muted" style={{ marginLeft:8 }}>{(a.meanings||[])[i]}</span>}
+                  </div>
                   {takes.some(t=>t) ? takes.map((t,ti) => t && (
                     <div key={ti} style={{ marginBottom:10, paddingBottom:10, borderBottom: ti<takes.length-1 ? "1px solid #F0EBDD" : "none" }}>
                       <div className="row">
