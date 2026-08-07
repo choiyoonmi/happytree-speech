@@ -614,9 +614,281 @@ function AdminStudents({ students, reload }) {
   );
 }
 
+// ---------- Admin: bulk book upload ----------
+function BulkUpload({ students, reload, onClose }) {
+  const [rows, setRows] = useState(null);       // [{day, text, meaning}]
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState("word");
+  const [rounds, setRounds] = useState(3);
+  const [perDay, setPerDay] = useState(20);
+  const [hasDayCol, setHasDayCol] = useState(false);
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
+  const [mode, setMode] = useState("all");
+  const [classes, setClasses] = useState([]);
+  const [ids, setIds] = useState([]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [trBusy, setTrBusy] = useState(false);
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+  const DAYNAMES = ["일","월","화","수","목","금","토"];
+
+  const readFile = async (file) => {
+    setErr(""); setRows(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1 });
+      const parsed = [];
+      let dayCol = false;
+      for (const r of raw) {
+        if (!r || !r.length) continue;
+        const c0 = String(r[0] ?? "").trim();
+        const c1 = String(r[1] ?? "").trim();
+        const c2 = String(r[2] ?? "").trim();
+        if (!c0) continue;
+        // A열이 Day 표시인지 확인 (Day1, DAY 1, 1과 등)
+        const dm = c0.match(/^(?:day|DAY|Day)\s*(\d+)$/) || c0.match(/^(\d+)\s*(?:일차|과)$/);
+        if (dm && c1) {
+          dayCol = true;
+          parsed.push({ day: Number(dm[1]), text: c1, meaning: c2 });
+        } else if (dm && !c1) {
+          continue;
+        } else {
+          const sp = splitMeaning(c0);
+          parsed.push({ day: null, text: sp.text || c0, meaning: sp.meaning || c1 });
+        }
+      }
+      if (!parsed.length) return setErr("파일에서 읽을 내용이 없어요. A열을 확인해주세요.");
+      setHasDayCol(dayCol);
+      setRows(parsed);
+      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+    } catch (e) { setErr("엑셀 파일을 읽는 데 실패했어요."); }
+  };
+
+  // Day별로 묶기
+  const groups = React.useMemo(() => {
+    if (!rows) return [];
+    if (hasDayCol) {
+      const m = {};
+      rows.forEach(r => { const d = r.day ?? 1; (m[d] = m[d] || []).push(r); });
+      return Object.keys(m).map(Number).sort((a,b)=>a-b).map(d => ({ day:d, rows:m[d] }));
+    }
+    const out = [];
+    for (let i=0; i<rows.length; i+=perDay) {
+      out.push({ day: out.length+1, rows: rows.slice(i, i+perDay) });
+    }
+    return out;
+  }, [rows, hasDayCol, perDay]);
+
+  // 선택한 요일에 맞춰 마감일 계산
+  const dueDates = React.useMemo(() => {
+    if (!groups.length || !weekdays.length) return [];
+    const out = [];
+    const [y,m,d] = startDate.split("-").map(Number);
+    let cur = new Date(y, m-1, d);
+    let guard = 0;
+    while (out.length < groups.length && guard < 400) {
+      if (weekdays.includes(cur.getDay())) {
+        out.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
+      }
+      cur.setDate(cur.getDate()+1);
+      guard++;
+    }
+    return out;
+  }, [groups.length, startDate, weekdays]);
+
+  const autoTranslate = async () => {
+    if (!rows) return;
+    const need = rows.map((r,i) => r.meaning ? null : i).filter(i => i !== null);
+    if (!need.length) return setErr("이미 모든 항목에 한글 뜻이 있어요.");
+    setTrBusy(true); setErr("");
+    try {
+      const r = await apiPost("/translate", { texts: need.map(i => rows[i].text) });
+      const next = rows.map(x => ({...x}));
+      need.forEach((idx,k) => { next[idx].meaning = r.translations[k] || ""; });
+      setRows(next);
+    } catch (e) { setErr(e.message); }
+    setTrBusy(false);
+  };
+
+  const submit = async () => {
+    if (!groups.length) return setErr("먼저 파일을 올려주세요.");
+    if (!title.trim()) return setErr("교재 이름을 입력해주세요.");
+    if (!weekdays.length) return setErr("숙제 요일을 하나 이상 선택해주세요.");
+    let assignedIds = [];
+    if (mode === "class") {
+      if (!classes.length) return setErr("반을 선택해주세요.");
+      assignedIds = students.filter(s=>classes.includes(s.className)).map(s=>s.id);
+    } else if (mode === "individual") {
+      if (!ids.length) return setErr("학생을 선택해주세요.");
+      assignedIds = ids;
+    }
+    setBusy(true); setErr("");
+    try {
+      const payload = groups.map((g,i) => ({
+        title: `${title.trim()} Day ${g.day}`,
+        type, rounds,
+        items: g.rows.map(r=>r.text),
+        meanings: g.rows.map(r=>r.meaning || ""),
+        dueDate: dueDates[i] || null,
+        assignedIds,
+        assignedClasses: mode==="class" ? classes : [],
+      }));
+      const r = await apiPost("/assignments/bulk", { assignments: payload });
+      await reload();
+      alert(`${r.created}개 과제를 등록했어요!`);
+      onClose();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const toggle = (arr, set, v) => set(arr.includes(v) ? arr.filter(x=>x!==v) : [...arr, v]);
+
+  return (
+    <div className="card">
+      <div style={{ fontWeight:800, color:"var(--navy)", marginBottom:4 }}>교재 한 권 통째로 등록</div>
+      <div className="muted" style={{ marginBottom:12 }}>
+        엑셀을 올리면 Day별로 나눠서 여러 과제를 한 번에 만들어요.
+        Day 열이 있으면 그대로 쓰고, 없으면 정한 개수씩 자동으로 잘라요.
+      </div>
+
+      <label className="btn full" style={{ display:"block", textAlign:"center", cursor:"pointer" }}>
+        📗 교재 엑셀 올리기
+        <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
+          onChange={e=>{ const f=e.target.files[0]; if(f) readFile(f); e.target.value=""; }} />
+      </label>
+      <div className="muted" style={{ marginTop:8, fontSize:11, lineHeight:1.6 }}>
+        형식 1 — A열: Day1 / B열: 영어 / C열: 한글뜻<br/>
+        형식 2 — A열: 영어 (또는 "apple / 사과") / B열: 한글뜻
+      </div>
+
+      {err && <div className="err">{err}</div>}
+
+      {rows && (
+        <>
+          <div style={{ marginTop:14, padding:10, background:"var(--cream)", borderRadius:8 }}>
+            <b style={{ color:"var(--navy)" }}>{rows.length}개</b> 항목을 읽었어요 ·
+            {hasDayCol ? " 파일의 Day 구분 사용" : ` ${perDay}개씩 나눔`} →
+            <b style={{ color:"var(--navy)" }}> {groups.length}개 과제</b>
+            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 8px", marginLeft:8 }}
+              onClick={autoTranslate} disabled={trBusy}>
+              {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
+            </button>
+          </div>
+
+          <div style={{height:14}} />
+          <label className="label">교재 이름 (과제 제목에 들어가요)</label>
+          <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: 초등 필수 영단어" />
+          <div className="muted" style={{ marginTop:4 }}>→ "{title || "교재명"} Day 1", "{title || "교재명"} Day 2" ...</div>
+
+          {!hasDayCol && (
+            <>
+              <div style={{height:12}} />
+              <label className="label">하루에 몇 개씩</label>
+              <input className="field" type="number" min="1" max="100" value={perDay}
+                onChange={e=>setPerDay(Math.max(1, Number(e.target.value)||1))} />
+            </>
+          )}
+
+          <div style={{height:12}} />
+          <label className="label">유형</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["word","단어"],["sentence","문장"]].map(([v,l]) => (
+              <button key={v} className={type===v?"on":""} onClick={()=>setType(v)}>{l}</button>
+            ))}
+          </div>
+
+          <div style={{height:12}} />
+          <label className="label">녹음 횟수</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[1,2,3].map(n => (
+              <button key={n} className={rounds===n?"on":""} onClick={()=>setRounds(n)}>{n}회</button>
+            ))}
+          </div>
+
+          <div style={{height:12}} />
+          <label className="label">시작일</label>
+          <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+
+          <div style={{height:12}} />
+          <label className="label">숙제 요일 (선택한 요일에만 마감일이 잡혀요)</label>
+          <div className="row" style={{ gap:5 }}>
+            {DAYNAMES.map((n,i) => (
+              <button key={i} onClick={()=>toggle(weekdays, setWeekdays, i)}
+                style={{ width:40, height:40, borderRadius:"50%", fontSize:14, fontWeight:700,
+                  border:"1px solid var(--navy)",
+                  background: weekdays.includes(i) ? "var(--navy)" : "#fff",
+                  color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>
+                {n}
+              </button>
+            ))}
+          </div>
+
+          <div style={{height:12}} />
+          <label className="label">배정 대상</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
+              <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
+            ))}
+          </div>
+          {mode==="class" && (
+            <div className="row" style={{marginTop:10}}>
+              {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
+              {classNames.map(c=>(
+                <button key={c} onClick={()=>toggle(classes,setClasses,c)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: classes.includes(c)?"var(--navy)":"#fff", color: classes.includes(c)?"var(--cream)":"var(--navy)" }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode==="individual" && (
+            <div className="row" style={{marginTop:10}}>
+              {students.map(s=>(
+                <button key={s.id} onClick={()=>toggle(ids,setIds,s.id)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: ids.includes(s.id)?"var(--navy)":"#fff", color: ids.includes(s.id)?"var(--cream)":"var(--navy)" }}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div style={{height:16}} />
+          <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:8, fontSize:13 }}>
+            등록 미리보기 ({groups.length}개)
+          </div>
+          <div style={{ maxHeight:200, overflowY:"auto", border:"1px solid var(--line)", borderRadius:8 }}>
+            {groups.map((g,i) => (
+              <div key={g.day} style={{ padding:"8px 10px", borderBottom: i<groups.length-1?"1px solid #F0EBDD":"none",
+                display:"flex", justifyContent:"space-between", gap:8, fontSize:12 }}>
+                <span style={{ fontWeight:600 }}>{title || "교재명"} Day {g.day}</span>
+                <span className="muted" style={{ whiteSpace:"nowrap" }}>
+                  {g.rows.length}개 · {dueDates[i] ? `${dueDates[i].slice(5).replace("-","/")} (${DAYNAMES[new Date(dueDates[i]).getDay()]})` : "-"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="row" style={{ marginTop:16 }}>
+            <button className="btn-ghost" onClick={onClose}>취소</button>
+            <button className="btn" onClick={submit} disabled={busy}>
+              {busy ? "등록 중..." : `${groups.length}개 과제 등록하기`}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---------- Admin: assignments ----------
 function AdminAssignments({ students, assignments, reload, voice }) {
   const [show, setShow] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [title, setTitle] = useState(""); const [type, setType] = useState("word");
   const [list, setList] = useState(""); const [due, setDue] = useState("");
   const [rounds, setRounds] = useState(3);
@@ -714,8 +986,13 @@ function AdminAssignments({ students, assignments, reload, voice }) {
 
   return (
     <div className="body">
-      {!show ? (
-        <button className="btn full" onClick={()=>setShow(true)}>+ 새 과제 만들기</button>
+      {!show && !showBulk ? (
+        <div className="row" style={{ gap:8 }}>
+          <button className="btn" style={{ flex:1 }} onClick={()=>setShow(true)}>+ 새 과제 만들기</button>
+          <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setShowBulk(true)}>📗 교재 통째로 등록</button>
+        </div>
+      ) : showBulk ? (
+        <BulkUpload students={students} reload={reload} onClose={()=>setShowBulk(false)} />
       ) : (
         <div className="card">
           <label className="label">과제 제목</label>
