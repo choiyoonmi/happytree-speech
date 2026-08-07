@@ -132,6 +132,7 @@ def add_assignment(payload: dict = Body(...)):
             "title": str(payload.get("title", "")).strip(),
             "type": payload.get("type", "word"),
             "items": payload.get("items", []),
+            "meanings": payload.get("meanings", []),
             "dueDate": payload.get("dueDate") or None,
             "rounds": max(1, min(3, int(payload.get("rounds") or 3))),
             "assignedIds": payload.get("assignedIds", []),
@@ -730,6 +731,53 @@ async def diag():
         out["azure_message"] = f"Azure에 연결할 수 없어요: {e}"
 
     return out
+
+
+TRANSLATOR_KEY = os.environ.get("AZURE_TRANSLATOR_KEY")
+TRANSLATOR_REGION = os.environ.get("AZURE_TRANSLATOR_REGION", AZURE_REGION)
+
+
+@app.post("/api/translate")
+async def translate(payload: dict = Body(...)):
+    """영어 단어/문장 목록을 한국어로 번역."""
+    texts = payload.get("texts") or []
+    texts = [str(t).strip() for t in texts if str(t).strip()]
+    if not texts:
+        return {"translations": []}
+    if not TRANSLATOR_KEY:
+        raise HTTPException(
+            400,
+            "번역 키가 없어요. Render 환경변수에 AZURE_TRANSLATOR_KEY를 추가하거나, "
+            "목록에 'apple / 사과' 형태로 직접 입력해주세요."
+        )
+
+    url = "https://api.cognitive.microsofttranslator.com/translate"
+    headers = {
+        "Ocp-Apim-Subscription-Key": TRANSLATOR_KEY,
+        "Ocp-Apim-Subscription-Region": TRANSLATOR_REGION,
+        "Content-Type": "application/json",
+    }
+    out = []
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Translator는 한 번에 100개까지
+            for i in range(0, len(texts), 100):
+                chunk = texts[i:i+100]
+                r = await client.post(
+                    url,
+                    params={"api-version": "3.0", "from": "en", "to": "ko"},
+                    headers=headers,
+                    json=[{"Text": t} for t in chunk],
+                )
+                if r.status_code != 200:
+                    raise HTTPException(502, f"번역 오류 ({r.status_code}): {r.text[:200]}")
+                for item in r.json():
+                    tr = (item.get("translations") or [{}])[0]
+                    out.append(tr.get("text", ""))
+    except httpx.RequestError as e:
+        raise HTTPException(502, f"번역 서버에 연결하지 못했어요: {e}")
+
+    return {"translations": out}
 
 
 # ---------- backup ----------
