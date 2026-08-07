@@ -204,8 +204,38 @@ def get_audio(name: str):
 
 
 # ---------- Azure pronunciation assessment ----------
+def decode_audio(raw: bytes):
+    """브라우저가 보낸 오디오를 안전하게 디코딩. 실패 시 여러 방법을 시도."""
+    errors = []
+    # 1) 자동 감지
+    try:
+        return AudioSegment.from_file(io.BytesIO(raw)), "auto"
+    except Exception as e:
+        errors.append(f"auto: {e}")
+    # 2) 포맷 명시
+    for fmt in ("webm", "ogg", "mp4", "m4a", "wav"):
+        try:
+            return AudioSegment.from_file(io.BytesIO(raw), format=fmt), fmt
+        except Exception as e:
+            errors.append(f"{fmt}: {e}")
+    # 3) 임시파일 + ffmpeg 직접
+    try:
+        import tempfile, subprocess
+        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+            f.write(raw); src = f.name
+        dst = src + ".wav"
+        subprocess.run(["ffmpeg", "-y", "-i", src, "-ar", "16000", "-ac", "1", dst],
+                       capture_output=True, timeout=30)
+        seg = AudioSegment.from_file(dst, format="wav")
+        os.unlink(src); os.unlink(dst)
+        return seg, "ffmpeg"
+    except Exception as e:
+        errors.append(f"ffmpeg: {e}")
+    raise HTTPException(400, "오디오를 읽을 수 없어요. " + " | ".join(errors[:3]))
+
+
 @app.post("/api/assess")
-async def assess(text: str = Form(...), audio: UploadFile = File(...)):
+async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: str = Form("")):
     if not AZURE_KEY:
         raise HTTPException(500, "서버에 AZURE_SPEECH_KEY가 설정되어 있지 않아요.")
 
@@ -213,26 +243,26 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...)):
     if not raw:
         raise HTTPException(400, "오디오 파일이 비어있어요.")
 
-    try:
-        seg = AudioSegment.from_file(io.BytesIO(raw))
-        orig_dbfs = seg.dBFS
-        orig_ms = len(seg)
-        seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-        # 음량이 작으면 자동으로 키워서 인식률을 높인다 (목표 -20 dBFS)
-        if seg.dBFS != float("-inf") and seg.dBFS < -20:
-            seg = seg.apply_gain(min(-20 - seg.dBFS, 25))
-        # 짧은 녹음(단어 등)은 앞뒤에 정적을 붙여야 Azure 인식률이 크게 올라간다
-        pad = AudioSegment.silent(duration=300, frame_rate=16000).set_channels(1).set_sample_width(2)
-        seg = pad + seg + pad
-        buf = io.BytesIO()
-        seg.export(buf, format="wav")
-        wav_bytes = buf.getvalue()
-        audio_info = {
-            "durationMs": orig_ms,
-            "dBFS": None if orig_dbfs == float("-inf") else round(orig_dbfs, 1),
-        }
-    except Exception as e:
-        raise HTTPException(400, f"오디오 변환 실패: {e}")
+    seg, decoder = decode_audio(raw)
+    orig_dbfs = seg.dBFS
+    orig_ms = len(seg)
+    seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+    if seg.dBFS != float("-inf") and seg.dBFS < -20:
+        seg = seg.apply_gain(min(-20 - seg.dBFS, 25))
+    pad = AudioSegment.silent(duration=300, frame_rate=16000).set_channels(1).set_sample_width(2)
+    seg = pad + seg + pad
+    buf = io.BytesIO()
+    seg.export(buf, format="wav")
+    wav_bytes = buf.getvalue()
+
+    audio_info = {
+        "durationMs": orig_ms,
+        "dBFS": None if orig_dbfs == float("-inf") else round(orig_dbfs, 1),
+        "bytesIn": len(raw),
+        "wavBytes": len(wav_bytes),
+        "decoder": decoder,
+        "contentType": audio.content_type,
+    }
 
     is_short = len(text.strip().split()) <= 2
 
@@ -306,12 +336,15 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...)):
             note = f"인식되지 않았어요 ({status}). 다시 녹음해볼까요?"
         else:
             note = "인식되지 않았어요. 다시 한번 녹음해볼까요?"
-        return {
+        result = {
             "recognizedText": data.get("DisplayText", ""),
             "accuracyScore": None, "fluencyScore": None,
             "completenessScore": None, "pronScore": None,
             "words": [], "status": status, "note": note, "audio": audio_info,
         }
+        if debug:
+            result["raw"] = json.dumps(data)[:1500]
+        return result
 
     words = []
     for w in nbest.get("Words", []):
@@ -330,6 +363,7 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...)):
         "pronScore": pa.get("PronScore"),
         "words": words,
         "status": status,
+        "audio": audio_info,
     }
 
 
