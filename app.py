@@ -221,59 +221,81 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...)):
         # 음량이 작으면 자동으로 키워서 인식률을 높인다 (목표 -20 dBFS)
         if seg.dBFS != float("-inf") and seg.dBFS < -20:
             seg = seg.apply_gain(min(-20 - seg.dBFS, 25))
+        # 짧은 녹음(단어 등)은 앞뒤에 정적을 붙여야 Azure 인식률이 크게 올라간다
+        pad = AudioSegment.silent(duration=300, frame_rate=16000).set_channels(1).set_sample_width(2)
+        seg = pad + seg + pad
         buf = io.BytesIO()
         seg.export(buf, format="wav")
         wav_bytes = buf.getvalue()
         audio_info = {
             "durationMs": orig_ms,
             "dBFS": None if orig_dbfs == float("-inf") else round(orig_dbfs, 1),
-            "gainApplied": round(seg.dBFS - orig_dbfs, 1) if orig_dbfs != float("-inf") else None,
         }
     except Exception as e:
         raise HTTPException(400, f"오디오 변환 실패: {e}")
 
-    # 단어 1개짜리는 EnableMiscue를 끄는 편이 인식률이 좋음
     is_short = len(text.strip().split()) <= 2
-    pa_config = {
-        "ReferenceText": text,
-        "GradingSystem": "HundredMark",
-        "Granularity": "Word",
-        "EnableMiscue": not is_short,
-    }
-    pa_header = base64.b64encode(json.dumps(pa_config).encode("utf-8")).decode("utf-8")
 
-    url = f"https://{AZURE_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1"
-    headers = {
-        "Ocp-Apim-Subscription-Key": AZURE_KEY,
-        "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
-        "Accept": "application/json",
-        "Pronunciation-Assessment": pa_header,
-    }
-
-    try:
+    async def call_azure(reference, enable_miscue, mode):
+        cfg = {
+            "ReferenceText": reference,
+            "GradingSystem": "HundredMark",
+            "Granularity": "Word",
+            "EnableMiscue": enable_miscue,
+        }
+        hdr = base64.b64encode(json.dumps(cfg).encode("utf-8")).decode("utf-8")
+        url = f"https://{AZURE_REGION}.stt.speech.microsoft.com/speech/recognition/{mode}/cognitiveservices/v1"
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                url, params={"language": "en-US", "format": "detailed"}, headers=headers, content=wav_bytes
+            return await client.post(
+                url,
+                params={"language": "en-US", "format": "detailed"},
+                headers={
+                    "Ocp-Apim-Subscription-Key": AZURE_KEY,
+                    "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
+                    "Accept": "application/json",
+                    "Pronunciation-Assessment": hdr,
+                },
+                content=wav_bytes,
             )
+
+    def extract(resp):
+        if resp.status_code != 200:
+            return None, None, resp.status_code
+        d = resp.json()
+        nb = (d.get("NBest") or [{}])[0]
+        return d, nb.get("PronunciationAssessment") or {}, 200
+
+    # 1차: 짧은 단어는 interactive 모드가 인식률이 높음
+    try:
+        mode = "interactive" if is_short else "conversation"
+        resp = await call_azure(text, not is_short, mode)
     except httpx.RequestError as e:
         raise HTTPException(502, f"Azure 요청 실패: {e}")
 
-    if resp.status_code != 200:
-        raise HTTPException(502, f"Azure 오류 ({resp.status_code}): {resp.text[:300]}")
+    data, pa, code = extract(resp)
+    if code != 200:
+        raise HTTPException(502, f"Azure 오류 ({code}): {resp.text[:300]}")
 
-    data = resp.json()
+    # 2차: 실패하면 반대 모드로 한 번 더 시도
+    if not pa:
+        try:
+            resp2 = await call_azure(text, False, "conversation" if is_short else "interactive")
+            data2, pa2, code2 = extract(resp2)
+            if code2 == 200 and pa2:
+                data, pa = data2, pa2
+        except httpx.RequestError:
+            pass
+
     status = data.get("RecognitionStatus", "")
-    nbest_list = data.get("NBest") or []
-    nbest = nbest_list[0] if nbest_list else {}
-    pa = nbest.get("PronunciationAssessment", {})
+    nbest = (data.get("NBest") or [{}])[0]
 
     if not pa:
         dur = audio_info["durationMs"]
         db = audio_info["dBFS"]
         if db is None:
             note = "녹음이 완전히 무음이에요. 마이크가 켜져 있는지 확인해주세요."
-        elif dur < 700:
-            note = f"녹음이 너무 짧아요 ({dur/1000:.1f}초). 조금 더 길게 녹음해주세요."
+        elif dur < 500:
+            note = f"녹음이 너무 짧아요 ({dur/1000:.1f}초). 단어를 조금 길게 늘여서 읽어볼까요?"
         elif status == "InitialSilenceTimeout":
             note = "녹음 앞부분이 조용해서 인식이 멈췄어요. 버튼을 누르고 바로 읽어볼까요?"
         elif status == "NoMatch":
