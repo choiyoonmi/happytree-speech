@@ -365,6 +365,7 @@ function StudentView({ student, onLogout }) {
   const [round, setRound] = useState(0);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [done, setDone] = useState(false);
 
   const mine = assignments.filter(a =>
     (!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id));
@@ -418,8 +419,8 @@ function StudentView({ student, onLogout }) {
       await apiPost(`/submission/${open.id}/${student.id}`,
         { items: sub.items, status: "submitted", submittedAt: nowStr() });
       setStatusMap(m => ({ ...m, [open.id]: "submitted" }));
-      setMsg("제출 완료!");
-      setTimeout(()=>setMsg(""), 2000);
+      setMsg("");
+      setDone(true);
     } catch (e) { setMsg("제출 실패: " + e.message); }
   };
 
@@ -474,6 +475,24 @@ function StudentView({ student, onLogout }) {
             <button className="btn full" onClick={submit}>제출하기</button>
           </div>
         </div>
+
+        {done && (
+          <div onClick={()=>{ setDone(false); setOpen(null); setSub(null); }}
+            style={{ position:"fixed", inset:0, background:"rgba(27,46,76,0.75)", zIndex:100,
+              display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+            <div style={{ background:"#fff", borderRadius:20, padding:"36px 28px", textAlign:"center",
+              maxWidth:340, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+              <div style={{ fontSize:56, lineHeight:1, marginBottom:14 }}>🎉</div>
+              <div style={{ fontSize:28, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>제출 완료!</div>
+              <div style={{ fontSize:15, color:"var(--navy-soft)", lineHeight:1.6, marginBottom:22 }}>
+                {student.name} 학생, 오늘도 잘했어요.<br/>선생님이 확인하고 알려줄게요.
+              </div>
+              <button className="btn full" onClick={()=>{ setDone(false); setOpen(null); setSub(null); }}>
+                확인
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
