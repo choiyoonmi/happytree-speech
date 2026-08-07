@@ -525,33 +525,148 @@ function StudentView({ student, onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="body">
-        {!mine.length && <div style={{ textAlign:"center", padding:60 }} className="muted">아직 등록된 숙제가 없어요.</div>}
-        {mine.map(a => {
-          const st = statusMap[a.id] || "none";
-          const ds = dueStatus(a.dueDate);
-          return (
-            <button key={a.id} onClick={()=>openA(a)} className="card"
-              style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
-              <div style={{ minWidth:0 }}>
-                <div className="row" style={{ marginBottom:5 }}>
-                  <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
-                  <span className="muted">{a.items.length}개</span>
-                </div>
-                <div style={{ fontWeight:700 }}>{a.title}</div>
-                {a.dueDate && (
-                  <div style={{ fontSize:12, marginTop:3, color: ds==="overdue"&&st==="none" ? "var(--danger)" : "var(--navy-soft)" }}>
-                    마감 {formatDue(a.dueDate)}{ds==="overdue"&&st==="none" ? " · 기한 지남" : ds==="today"&&st==="none" ? " · 오늘까지" : ""}
-                  </div>
-                )}
-              </div>
-              <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
-                {st==="none"?"미제출":st==="submitted"?"제출완료":"확인완료"}
-              </Badge>
-            </button>
-          );
-        })}
+        <StudentCalendar assignments={mine} statusMap={statusMap} onOpen={openA} />
       </div>
     </div>
+  );
+}
+
+// ---------- 학생 달력 ----------
+function StudentCalendar({ assignments, statusMap, onOpen }) {
+  const today = new Date();
+  const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() });
+  const [picked, setPicked] = useState(() =>
+    `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`);
+
+  const byDate = {};
+  const noDate = [];
+  assignments.forEach(a => {
+    if (a.dueDate) (byDate[a.dueDate] = byDate[a.dueDate] || []).push(a);
+    else noDate.push(a);
+  });
+
+  const first = new Date(ym.y, ym.m, 1);
+  const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
+  const startDow = first.getDay();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const key = (d) => `${ym.y}-${String(ym.m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+
+  const move = (delta) => {
+    let m = ym.m + delta, y = ym.y;
+    if (m < 0) { m = 11; y--; }
+    if (m > 11) { m = 0; y++; }
+    setYm({ y, m });
+  };
+
+  const dayState = (d) => {
+    const list = byDate[key(d)] || [];
+    if (!list.length) return null;
+    const sts = list.map(a => statusMap[a.id] || "none");
+    if (sts.every(s => s !== "none")) return "done";
+    if (key(d) < todayKey) return "late";
+    return "todo";
+  };
+
+  const pickedList = byDate[picked] || [];
+
+  return (
+    <>
+      <div className="card" style={{ padding:14 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+          <button onClick={()=>move(-1)} style={{ background:"none", fontSize:22, color:"var(--navy)", padding:"0 10px" }}>‹</button>
+          <div style={{ fontWeight:800, fontSize:17, color:"var(--navy)" }}>{ym.y}년 {ym.m+1}월</div>
+          <button onClick={()=>move(1)} style={{ background:"none", fontSize:22, color:"var(--navy)", padding:"0 10px" }}>›</button>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:4, marginBottom:6 }}>
+          {["일","월","화","수","목","금","토"].map((n,i) => (
+            <div key={n} style={{ textAlign:"center", fontSize:11, fontWeight:700,
+              color: i===0 ? "var(--danger)" : i===6 ? "#3B6FA0" : "var(--navy-soft)" }}>{n}</div>
+          ))}
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:4 }}>
+          {cells.map((d,i) => {
+            if (!d) return <div key={"e"+i} />;
+            const k = key(d);
+            const st = dayState(d);
+            const isToday = k === todayKey;
+            const isPicked = k === picked;
+            const colors = { done:"#2E7D5B", todo:"var(--gold)", late:"var(--danger)" };
+            return (
+              <button key={k} onClick={()=>setPicked(k)}
+                style={{ aspectRatio:"1", borderRadius:10, position:"relative",
+                  background: isPicked ? "var(--navy)" : isToday ? "var(--cream-deep)" : "transparent",
+                  border: isToday && !isPicked ? "1px solid var(--gold)" : "none",
+                  color: isPicked ? "#fff" : "var(--ink)",
+                  fontSize:14, fontWeight: st ? 700 : 400,
+                  display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2 }}>
+                {d}
+                {st && <span style={{ width:6, height:6, borderRadius:"50%",
+                  background: isPicked ? "#fff" : colors[st] }} />}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="row" style={{ gap:12, marginTop:12, justifyContent:"center" }}>
+          {[["#2E7D5B","완료"],["var(--gold)","해야 해요"],["var(--danger)","기한 지남"]].map(([c,l]) => (
+            <span key={l} style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
+              <span style={{ width:7, height:7, borderRadius:"50%", background:c, display:"inline-block" }} />{l}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:14 }}>
+        {picked.slice(5).replace("-","월 ")}일 숙제
+      </div>
+      {!pickedList.length && (
+        <div className="card" style={{ textAlign:"center", padding:24 }}>
+          <span className="muted">이 날은 숙제가 없어요 🎈</span>
+        </div>
+      )}
+      {pickedList.map(a => {
+        const st = statusMap[a.id] || "none";
+        return (
+          <button key={a.id} onClick={()=>onOpen(a)} className="card"
+            style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+            <div style={{ minWidth:0 }}>
+              <div className="row" style={{ marginBottom:5 }}>
+                <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
+                <span className="muted">{a.items.length}개 · {a.rounds||3}회</span>
+              </div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
+            </div>
+            <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+              {st==="none"?"미제출":st==="submitted"?"제출완료":"확인완료"}
+            </Badge>
+          </button>
+        );
+      })}
+
+      {noDate.length > 0 && (
+        <>
+          <div style={{ fontWeight:700, color:"var(--navy)", margin:"18px 4px 8px", fontSize:14 }}>날짜 없는 숙제</div>
+          {noDate.map(a => {
+            const st = statusMap[a.id] || "none";
+            return (
+              <button key={a.id} onClick={()=>onOpen(a)} className="card"
+                style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
+                <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+                  {st==="none"?"미제출":st==="submitted"?"제출완료":"확인완료"}
+                </Badge>
+              </button>
+            );
+          })}
+        </>
+      )}
+    </>
   );
 }
 
@@ -729,6 +844,7 @@ function BulkUpload({ students, reload, onClose }) {
     try {
       const payload = groups.map((g,i) => ({
         title: `${title.trim()} Day ${g.day}`,
+        book: title.trim(),
         type, rounds,
         items: g.rows.map(r=>r.text),
         meanings: g.rows.map(r=>r.meaning || ""),
@@ -1086,22 +1202,128 @@ function AdminAssignments({ students, assignments, reload, voice }) {
       )}
 
       <div style={{height:12}} />
-      {assignments.map(a => (
-        <div key={a.id} className="card" style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+      <AssignmentBrowser students={students} assignments={assignments} reload={reload} />
+    </div>
+  );
+}
+
+// ---------- 반 → 교재 → 과제 브라우저 ----------
+function AssignmentBrowser({ students, assignments, reload }) {
+  const [group, setGroup] = useState(null);   // 선택한 반/대상
+  const [book, setBook] = useState(null);     // 선택한 교재
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+
+  const groupsOf = (a) => {
+    if (a.assignedClasses?.length) return a.assignedClasses;
+    if (a.assignedIds?.length) {
+      const names = students.filter(s=>a.assignedIds.includes(s.id)).map(s=>s.className || s.name);
+      return [...new Set(names)];
+    }
+    return ["전체"];
+  };
+
+  // 반별 집계
+  const byGroup = {};
+  assignments.forEach(a => groupsOf(a).forEach(g => { (byGroup[g] = byGroup[g] || []).push(a); }));
+  const groupKeys = Object.keys(byGroup).sort();
+
+  if (!group) {
+    return (
+      <>
+        <div style={{ fontWeight:700, color:"var(--navy)", margin:"6px 0 10px", fontSize:13 }}>
+          반 / 대상별 보기
+        </div>
+        {!groupKeys.length && <div className="muted" style={{textAlign:"center",padding:30}}>등록된 과제가 없어요.</div>}
+        {groupKeys.map(g => {
+          const list = byGroup[g];
+          const books = new Set(list.map(a => a.book || a.title));
+          return (
+            <button key={g} className="card" onClick={()=>{setGroup(g); setBook(null);}}
+              style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:15 }}>{g}</div>
+                <div className="muted" style={{ marginTop:3 }}>교재 {books.size}권 · 과제 {list.length}개</div>
+              </div>
+              <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+            </button>
+          );
+        })}
+      </>
+    );
+  }
+
+  const inGroup = byGroup[group] || [];
+  const byBook = {};
+  inGroup.forEach(a => { const b = a.book || a.title; (byBook[b] = byBook[b] || []).push(a); });
+  const bookKeys = Object.keys(byBook).sort();
+
+  if (!book) {
+    return (
+      <>
+        <button onClick={()=>setGroup(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+          ‹ 반 목록으로
+        </button>
+        <div style={{ fontWeight:800, fontSize:16, marginBottom:10 }}>{group}</div>
+        {bookKeys.map(b => {
+          const list = byBook[b];
+          const dues = list.map(a=>a.dueDate).filter(Boolean).sort();
+          return (
+            <button key={b} className="card" onClick={()=>setBook(b)}
+              style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:15 }}>📗 {b}</div>
+                <div className="muted" style={{ marginTop:3 }}>
+                  과제 {list.length}개
+                  {dues.length ? ` · ${formatDue(dues[0])} ~ ${formatDue(dues[dues.length-1])}` : ""}
+                </div>
+              </div>
+              <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+            </button>
+          );
+        })}
+      </>
+    );
+  }
+
+  const list = [...(byBook[book] || [])].sort((x,y) => (x.dueDate||"").localeCompare(y.dueDate||""));
+
+  const delOne = async (id) => {
+    if (!confirm("이 과제를 삭제할까요?")) return;
+    await apiDelete("/assignments/" + id);
+    await reload();
+  };
+  const delBook = async () => {
+    if (!confirm(`"${book}" 교재의 과제 ${list.length}개를 모두 삭제할까요?\n제출된 녹음 기록도 함께 지워져요.`)) return;
+    await apiPost("/assignments/delete-many", { ids: list.map(a=>a.id) });
+    setBook(null);
+    await reload();
+  };
+
+  return (
+    <>
+      <button onClick={()=>setBook(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+        ‹ {group} 교재 목록으로
+      </button>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8 }}>
+        <div style={{ fontWeight:800, fontSize:16 }}>📗 {book}</div>
+        <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }}
+          onClick={delBook}>교재 전체 삭제</button>
+      </div>
+      {list.map(a => (
+        <div key={a.id} className="card" style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:12 }}>
           <div>
-            <div className="row" style={{ marginBottom:5 }}>
+            <div className="row" style={{ marginBottom:4 }}>
               <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
-              <span className="muted">
-                {a.items.length}개 · {a.rounds || 3}회 · {a.assignedClasses?.length ? a.assignedClasses.join(", ") : a.assignedIds?.length ? `${a.assignedIds.length}명` : "전체"}
-              </span>
+              <span className="muted">{a.items.length}개 · {a.rounds || 3}회</span>
             </div>
             <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
             {a.dueDate && <div className="muted" style={{marginTop:3}}>마감 {formatDue(a.dueDate)}</div>}
           </div>
-          <button onClick={()=>del(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:17 }}>🗑</button>
+          <button onClick={()=>delOne(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
         </div>
       ))}
-    </div>
+    </>
   );
 }
 
@@ -1254,11 +1476,19 @@ function AdminReview({ students, assignments }) {
   return (
     <div className="body">
       <select className="field" value={aid} onChange={e=>setAid(e.target.value)} style={{ fontWeight:700, marginBottom:14 }}>
-        {assignments.map(x => (
-          <option key={x.id} value={x.id}>
-            [{x.type === "word" ? "단어" : "문장"}] {x.title} ({x.items.length}개)
-          </option>
-        ))}
+        {(() => {
+          const byBook = {};
+          assignments.forEach(x => { const b = x.book || "기타"; (byBook[b] = byBook[b] || []).push(x); });
+          return Object.keys(byBook).sort().map(b => (
+            <optgroup key={b} label={b}>
+              {byBook[b].map(x => (
+                <option key={x.id} value={x.id}>
+                  [{x.type === "word" ? "단어" : "문장"}] {x.title} ({x.items.length}개)
+                </option>
+              ))}
+            </optgroup>
+          ));
+        })()}
       </select>
       {targets.map(s => {
         const st = map[s.id]?.status || "none";
