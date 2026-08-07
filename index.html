@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>해피트리 낭독 숙제</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root {
+    --navy: #1B2E4C;
+    --navy-soft: #3C5075;
+    --cream: #F7F3E9;
+    --cream-deep: #EFE7D4;
+    --gold: #C9A227;
+    --gold-soft: #E4C766;
+    --ink: #26241F;
+    --danger: #B3432F;
+    --line: #D8D0BB;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--cream); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+  }
+  button { font-family: inherit; cursor: pointer; border: none; }
+  input, textarea, select { font-family: inherit; }
+  .wrap { max-width: 640px; margin: 0 auto; min-height: 100vh; }
+  .hdr { background: var(--navy); color: var(--cream); padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .hdr h1 { margin: 0; font-size: 18px; }
+  .card { background: #fff; border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+  .btn { background: var(--navy); color: var(--cream); border-radius: 9px; padding: 11px 16px; font-size: 14px; font-weight: 600; }
+  .btn:disabled { opacity: .4; }
+  .btn-ghost { background: #fff; color: var(--navy); border: 1px solid var(--line); border-radius: 9px; padding: 9px 14px; font-size: 14px; font-weight: 500; }
+  .btn-danger { background: var(--danger); color: #fff; border-radius: 9px; padding: 11px 16px; font-size: 14px; font-weight: 600; }
+  .full { width: 100%; }
+  .field { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; font-size: 15px; outline: none; background: #fff; }
+  .label { font-size: 12px; font-weight: 600; color: var(--navy-soft); margin-bottom: 5px; display: block; }
+  .tabs { display: flex; gap: 4px; padding: 8px; background: var(--cream); position: sticky; top: 0; z-index: 5; }
+  .tab { flex: 1; padding: 10px 4px; border-radius: 9px; font-size: 12px; font-weight: 600; background: transparent; color: var(--navy-soft); }
+  .tab.on { background: #fff; color: var(--navy); }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+  .b-gray { background: #E7E3D8; color: #6B6552; }
+  .b-gold { background: #F3E4B8; color: #8A6D0F; }
+  .b-navy { background: #DCE3EE; color: var(--navy); }
+  .b-danger { background: #F3D9D2; color: var(--danger); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .muted { font-size: 12px; color: var(--navy-soft); }
+  .err { font-size: 12px; color: var(--danger); margin-top: 6px; }
+  .body { padding: 16px; }
+  audio { height: 36px; }
+  .seg { display: flex; gap: 6px; margin-top: 12px; }
+  .seg button { flex: 1; padding: 8px; border-radius: 9px; font-size: 12px; font-weight: 700; border: 1px solid var(--navy); background: #fff; color: var(--navy); }
+  .seg button.on { background: var(--navy); color: var(--cream); }
+  .spin { display:inline-block; width:18px; height:18px; border:2px solid var(--line); border-top-color: var(--navy); border-radius:50%; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .center { display: flex; align-items: center; justify-content: center; min-height: 60vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const TAKES = 3;
+
+async function api(path, opts) {
+  const res = await fetch("/api" + path, opts);
+  if (!res.ok) {
+    let msg = "요청에 실패했어요.";
+    try { const j = await res.json(); msg = j.detail || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+const apiGet = (p) => api(p);
+const apiPost = (p, body) => api(p, {
+  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {})
+});
+const apiDelete = (p) => api(p, { method: "DELETE" });
+
+function normalizeTakes(v) {
+  const arr = Array.isArray(v) ? v.slice(0, TAKES) : [];
+  while (arr.length < TAKES) arr.push(null);
+  return arr;
+}
+function formatDue(d) {
+  if (!d) return null;
+  const [y, m, day] = d.split("-").map(Number);
+  return `${m}/${day}`;
+}
+function dueStatus(d) {
+  if (!d) return null;
+  const t = new Date(); t.setHours(0,0,0,0);
+  const [y, m, day] = d.split("-").map(Number);
+  const due = new Date(y, m - 1, day); due.setHours(0,0,0,0);
+  const diff = Math.round((due - t) / 86400000);
+  return diff < 0 ? "overdue" : diff === 0 ? "today" : "upcoming";
+}
+function scoreTone(s) {
+  if (s == null) return "b-gray";
+  if (s >= 85) return "b-navy";
+  if (s >= 60) return "b-gold";
+  return "b-danger";
+}
+function nowStr() {
+  const d = new Date();
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+
+function useVoice() {
+  const [voice, setVoice] = useState(null);
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+    const pick = () => {
+      const vs = speechSynthesis.getVoices();
+      if (!vs.length) return;
+      setVoice(vs.find(v => v.lang === "en-US") || vs.find(v => v.lang && v.lang.startsWith("en")) || vs[0]);
+    };
+    pick();
+    speechSynthesis.onvoiceschanged = pick;
+  }, []);
+  return voice;
+}
+function speak(text, voice) {
+  if (!window.speechSynthesis) return alert("이 브라우저는 음성 재생을 지원하지 않아요.");
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  if (voice) u.voice = voice;
+  u.lang = "en-US"; u.rate = 0.92;
+  speechSynthesis.speak(u);
+}
+
+function Badge({ tone, children }) {
+  return <span className={"badge " + tone}>{children}</span>;
+}
+
+// ---------- Login ----------
+function Login({ onStudent, onAdmin }) {
+  const [mode, setMode] = useState("student");
+  const [sid, setSid] = useState(""); const [spw, setSpw] = useState("");
+  const [apw, setApw] = useState(""); const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const go = async () => {
+    setErr(""); setBusy(true);
+    try {
+      if (mode === "student") {
+        const r = await apiPost("/login/student", { id: sid, pw: spw });
+        onStudent(r.student);
+      } else {
+        await apiPost("/login/admin", { pw: apw });
+        onAdmin();
+      }
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="wrap" style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div style={{ width:"100%", maxWidth:360 }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ fontSize:26, fontWeight:800, color:"var(--navy)" }}>해피트리 낭독 숙제</div>
+          <div className="muted" style={{ marginTop:6 }}>단어 · 문장 녹음 제출</div>
+        </div>
+        <div style={{ display:"flex", background:"var(--cream-deep)", borderRadius:12, padding:4, marginBottom:16 }}>
+          {[["student","학생"],["admin","선생님"]].map(([m,l]) => (
+            <button key={m} onClick={() => { setMode(m); setErr(""); }}
+              style={{ flex:1, padding:9, borderRadius:9, fontWeight:700, fontSize:14,
+                background: mode===m ? "var(--navy)" : "transparent", color: mode===m ? "var(--cream)" : "var(--navy-soft)" }}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="card">
+          {mode === "student" ? (
+            <>
+              <label className="label">아이디</label>
+              <input className="field" value={sid} onChange={e=>setSid(e.target.value)} placeholder="아이디" />
+              <div style={{height:10}} />
+              <label className="label">비밀번호</label>
+              <input className="field" type="password" value={spw} onChange={e=>setSpw(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&go()} placeholder="비밀번호" />
+            </>
+          ) : (
+            <>
+              <label className="label">관리자 비밀번호</label>
+              <input className="field" type="password" value={apw} onChange={e=>setApw(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&go()} placeholder="비밀번호" />
+            </>
+          )}
+          {err && <div className="err">{err}</div>}
+          <div style={{height:14}} />
+          <button className="btn full" onClick={go} disabled={busy}>{busy ? "확인 중..." : "로그인"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Recorder ----------
+function Recorder({ index, text, takes, onSaved, voice }) {
+  const list = normalizeTakes(takes);
+  const firstEmpty = list.findIndex(t => !t);
+  const [active, setActive] = useState(firstEmpty >= 0 ? firstEmpty : 0);
+  const [rec, setRec] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const mrRef = useRef(null); const chunksRef = useRef([]);
+
+  const start = async () => {
+    setErr("");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setErr("이 브라우저는 녹음을 지원하지 않아요.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream);
+      mrRef.current = mr;
+      mr.ondataavailable = e => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        stream.getTracks().forEach(t => t.stop());
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, "take.webm");
+          const up = await fetch("/api/audio", { method: "POST", body: fd });
+          const upJson = await up.json();
+
+          let score = null, recognized = null, detail = null;
+          try {
+            const fd2 = new FormData();
+            fd2.append("audio", blob, "take.webm");
+            fd2.append("text", text);
+            const as = await fetch("/api/assess", { method: "POST", body: fd2 });
+            if (as.ok) {
+              const d = await as.json();
+              recognized = d.recognizedText || null;
+              score = d.pronScore != null ? Math.round(d.pronScore) : null;
+              detail = {
+                accuracy: d.accuracyScore != null ? Math.round(d.accuracyScore) : null,
+                fluency: d.fluencyScore != null ? Math.round(d.fluencyScore) : null,
+                completeness: d.completenessScore != null ? Math.round(d.completenessScore) : null,
+              };
+            }
+          } catch (e) {}
+
+          onSaved(index, active, { audio: upJson.url, recognized, score, detail });
+        } catch (e) {
+          setErr("업로드에 실패했어요. 인터넷 연결을 확인해주세요.");
+        }
+        setBusy(false);
+      };
+      mr.start();
+      setRec(true);
+    } catch (e) {
+      setErr("마이크 접근이 거부되었어요. 주소창 왼쪽 자물쇠 아이콘에서 마이크를 허용해주세요.");
+    }
+  };
+
+  const stop = () => {
+    if (mrRef.current && rec) { setBusy(true); mrRef.current.stop(); setRec(false); }
+  };
+
+  const cur = list[active];
+
+  return (
+    <div className="card">
+      <div style={{ display:"flex", justifyContent:"space-between", gap:10 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:"var(--gold)" }}>{index+1}</div>
+          <div style={{ fontSize:16, fontWeight:500, wordBreak:"break-word" }}>{text}</div>
+        </div>
+        <button onClick={()=>speak(text, voice)}
+          style={{ background:"var(--cream-deep)", color:"var(--navy)", borderRadius:"50%", width:42, height:42, fontSize:18, flexShrink:0 }}
+          title="듣기">🔊</button>
+      </div>
+
+      <div className="seg">
+        {list.map((t,i) => (
+          <button key={i} className={active===i ? "on" : ""} onClick={()=>setActive(i)}>
+            {i+1}회{t ? " ●" : ""}
+          </button>
+        ))}
+      </div>
+
+      <div className="row" style={{ marginTop:12 }}>
+        {!rec ? (
+          <button className={cur ? "btn-ghost" : "btn"} onClick={start} disabled={busy}>
+            🎤 {busy ? "처리 중..." : cur ? `${active+1}회 다시 녹음` : `${active+1}회 녹음 시작`}
+          </button>
+        ) : (
+          <button className="btn-danger" onClick={stop}>■ 녹음 중지</button>
+        )}
+        {cur && <audio controls src={cur.audio} />}
+      </div>
+
+      {cur && cur.score != null && (
+        <div className="row" style={{ marginTop:10 }}>
+          <Badge tone={scoreTone(cur.score)}>발음평가 {cur.score}점</Badge>
+          {cur.detail && <span className="muted">정확도 {cur.detail.accuracy} · 유창성 {cur.detail.fluency} · 완성도 {cur.detail.completeness}</span>}
+          {cur.recognized && <span className="muted">인식: "{cur.recognized}"</span>}
+        </div>
+      )}
+      {err && <div className="err">{err}</div>}
+    </div>
+  );
+}
+
+// ---------- Student ----------
+function StudentView({ student, onLogout }) {
+  const voice = useVoice();
+  const [assignments, setAssignments] = useState([]);
+  const [statusMap, setStatusMap] = useState({});
+  const [open, setOpen] = useState(null);
+  const [sub, setSub] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState("");
+
+  const mine = assignments.filter(a =>
+    (!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id));
+
+  useEffect(() => {
+    (async () => {
+      const list = await apiGet("/assignments");
+      setAssignments(list);
+      const map = {};
+      for (const a of list) {
+        try {
+          const s = await apiGet(`/submission/${a.id}/${student.id}`);
+          map[a.id] = s && s.status ? s.status : "none";
+        } catch (e) { map[a.id] = "none"; }
+      }
+      setStatusMap(map);
+      setLoading(false);
+    })();
+  }, []);
+
+  const openA = async (a) => {
+    setOpen(a);
+    const s = await apiGet(`/submission/${a.id}/${student.id}`);
+    const items = a.items.map((_, i) => normalizeTakes((s.items || [])[i]));
+    setSub({ items, comment: s.comment || "", status: s.status || "none" });
+  };
+
+  const onSaved = (idx, take, val) => {
+    setSub(prev => {
+      const items = prev.items.map(x => x.slice());
+      items[idx][take] = val;
+      return { ...prev, items };
+    });
+  };
+
+  const submit = async () => {
+    const missing = sub.items.filter(t => !t.some(x => x)).length;
+    if (missing && !confirm(`${missing}개를 아직 녹음하지 않았어요. 그래도 제출할까요?`)) return;
+    setMsg("제출 중...");
+    try {
+      await apiPost(`/submission/${open.id}/${student.id}`,
+        { items: sub.items, status: "submitted", submittedAt: nowStr() });
+      setStatusMap(m => ({ ...m, [open.id]: "submitted" }));
+      setMsg("제출 완료!");
+      setTimeout(()=>setMsg(""), 2000);
+    } catch (e) { setMsg("제출 실패: " + e.message); }
+  };
+
+  if (loading) return <div className="center"><div className="spin" /></div>;
+
+  if (open && sub) {
+    return (
+      <div className="wrap">
+        <div className="hdr">
+          <div className="row" style={{ gap:12 }}>
+            <button onClick={()=>{ setOpen(null); setSub(null); }} style={{ background:"none", color:"var(--cream)", fontSize:22 }}>‹</button>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{open.title}</div>
+              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>
+                {open.type==="word"?"단어":"문장"} {open.items.length}개{open.dueDate ? ` · 마감 ${formatDue(open.dueDate)}` : ""}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="body" style={{ paddingBottom:100 }}>
+          {sub.status === "reviewed" && sub.comment && (
+            <div className="card" style={{ background:"#F3E4B8" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#8A6D0F", marginBottom:4 }}>선생님 코멘트</div>
+              <div style={{ fontSize:14 }}>{sub.comment}</div>
+            </div>
+          )}
+          {open.items.map((t,i) => (
+            <Recorder key={i} index={i} text={t} takes={sub.items[i]} onSaved={onSaved} voice={voice} />
+          ))}
+        </div>
+        <div style={{ position:"fixed", bottom:0, left:0, right:0, padding:14, background:"var(--cream)", borderTop:"1px solid var(--line)" }}>
+          <div style={{ maxWidth:640, margin:"0 auto" }}>
+            {msg && <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:"var(--navy)", marginBottom:8 }}>{msg}</div>}
+            <button className="btn full" onClick={submit}>제출하기</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="wrap">
+      <div className="hdr">
+        <div>
+          <div style={{ fontSize:11, color:"var(--gold-soft)" }}>반갑습니다</div>
+          <h1>{student.name} 학생</h1>
+        </div>
+        <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
+      </div>
+      <div className="body">
+        {!mine.length && <div style={{ textAlign:"center", padding:60 }} className="muted">아직 등록된 숙제가 없어요.</div>}
+        {mine.map(a => {
+          const st = statusMap[a.id] || "none";
+          const ds = dueStatus(a.dueDate);
+          return (
+            <button key={a.id} onClick={()=>openA(a)} className="card"
+              style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+              <div style={{ minWidth:0 }}>
+                <div className="row" style={{ marginBottom:5 }}>
+                  <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
+                  <span className="muted">{a.items.length}개</span>
+                </div>
+                <div style={{ fontWeight:700 }}>{a.title}</div>
+                {a.dueDate && (
+                  <div style={{ fontSize:12, marginTop:3, color: ds==="overdue"&&st==="none" ? "var(--danger)" : "var(--navy-soft)" }}>
+                    마감 {formatDue(a.dueDate)}{ds==="overdue"&&st==="none" ? " · 기한 지남" : ds==="today"&&st==="none" ? " · 오늘까지" : ""}
+                  </div>
+                )}
+              </div>
+              <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+                {st==="none"?"미제출":st==="submitted"?"제출완료":"확인완료"}
+              </Badge>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Admin: students ----------
+function AdminStudents({ students, reload }) {
+  const [name, setName] = useState(""); const [cls, setCls] = useState("");
+  const [id, setId] = useState(""); const [pw, setPw] = useState("");
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+
+  const add = async () => {
+    if (!name.trim()) return setErr("이름을 입력해주세요.");
+    setBusy(true); setErr("");
+    try {
+      await apiPost("/students", { name, className: cls, id, pw });
+      setName(""); setCls(""); setId(""); setPw("");
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const del = async (sid) => {
+    if (!confirm("이 학생을 삭제할까요?")) return;
+    await apiDelete("/students/" + sid);
+    await reload();
+  };
+
+  return (
+    <div className="body">
+      <div className="card">
+        <div style={{ fontWeight:700, marginBottom:12, color:"var(--navy)" }}>학생 추가</div>
+        <label className="label">이름</label>
+        <input className="field" value={name} onChange={e=>setName(e.target.value)} placeholder="홍길동" />
+        <div style={{height:10}} />
+        <label className="label">반 (선택)</label>
+        <input className="field" value={cls} onChange={e=>setCls(e.target.value)} placeholder="초등3반" />
+        <div style={{height:10}} />
+        <label className="label">아이디 (비워두면 자동 발급)</label>
+        <input className="field" value={id} onChange={e=>setId(e.target.value)} placeholder="기존 학원 아이디" />
+        <div style={{height:10}} />
+        <label className="label">비밀번호 (비워두면 자동 발급)</label>
+        <input className="field" value={pw} onChange={e=>setPw(e.target.value)} placeholder="기존 비밀번호" />
+        {err && <div className="err">{err}</div>}
+        <div style={{height:14}} />
+        <button className="btn" onClick={add} disabled={busy}>아이디 발급</button>
+      </div>
+
+      {students.map(s => (
+        <div key={s.id} className="card" style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:14 }}>{s.name}{s.className && <span className="muted"> · {s.className}</span>}</div>
+            <div className="muted" style={{ marginTop:3 }}>
+              아이디 <b style={{color:"var(--navy)"}}>{s.id}</b> / 비밀번호 <b style={{color:"var(--navy)"}}>{s.pw}</b>
+            </div>
+          </div>
+          <button onClick={()=>del(s.id)} style={{ background:"none", color:"var(--danger)", fontSize:18 }}>🗑</button>
+        </div>
+      ))}
+      {!students.length && <div style={{ textAlign:"center", padding:40 }} className="muted">등록된 학생이 없어요.</div>}
+    </div>
+  );
+}
+
+// ---------- Admin: assignments ----------
+function AdminAssignments({ students, assignments, reload, voice }) {
+  const [show, setShow] = useState(false);
+  const [title, setTitle] = useState(""); const [type, setType] = useState("word");
+  const [list, setList] = useState(""); const [due, setDue] = useState("");
+  const [mode, setMode] = useState("all");
+  const [classes, setClasses] = useState([]); const [ids, setIds] = useState([]);
+  const [err, setErr] = useState(""); const [pdfBusy, setPdfBusy] = useState(false);
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+
+  const readExcel = async (file) => {
+    setErr("");
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1 });
+      const lines = rows.map(r => (r && r.length ? String(r[0] ?? "").trim() : "")).filter(Boolean);
+      if (!lines.length) return setErr("파일에서 읽을 내용이 없어요. A열을 확인해주세요.");
+      setList(p => p.trim() ? p.trim()+"\n"+lines.join("\n") : lines.join("\n"));
+    } catch (e) { setErr("엑셀 파일을 읽는 데 실패했어요."); }
+  };
+
+  const readPdf = async (file) => {
+    setErr(""); setPdfBusy(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      let all = [];
+      for (let p=1; p<=doc.numPages; p++) {
+        const page = await doc.getPage(p);
+        const c = await page.getTextContent();
+        const rows = {};
+        c.items.forEach(it => {
+          const y = Math.round(it.transform[5]);
+          (rows[y] = rows[y] || []).push(it);
+        });
+        Object.keys(rows).map(Number).sort((a,b)=>b-a).forEach(y => {
+          const line = rows[y].sort((a,b)=>a.transform[4]-b.transform[4]).map(i=>i.str).join("").trim();
+          if (line) all.push(line);
+        });
+      }
+      if (!all.length) setErr("PDF에서 텍스트를 찾지 못했어요. 스캔 이미지형일 수 있어요.");
+      else setList(p => p.trim() ? p.trim()+"\n"+all.join("\n") : all.join("\n"));
+    } catch (e) { setErr("PDF를 읽는 데 실패했어요."); }
+    setPdfBusy(false);
+  };
+
+  const create = async () => {
+    const items = list.split("\n").map(s=>s.trim()).filter(Boolean);
+    if (!title.trim() || !items.length) return setErr("제목과 목록을 입력해주세요.");
+    let assignedIds = [];
+    if (mode === "class") {
+      if (!classes.length) return setErr("반을 선택해주세요.");
+      assignedIds = students.filter(s=>classes.includes(s.className)).map(s=>s.id);
+    } else if (mode === "individual") {
+      if (!ids.length) return setErr("학생을 선택해주세요.");
+      assignedIds = ids;
+    }
+    try {
+      await apiPost("/assignments", {
+        title, type, items, dueDate: due || null, assignedIds,
+        assignedClasses: mode==="class" ? classes : []
+      });
+      setTitle(""); setList(""); setDue(""); setMode("all"); setClasses([]); setIds([]);
+      setShow(false); setErr("");
+      await reload();
+    } catch (e) { setErr(e.message); }
+  };
+
+  const del = async (aid) => {
+    if (!confirm("이 과제를 삭제할까요?")) return;
+    await apiDelete("/assignments/" + aid);
+    await reload();
+  };
+
+  const toggle = (arr, set, v) => set(arr.includes(v) ? arr.filter(x=>x!==v) : [...arr, v]);
+
+  return (
+    <div className="body">
+      {!show ? (
+        <button className="btn full" onClick={()=>setShow(true)}>+ 새 과제 만들기</button>
+      ) : (
+        <div className="card">
+          <label className="label">과제 제목</label>
+          <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: Unit 3 단어" />
+          <div style={{height:10}} />
+          <label className="label">마감일 (선택)</label>
+          <input className="field" type="date" value={due} onChange={e=>setDue(e.target.value)} />
+          <div style={{height:10}} />
+          <label className="label">유형</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["word","단어"],["sentence","문장"]].map(([v,l]) => (
+              <button key={v} className={type===v?"on":""} onClick={()=>setType(v)}>{l}</button>
+            ))}
+          </div>
+          <div style={{height:14}} />
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
+            <span className="label" style={{marginBottom:0}}>목록 (한 줄에 하나씩)</span>
+            <div className="row" style={{gap:6}}>
+              <label className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}>
+                엑셀 업로드
+                <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
+                  onChange={e=>{ const f=e.target.files[0]; if(f) readExcel(f); e.target.value=""; }} />
+              </label>
+              <label className="btn-ghost" style={{ fontSize:12, padding:"6px 10px", opacity: pdfBusy?0.5:1 }}>
+                {pdfBusy ? "분석 중..." : "PDF 업로드"}
+                <input type="file" accept=".pdf" style={{display:"none"}} disabled={pdfBusy}
+                  onChange={e=>{ const f=e.target.files[0]; if(f) readPdf(f); e.target.value=""; }} />
+              </label>
+            </div>
+          </div>
+          <div style={{height:6}} />
+          <textarea className="field" rows={6} value={list} onChange={e=>setList(e.target.value)}
+            placeholder={"apple\nbanana\ncherry"} />
+          {list.trim() && (
+            <div className="row" style={{ marginTop:8 }}>
+              {list.split("\n").map(s=>s.trim()).filter(Boolean).slice(0,6).map((w,i)=>(
+                <button key={i} onClick={()=>speak(w, voice)}
+                  style={{ fontSize:11, padding:"4px 9px", borderRadius:999, background:"var(--cream-deep)", color:"var(--navy)" }}>
+                  🔊 {w}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{height:14}} />
+          <label className="label">배정 대상</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
+              <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
+            ))}
+          </div>
+          {mode==="class" && (
+            <div className="row" style={{marginTop:10}}>
+              {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
+              {classNames.map(c=>(
+                <button key={c} onClick={()=>toggle(classes,setClasses,c)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: classes.includes(c)?"var(--navy)":"#fff", color: classes.includes(c)?"var(--cream)":"var(--navy)" }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode==="individual" && (
+            <div className="row" style={{marginTop:10}}>
+              {students.map(s=>(
+                <button key={s.id} onClick={()=>toggle(ids,setIds,s.id)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: ids.includes(s.id)?"var(--navy)":"#fff", color: ids.includes(s.id)?"var(--cream)":"var(--navy)" }}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {err && <div className="err">{err}</div>}
+          <div className="row" style={{ marginTop:14 }}>
+            <button className="btn-ghost" onClick={()=>{setShow(false); setErr("");}}>취소</button>
+            <button className="btn" onClick={create}>과제 등록</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{height:12}} />
+      {assignments.map(a => (
+        <div key={a.id} className="card" style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+          <div>
+            <div className="row" style={{ marginBottom:5 }}>
+              <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
+              <span className="muted">
+                {a.items.length}개 · {a.assignedClasses?.length ? a.assignedClasses.join(", ") : a.assignedIds?.length ? `${a.assignedIds.length}명` : "전체"}
+              </span>
+            </div>
+            <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
+            {a.dueDate && <div className="muted" style={{marginTop:3}}>마감 {formatDue(a.dueDate)}</div>}
+          </div>
+          <button onClick={()=>del(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:17 }}>🗑</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Admin: review ----------
+function AdminReview({ students, assignments }) {
+  const [aid, setAid] = useState(assignments[0]?.id || "");
+  const [map, setMap] = useState({});
+  const [openSid, setOpenSid] = useState(null);
+  const [sub, setSub] = useState(null);
+  const [comment, setComment] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => { if (!aid && assignments[0]) setAid(assignments[0].id); }, [assignments]);
+  useEffect(() => {
+    if (!aid) return;
+    apiGet("/submissions/" + aid).then(setMap).catch(()=>setMap({}));
+  }, [aid]);
+
+  const a = assignments.find(x => x.id === aid);
+  const targets = a ? (a.assignedIds?.length ? students.filter(s=>a.assignedIds.includes(s.id)) : students) : [];
+
+  const openS = async (sid) => {
+    setOpenSid(sid);
+    const s = await apiGet(`/submission/${aid}/${sid}`);
+    setSub(s); setComment(s.comment || "");
+  };
+
+  const markDone = async () => {
+    try {
+      await apiPost(`/submission/${aid}/${openSid}`, { status:"reviewed", comment, reviewedAt: nowStr() });
+      setMap(m => ({ ...m, [openSid]: { ...(m[openSid]||{}), status:"reviewed" } }));
+      setMsg("저장됐어요."); setTimeout(()=>setMsg(""), 1500);
+    } catch (e) { setMsg("저장 실패: " + e.message); }
+  };
+
+  if (!assignments.length) return <div className="body"><div className="muted" style={{textAlign:"center",padding:40}}>먼저 과제를 등록해주세요.</div></div>;
+
+  if (openSid) {
+    const st = students.find(s=>s.id===openSid);
+    return (
+      <div className="body">
+        <button onClick={()=>{setOpenSid(null); setSub(null);}} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:12 }}>‹ 목록으로</button>
+        <div style={{ fontWeight:700, marginBottom:12 }}>{st?.name} · {a?.title}</div>
+        {!sub || !sub.items ? (
+          <div className="muted" style={{ textAlign:"center", padding:40 }}>아직 제출하지 않았어요.</div>
+        ) : (
+          <>
+            {a.items.map((text,i) => {
+              const takes = normalizeTakes(sub.items[i]);
+              return (
+                <div key={i} className="card">
+                  <div style={{ fontWeight:500, marginBottom:8 }}>{i+1}. {text}</div>
+                  {takes.some(t=>t) ? takes.map((t,ti) => t && (
+                    <div key={ti} style={{ marginBottom:8 }}>
+                      <div className="row">
+                        <span className="muted" style={{ width:28 }}>{ti+1}회</span>
+                        <audio controls src={t.audio} style={{ flex:1 }} />
+                      </div>
+                      {t.score != null && (
+                        <div className="row" style={{ marginTop:5, marginLeft:34 }}>
+                          <Badge tone={scoreTone(t.score)}>발음평가 {t.score}점</Badge>
+                          {t.detail && <span className="muted">정확도 {t.detail.accuracy} · 유창성 {t.detail.fluency} · 완성도 {t.detail.completeness}</span>}
+                          {t.recognized && <span className="muted">인식: "{t.recognized}"</span>}
+                        </div>
+                      )}
+                    </div>
+                  )) : <div className="err">녹음 없음</div>}
+                </div>
+              );
+            })}
+            <div className="card">
+              <label className="label">코멘트 / 피드백</label>
+              <textarea className="field" rows={3} value={comment} onChange={e=>setComment(e.target.value)}
+                placeholder="발음이 좋아요! r 발음만 한번 더 연습해볼까요?" />
+            </div>
+            {msg && <div style={{textAlign:"center", fontSize:12, fontWeight:700, color:"var(--navy)", marginBottom:8}}>{msg}</div>}
+            <button className="btn full" onClick={markDone}>확인 완료로 표시</button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="body">
+      <select className="field" value={aid} onChange={e=>setAid(e.target.value)} style={{ fontWeight:700, marginBottom:14 }}>
+        {assignments.map(x => <option key={x.id} value={x.id}>{x.title}</option>)}
+      </select>
+      {targets.map(s => {
+        const st = map[s.id]?.status || "none";
+        return (
+          <button key={s.id} onClick={()=>openS(s.id)} className="card"
+            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ fontWeight:700, fontSize:14 }}>{s.name}</span>
+            <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+              {st==="none"?"미제출":st==="submitted"?"확인 대기":"확인완료"}
+            </Badge>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- Admin: settings ----------
+function AdminSettings({ students, assignments, reload }) {
+  const [msg, setMsg] = useState("");
+
+  const backup = async () => {
+    const data = await apiGet("/backup");
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date();
+    a.href = url;
+    a.download = `happytree-backup-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const restore = async (file) => {
+    setMsg("");
+    try {
+      const data = JSON.parse(await file.text());
+      if (!confirm("현재 학생·과제 목록을 백업 파일 내용으로 덮어씁니다. 계속할까요?")) return;
+      await apiPost("/restore", data);
+      await reload();
+      setMsg("복원됐어요.");
+    } catch (e) { setMsg("복원 실패: " + e.message); }
+  };
+
+  return (
+    <div className="body">
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>데이터 백업 / 복원</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          학생 명단·과제·제출 기록을 파일로 내려받아 보관할 수 있어요. 정기적으로 한 번씩 받아두시면 안전해요.
+        </div>
+        <div className="row">
+          <button className="btn" onClick={backup}>백업 파일 내려받기</button>
+          <label className="btn-ghost">
+            백업에서 복원
+            <input type="file" accept=".json" style={{display:"none"}}
+              onChange={e=>{ const f=e.target.files[0]; if(f) restore(f); e.target.value=""; }} />
+          </label>
+        </div>
+        <div className="muted" style={{ marginTop:10 }}>현재 학생 {students.length}명 · 과제 {assignments.length}개</div>
+        {msg && <div style={{ marginTop:8, fontSize:12, fontWeight:700, color:"var(--navy)" }}>{msg}</div>}
+      </div>
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>학생 접속 주소</div>
+        <div className="muted">학생들에게 이 페이지 주소를 그대로 알려주세요. 각자 발급받은 아이디로 로그인하면 됩니다.</div>
+        <div style={{ marginTop:8, padding:10, background:"var(--cream-deep)", borderRadius:8, fontSize:13, wordBreak:"break-all" }}>
+          {window.location.origin}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Admin shell ----------
+function AdminView({ onLogout }) {
+  const [tab, setTab] = useState("students");
+  const [students, setStudents] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const voice = useVoice();
+
+  const reload = async () => {
+    const [s, a] = await Promise.all([apiGet("/students"), apiGet("/assignments")]);
+    setStudents(s); setAssignments(a);
+  };
+  useEffect(() => { reload().finally(()=>setLoading(false)); }, []);
+
+  if (loading) return <div className="center"><div className="spin" /></div>;
+
+  return (
+    <div className="wrap">
+      <div className="hdr">
+        <h1>해피트리 관리자</h1>
+        <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
+      </div>
+      <div className="tabs">
+        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["settings","설정"]].map(([id,l]) => (
+          <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
+        ))}
+      </div>
+      {tab==="students" && <AdminStudents students={students} reload={reload} />}
+      {tab==="assignments" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
+      {tab==="review" && <AdminReview students={students} assignments={assignments} />}
+      {tab==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
+    </div>
+  );
+}
+
+// ---------- Root ----------
+function App() {
+  const [role, setRole] = useState(null);
+  const [student, setStudent] = useState(null);
+
+  if (!role) return <Login onStudent={s=>{setStudent(s); setRole("student");}} onAdmin={()=>setRole("admin")} />;
+  if (role === "student") return <StudentView student={student} onLogout={()=>{setRole(null); setStudent(null);}} />;
+  return <AdminView onLogout={()=>setRole(null)} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
