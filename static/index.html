@@ -1178,6 +1178,11 @@ function AdminSettings({ students, assignments, reload }) {
   const [msg, setMsg] = useState("");
   const [diag, setDiag] = useState(null);
   const [diagBusy, setDiagBusy] = useState(false);
+  const [testText, setTestText] = useState("I like apple.");
+  const [testRec, setTestRec] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [testBusy, setTestBusy] = useState(false);
+  const tmr = useRef(null); const tchunks = useRef([]);
 
   const runDiag = async () => {
     setDiagBusy(true); setDiag(null);
@@ -1187,6 +1192,35 @@ function AdminSettings({ students, assignments, reload }) {
     } catch (e) { setDiag({ azure_message: "진단 실패: " + e.message }); }
     setDiagBusy(false);
   };
+
+  const startTest = async () => {
+    setTestResult(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tchunks.current = [];
+      const mr = new MediaRecorder(stream);
+      tmr.current = mr;
+      mr.ondataavailable = e => { if (e.data && e.data.size) tchunks.current.push(e.data); };
+      mr.onstop = async () => {
+        const blob = new Blob(tchunks.current, { type: mr.mimeType || "audio/webm" });
+        stream.getTracks().forEach(t=>t.stop());
+        setTestBusy(true);
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, "test.webm");
+          fd.append("text", testText);
+          fd.append("debug", "1");
+          const res = await fetch("/api/assess", { method:"POST", body: fd });
+          const j = await res.json();
+          setTestResult({ ok: res.ok, mime: mr.mimeType, size: blob.size, data: j });
+        } catch (e) { setTestResult({ ok:false, data:{ detail: e.message } }); }
+        setTestBusy(false);
+      };
+      mr.start();
+      setTestRec(true);
+    } catch (e) { setTestResult({ ok:false, data:{ detail:"마이크 접근 실패: " + e.message } }); }
+  };
+  const stopTest = () => { if (tmr.current && testRec) { tmr.current.stop(); setTestRec(false); } };
 
   const backup = async () => {
     const data = await apiGet("/backup");
@@ -1231,6 +1265,61 @@ function AdminSettings({ students, assignments, reload }) {
               color: diag.azure_status === 200 ? "#2E7D5B" : "var(--danger)" }}>
               {diag.azure_message}
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>녹음 테스트 (원인 찾기)</div>
+        <div className="muted" style={{ marginBottom:10 }}>
+          직접 녹음해서 Azure가 실제로 뭐라고 응답하는지 그대로 확인할 수 있어요.
+        </div>
+        <label className="label">읽을 문장</label>
+        <input className="field" value={testText} onChange={e=>setTestText(e.target.value)} />
+        <div style={{height:12}} />
+        {!testRec ? (
+          <button className="btn" onClick={startTest} disabled={testBusy}>
+            {testBusy ? "분석 중..." : "🎤 테스트 녹음 시작"}
+          </button>
+        ) : (
+          <button className="btn-danger" onClick={stopTest}>■ 중지하고 분석</button>
+        )}
+        {testResult && (
+          <div style={{ marginTop:12, background:"var(--cream)", borderRadius:8, padding:12, fontSize:12 }}>
+            {testResult.data.pronScore != null ? (
+              <div style={{ fontWeight:800, color:"#2E7D5B", fontSize:15, marginBottom:8 }}>
+                ✅ 성공! 종합 {Math.round(testResult.data.pronScore)}점
+                (정확도 {Math.round(testResult.data.accuracyScore)} ·
+                 유창성 {Math.round(testResult.data.fluencyScore)} ·
+                 완성도 {Math.round(testResult.data.completenessScore)})
+              </div>
+            ) : (
+              <div style={{ fontWeight:800, color:"var(--danger)", marginBottom:8 }}>
+                ❌ {testResult.data.note || testResult.data.detail || "실패"}
+              </div>
+            )}
+            <div style={{ lineHeight:1.7 }}>
+              <div>브라우저 형식: <b>{testResult.mime || "-"}</b> ({testResult.size} bytes)</div>
+              {testResult.data.audio && (
+                <>
+                  <div>디코더: <b>{testResult.data.audio.decoder}</b></div>
+                  <div>길이: <b>{(testResult.data.audio.durationMs/1000).toFixed(1)}초</b> ·
+                       음량: <b>{testResult.data.audio.dBFS ?? "무음"}dB</b></div>
+                  <div>변환된 WAV: <b>{testResult.data.audio.wavBytes} bytes</b></div>
+                </>
+              )}
+              {testResult.data.status && <div>Azure 상태: <b>{testResult.data.status}</b></div>}
+              {testResult.data.recognizedText != null &&
+                <div>들린 내용: <b>"{testResult.data.recognizedText || "(없음)"}"</b></div>}
+            </div>
+            {testResult.data.raw && (
+              <details style={{ marginTop:8 }}>
+                <summary style={{ cursor:"pointer", color:"var(--navy-soft)" }}>Azure 원본 응답</summary>
+                <div style={{ marginTop:6, fontSize:10, wordBreak:"break-all", fontFamily:"monospace" }}>
+                  {testResult.data.raw}
+                </div>
+              </details>
+            )}
           </div>
         )}
       </div>
