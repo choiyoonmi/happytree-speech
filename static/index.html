@@ -234,7 +234,7 @@ function Recorder({ index, text, take, round, onSaved, voice }) {
           const up = await fetch("/api/audio", { method: "POST", body: fd });
           const upJson = await up.json();
 
-          let score = null, recognized = null, detail = null;
+          let score = null, recognized = null, detail = null, words = null;
           try {
             const fd2 = new FormData();
             fd2.append("audio", blob, "take.webm");
@@ -244,6 +244,7 @@ function Recorder({ index, text, take, round, onSaved, voice }) {
               const d = await as.json();
               recognized = d.recognizedText || null;
               score = d.pronScore != null ? Math.round(d.pronScore) : null;
+              words = d.words || null;
               detail = {
                 accuracy: d.accuracyScore != null ? Math.round(d.accuracyScore) : null,
                 fluency: d.fluencyScore != null ? Math.round(d.fluencyScore) : null,
@@ -252,7 +253,7 @@ function Recorder({ index, text, take, round, onSaved, voice }) {
             }
           } catch (e) {}
 
-          onSaved(index, round, { audio: upJson.url, recognized, score, detail });
+          onSaved(index, round, { audio: upJson.url, recognized, score, detail, words });
         } catch (e) {
           setErr("업로드에 실패했어요. 인터넷 연결을 확인해주세요.");
         }
@@ -734,6 +735,8 @@ function AdminReview({ students, assignments }) {
   const [sub, setSub] = useState(null);
   const [comment, setComment] = useState("");
   const [msg, setMsg] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiDraft, setAiDraft] = useState("");
 
   useEffect(() => { if (!aid && assignments[0]) setAid(assignments[0].id); }, [assignments]);
   useEffect(() => {
@@ -746,8 +749,28 @@ function AdminReview({ students, assignments }) {
 
   const openS = async (sid) => {
     setOpenSid(sid);
+    setAiDraft(""); setMsg("");
     const s = await apiGet(`/submission/${aid}/${sid}`);
     setSub(s); setComment(s.comment || "");
+    if (s && s.items) {
+      setAiBusy(true);
+      try {
+        const r = await apiPost(`/suggest-comment/${aid}/${sid}`);
+        setAiDraft(r.comment);
+        if (!s.comment) setComment(r.comment);
+      } catch (e) {}
+      setAiBusy(false);
+    }
+  };
+
+  const regenerate = async () => {
+    setAiBusy(true);
+    try {
+      const r = await apiPost(`/suggest-comment/${aid}/${openSid}`);
+      setAiDraft(r.comment);
+      setComment(r.comment);
+    } catch (e) { setMsg("코멘트 생성 실패: " + e.message); }
+    setAiBusy(false);
   };
 
   const markDone = async () => {
@@ -796,9 +819,21 @@ function AdminReview({ students, assignments }) {
               );
             })}
             <div className="card">
-              <label className="label">코멘트 / 피드백</label>
-              <textarea className="field" rows={3} value={comment} onChange={e=>setComment(e.target.value)}
-                placeholder="발음이 좋아요! r 발음만 한번 더 연습해볼까요?" />
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom:6 }}>
+                <span className="label" style={{ marginBottom:0 }}>선생님 코멘트 (학생에게 표시됩니다)</span>
+                <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px" }}
+                  onClick={regenerate} disabled={aiBusy}>
+                  {aiBusy ? "분석 중..." : "✨ 코멘트 다시 만들기"}
+                </button>
+              </div>
+              {aiBusy && <div className="muted" style={{ marginBottom:6 }}>발음 분석 결과로 코멘트를 만들고 있어요...</div>}
+              {aiDraft && (
+                <div className="muted" style={{ marginBottom:6 }}>
+                  아래 내용은 발음 분석 결과로 자동 작성된 초안이에요. 그대로 쓰시거나 자유롭게 고치세요.
+                </div>
+              )}
+              <textarea className="field" rows={5} value={comment} onChange={e=>setComment(e.target.value)}
+                placeholder="예) 발음이 좋아요! r 발음만 한번 더 연습해볼까요?" />
             </div>
             {msg && <div style={{textAlign:"center", fontSize:12, fontWeight:700, color:"var(--navy)", marginBottom:8}}>{msg}</div>}
             <button className="btn full" onClick={markDone}>확인 완료로 표시</button>
