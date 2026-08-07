@@ -154,6 +154,37 @@ def delete_assignment(assignment_id: str):
     return {"ok": True}
 
 
+@app.post("/api/assignments/bulk")
+def add_assignments_bulk(payload: dict = Body(...)):
+    """여러 과제를 한 번에 생성 (교재 한 권을 Day별로 나눠서 등록)."""
+    items = payload.get("assignments") or []
+    if not items:
+        raise HTTPException(400, "등록할 과제가 없어요.")
+    created = []
+    with _lock:
+        db = load_db()
+        for p in items:
+            title = str(p.get("title", "")).strip()
+            words = p.get("items") or []
+            if not title or not words:
+                continue
+            a = {
+                "id": "a" + uuid.uuid4().hex[:10],
+                "title": title,
+                "type": p.get("type", "word"),
+                "items": words,
+                "meanings": p.get("meanings", []),
+                "dueDate": p.get("dueDate") or None,
+                "rounds": max(1, min(3, int(p.get("rounds") or 3))),
+                "assignedIds": p.get("assignedIds", []),
+                "assignedClasses": p.get("assignedClasses", []),
+            }
+            db["assignments"].insert(0, a)
+            created.append(a)
+        save_db(db)
+    return {"created": len(created), "assignments": created}
+
+
 # ---------- submissions ----------
 @app.get("/api/submissions/{assignment_id}")
 def submissions_for_assignment(assignment_id: str):
