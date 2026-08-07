@@ -561,6 +561,77 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     }
 
 
+@app.get("/api/diag")
+async def diag():
+    """발음평가가 왜 안 되는지 확인하는 진단."""
+    import shutil, subprocess
+    out = {
+        "azure_key_set": bool(AZURE_KEY),
+        "azure_region": AZURE_REGION,
+        "ffmpeg": None,
+        "azure_reachable": None,
+        "azure_status": None,
+        "azure_message": None,
+    }
+
+    ff = shutil.which("ffmpeg")
+    out["ffmpeg"] = ff or "설치되지 않음"
+
+    if not AZURE_KEY:
+        out["azure_message"] = "AZURE_SPEECH_KEY 환경변수가 없어요."
+        return out
+
+    # 무음 WAV 1초를 만들어 Azure에 실제로 보내본다 (인식 결과는 비어도 됨, 응답 코드가 중요)
+    try:
+        seg = AudioSegment.silent(duration=1000, frame_rate=16000).set_channels(1).set_sample_width(2)
+        buf = io.BytesIO()
+        seg.export(buf, format="wav")
+        wav = buf.getvalue()
+    except Exception as e:
+        out["azure_message"] = f"오디오 라이브러리 오류 (ffmpeg 문제일 수 있어요): {e}"
+        return out
+
+    pa_header = base64.b64encode(json.dumps({
+        "ReferenceText": "hello",
+        "GradingSystem": "HundredMark",
+        "Granularity": "Word",
+    }).encode()).decode()
+
+    url = f"https://{AZURE_REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                url,
+                params={"language": "en-US", "format": "detailed"},
+                headers={
+                    "Ocp-Apim-Subscription-Key": AZURE_KEY,
+                    "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
+                    "Accept": "application/json",
+                    "Pronunciation-Assessment": pa_header,
+                },
+                content=wav,
+            )
+        out["azure_reachable"] = True
+        out["azure_status"] = r.status_code
+        if r.status_code == 200:
+            out["azure_message"] = "정상! Azure가 응답했어요."
+        elif r.status_code == 401:
+            out["azure_message"] = "인증 실패 — 키가 틀렸어요. AZURE_SPEECH_KEY를 확인하세요."
+        elif r.status_code == 403:
+            out["azure_message"] = "권한 없음 — 키와 지역이 맞지 않거나 사용량을 초과했어요."
+        elif r.status_code == 404:
+            out["azure_message"] = f"주소를 찾을 수 없어요 — 지역({AZURE_REGION})이 틀렸을 수 있어요."
+        elif r.status_code == 429:
+            out["azure_message"] = "사용량 한도 초과예요. Free F0 월 한도를 다 썼을 수 있어요."
+        else:
+            out["azure_message"] = f"오류 {r.status_code}: {r.text[:200]}"
+    except Exception as e:
+        out["azure_reachable"] = False
+        out["azure_message"] = f"Azure에 연결할 수 없어요: {e}"
+
+    return out
+
+
 # ---------- backup ----------
 @app.get("/api/backup")
 def backup():
