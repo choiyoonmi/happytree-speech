@@ -369,6 +369,149 @@ def suggest_comment(assignment_id: str, student_id: str):
     return {"comment": " ".join(parts), "hasScores": True, "average": avg}
 
 
+@app.get("/api/report/{student_id}")
+def student_report(student_id: str, start: str = "", end: str = ""):
+    """기간 내 학생의 학습 요약. start/end 는 YYYY-MM-DD."""
+    from datetime import datetime, date, timedelta
+
+    db = load_db()
+    student = next((s for s in db["students"] if s["id"] == student_id), None)
+    if not student:
+        raise HTTPException(404, "학생을 찾을 수 없어요.")
+
+    def parse(d, fallback):
+        try:
+            y, m, dd = map(int, d.split("-"))
+            return date(y, m, dd)
+        except Exception:
+            return fallback
+
+    today = date.today()
+    d_end = parse(end, today)
+    d_start = parse(start, d_end - timedelta(days=29))
+
+    def in_range(a):
+        due = a.get("dueDate")
+        if not due:
+            return True
+        d = parse(due, None)
+        return d is None or (d_start <= d <= d_end)
+
+    assigned = [
+        a for a in db["assignments"]
+        if in_range(a) and (not a.get("assignedIds") or student_id in a["assignedIds"])
+    ]
+
+    rows = []
+    all_scores = []
+    weak_words = {}
+    submitted_count = 0
+    weekly = {}
+
+    for a in assigned:
+        sub = db["submissions"].get(f"{a['id']}__{student_id}") or {}
+        status = sub.get("status", "none")
+        if status in ("submitted", "reviewed"):
+            submitted_count += 1
+
+        item_scores = []
+        recorded = 0
+        total_slots = len(a.get("items", [])) * (a.get("rounds", 3) or 3)
+        for i, text in enumerate(a.get("items", [])):
+            takes = (sub.get("items") or [])
+            ti = takes[i] if i < len(takes) else []
+            ti = [t for t in (ti or []) if t]
+            recorded += len(ti)
+            s = [t.get("score") for t in ti if t.get("score") is not None]
+            if s:
+                item_scores.append(max(s))
+            if ti:
+                for w in (ti[-1].get("words") or []):
+                    acc = w.get("accuracy")
+                    word = (w.get("word") or "").strip()
+                    if word and acc is not None and acc < 70:
+                        if word not in weak_words or acc < weak_words[word]:
+                            weak_words[word] = acc
+
+        avg = round(sum(item_scores) / len(item_scores)) if item_scores else None
+        if avg is not None:
+            all_scores.append(avg)
+            due = a.get("dueDate")
+            d = parse(due, None) if due else None
+            if d:
+                wk = d.isocalendar()
+                key = f"{wk[0]}-W{wk[1]:02d}"
+                weekly.setdefault(key, []).append(avg)
+
+        rows.append({
+            "title": a.get("title"),
+            "type": a.get("type"),
+            "dueDate": a.get("dueDate"),
+            "itemCount": len(a.get("items", [])),
+            "rounds": a.get("rounds", 3),
+            "status": status,
+            "average": avg,
+            "recorded": recorded,
+            "totalSlots": total_slots,
+        })
+
+    rows.sort(key=lambda r: (r["dueDate"] or ""))
+
+    weekly_list = [
+        {"week": k, "average": round(sum(v) / len(v))}
+        for k, v in sorted(weekly.items())
+    ]
+
+    overall = round(sum(all_scores) / len(all_scores)) if all_scores else None
+    total_assigned = len(assigned)
+    rate = round(submitted_count / total_assigned * 100) if total_assigned else 0
+
+    # 총평
+    lines = []
+    name = student.get("name", "학생")
+    if overall is None:
+        lines.append(f"{name} 학생은 이번 기간 동안 낭독 숙제에 참여했어요.")
+    elif overall >= 90:
+        lines.append(f"{name} 학생은 이번 기간 평균 {overall}점으로 발음이 매우 안정적이에요.")
+    elif overall >= 75:
+        lines.append(f"{name} 학생은 이번 기간 평균 {overall}점으로 전반적으로 잘 읽고 있어요.")
+    elif overall >= 60:
+        lines.append(f"{name} 학생은 이번 기간 평균 {overall}점이에요. 꾸준히 연습하면 더 좋아질 거예요.")
+    else:
+        lines.append(f"{name} 학생은 이번 기간 평균 {overall}점이에요. 소리를 천천히 나눠 읽는 연습이 필요해요.")
+
+    if rate >= 90:
+        lines.append(f"제출률 {rate}%로 아주 성실하게 참여했어요.")
+    elif rate >= 70:
+        lines.append(f"제출률은 {rate}%예요. 조금만 더 챙기면 좋겠어요.")
+    else:
+        lines.append(f"제출률이 {rate}%로 낮은 편이에요. 숙제를 빠뜨리지 않도록 함께 챙겨주세요.")
+
+    if len(weekly_list) >= 2:
+        first, last = weekly_list[0]["average"], weekly_list[-1]["average"]
+        if last - first >= 5:
+            lines.append(f"주차별로 보면 {first}점에서 {last}점으로 꾸준히 향상됐어요.")
+        elif first - last >= 5:
+            lines.append(f"최근 점수가 {first}점에서 {last}점으로 조금 떨어졌어요. 다시 천천히 읽는 연습을 해볼까요?")
+
+    if weak_words:
+        top = sorted(weak_words.items(), key=lambda x: x[1])[:5]
+        lines.append("다음 달에는 " + ", ".join(w for w, _ in top) + " 같은 단어를 집중해서 연습하면 좋겠어요.")
+
+    return {
+        "student": {"name": student.get("name"), "className": student.get("className")},
+        "period": {"start": d_start.isoformat(), "end": d_end.isoformat()},
+        "overallAverage": overall,
+        "submitRate": rate,
+        "submittedCount": submitted_count,
+        "totalAssigned": total_assigned,
+        "assignments": rows,
+        "weekly": weekly_list,
+        "weakWords": [{"word": w, "accuracy": a} for w, a in sorted(weak_words.items(), key=lambda x: x[1])[:8]],
+        "summary": " ".join(lines),
+    }
+
+
 # ---------- backup ----------
 @app.get("/api/backup")
 def backup():
