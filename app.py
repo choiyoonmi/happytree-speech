@@ -407,12 +407,21 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     weak_words = {}
     submitted_count = 0
     weekly = {}
+    daily = {}
+    acc_all, flu_all, comp_all = [], [], []
 
     for a in assigned:
         sub = db["submissions"].get(f"{a['id']}__{student_id}") or {}
         status = sub.get("status", "none")
         if status in ("submitted", "reviewed"):
             submitted_count += 1
+
+        day = a.get("dueDate") or ""
+        if day:
+            daily.setdefault(day, {"acc": [], "flu": [], "comp": [], "pron": [], "done": 0, "total": 0})
+            daily[day]["total"] += 1
+            if status in ("submitted", "reviewed"):
+                daily[day]["done"] += 1
 
         item_scores = []
         recorded = 0
@@ -425,6 +434,16 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             s = [t.get("score") for t in ti if t.get("score") is not None]
             if s:
                 item_scores.append(max(s))
+            for t in ti:
+                d = t.get("detail") or {}
+                if day:
+                    if d.get("accuracy") is not None: daily[day]["acc"].append(d["accuracy"])
+                    if d.get("fluency") is not None: daily[day]["flu"].append(d["fluency"])
+                    if d.get("completeness") is not None: daily[day]["comp"].append(d["completeness"])
+                    if t.get("score") is not None: daily[day]["pron"].append(t["score"])
+                if d.get("accuracy") is not None: acc_all.append(d["accuracy"])
+                if d.get("fluency") is not None: flu_all.append(d["fluency"])
+                if d.get("completeness") is not None: comp_all.append(d["completeness"])
             if ti:
                 for w in (ti[-1].get("words") or []):
                     acc = w.get("accuracy")
@@ -494,19 +513,49 @@ def student_report(student_id: str, start: str = "", end: str = ""):
         elif first - last >= 5:
             lines.append(f"최근 점수가 {first}점에서 {last}점으로 조금 떨어졌어요. 다시 천천히 읽는 연습을 해볼까요?")
 
+    def _m(lst):
+        return round(sum(lst) / len(lst)) if lst else None
+    _a, _f = _m(acc_all), _m(flu_all)
+    if _a is not None and _f is not None:
+        if _f + 10 <= _a:
+            lines.append("소리는 정확한데 읽는 흐름이 조금 끊겨요. 문장을 통째로 이어 읽는 연습을 해보면 좋겠어요.")
+        elif _a + 10 <= _f:
+            lines.append("읽는 흐름은 자연스러워요. 개별 소리를 조금 더 또렷하게 내면 완성도가 높아지겠어요.")
+
     if weak_words:
         top = sorted(weak_words.items(), key=lambda x: x[1])[:5]
         lines.append("다음 달에는 " + ", ".join(w for w, _ in top) + " 같은 단어를 집중해서 연습하면 좋겠어요.")
+
+    def avg_of(lst):
+        return round(sum(lst) / len(lst)) if lst else None
+
+    daily_list = []
+    for day in sorted(daily.keys()):
+        v = daily[day]
+        daily_list.append({
+            "date": day,
+            "pron": avg_of(v["pron"]),
+            "accuracy": avg_of(v["acc"]),
+            "fluency": avg_of(v["flu"]),
+            "completeness": avg_of(v["comp"]),
+            "submitRate": round(v["done"] / v["total"] * 100) if v["total"] else 0,
+        })
 
     return {
         "student": {"name": student.get("name"), "className": student.get("className")},
         "period": {"start": d_start.isoformat(), "end": d_end.isoformat()},
         "overallAverage": overall,
+        "metrics": {
+            "accuracy": avg_of(acc_all),
+            "fluency": avg_of(flu_all),
+            "completeness": avg_of(comp_all),
+        },
         "submitRate": rate,
         "submittedCount": submitted_count,
         "totalAssigned": total_assigned,
         "assignments": rows,
         "weekly": weekly_list,
+        "daily": daily_list,
         "weakWords": [{"word": w, "accuracy": a} for w, a in sorted(weak_words.items(), key=lambda x: x[1])[:8]],
         "summary": " ".join(lines),
     }
