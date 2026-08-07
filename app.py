@@ -203,6 +203,104 @@ def delete_assignments(payload: dict = Body(...)):
     return {"deleted": before - len(db["assignments"])}
 
 
+@app.patch("/api/assignments/{assignment_id}")
+def update_assignment(assignment_id: str, payload: dict = Body(...)):
+    """과제 하나 수정 (마감일, 제목, 녹음 횟수 등)."""
+    allowed = {"title", "dueDate", "rounds", "type", "book"}
+    with _lock:
+        db = load_db()
+        for a in db["assignments"]:
+            if a["id"] == assignment_id:
+                for k, v in payload.items():
+                    if k not in allowed:
+                        continue
+                    if k == "rounds":
+                        a[k] = max(1, min(3, int(v or 3)))
+                    elif k == "dueDate":
+                        a[k] = v or None
+                    else:
+                        a[k] = str(v).strip()
+                save_db(db)
+                return a
+    raise HTTPException(404, "과제를 찾을 수 없어요.")
+
+
+@app.post("/api/assignments/reschedule")
+def reschedule(payload: dict = Body(...)):
+    """일정 일괄 조정.
+    mode='shift'  : ids 목록의 마감일을 days 만큼 뒤로 미룸
+    mode='respread': ids 목록을 startDate 부터 weekdays 요일에 다시 배치
+    """
+    from datetime import date, timedelta
+
+    ids = payload.get("ids") or []
+    mode = payload.get("mode", "shift")
+    if not ids:
+        raise HTTPException(400, "조정할 과제가 없어요.")
+
+    def parse(s):
+        y, m, d = map(int, s.split("-"))
+        return date(y, m, d)
+
+    with _lock:
+        db = load_db()
+        targets = [a for a in db["assignments"] if a["id"] in ids]
+        # 기존 마감일 순서 유지 (없는 건 뒤로)
+        targets.sort(key=lambda a: (a.get("dueDate") is None, a.get("dueDate") or ""))
+
+        if mode == "shift":
+            days = int(payload.get("days") or 0)
+            if not days:
+                raise HTTPException(400, "미룰 일수를 입력해주세요.")
+            for a in targets:
+                if a.get("dueDate"):
+                    a["dueDate"] = (parse(a["dueDate"]) + timedelta(days=days)).isoformat()
+
+        elif mode == "respread":
+            start = payload.get("startDate")
+            weekdays = payload.get("weekdays") or [0, 1, 2, 3, 4, 5, 6]
+            if not start:
+                raise HTTPException(400, "시작일을 입력해주세요.")
+            # python: 월=0 → js: 일=0 이므로 변환
+            js_wd = set(int(w) for w in weekdays)
+            cur = parse(start)
+            assigned = 0
+            guard = 0
+            while assigned < len(targets) and guard < 800:
+                if ((cur.weekday() + 1) % 7) in js_wd:
+                    targets[assigned]["dueDate"] = cur.isoformat()
+                    assigned += 1
+                cur += timedelta(days=1)
+                guard += 1
+        else:
+            raise HTTPException(400, "알 수 없는 방식이에요.")
+
+        save_db(db)
+    return {"updated": len(targets), "assignments": targets}
+
+
+@app.get("/api/student-submissions/{student_id}")
+def student_submissions(student_id: str):
+    """한 학생의 모든 과제 제출 상태를 한 번에 반환."""
+    db = load_db()
+    out = {}
+    suffix = "__" + student_id
+    for key, sub in db["submissions"].items():
+        if key.endswith(suffix):
+            aid = key[: -len(suffix)]
+            scores = []
+            for takes in (sub.get("items") or []):
+                for t in (takes or []):
+                    if t and t.get("score") is not None:
+                        scores.append(t["score"])
+            out[aid] = {
+                "status": sub.get("status", "none"),
+                "submittedAt": sub.get("submittedAt"),
+                "average": round(sum(scores) / len(scores)) if scores else None,
+            }
+    return out
+
+
 # ---------- submissions ----------
 @app.get("/api/submissions/{assignment_id}")
 def submissions_for_assignment(assignment_id: str):
