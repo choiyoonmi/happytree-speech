@@ -130,6 +130,7 @@ def add_assignment(payload: dict = Body(...)):
         a = {
             "id": "a" + uuid.uuid4().hex[:10],
             "title": str(payload.get("title", "")).strip(),
+            "book": str(payload.get("book", "")).strip(),
             "type": payload.get("type", "word"),
             "items": payload.get("items", []),
             "meanings": payload.get("meanings", []),
@@ -171,6 +172,7 @@ def add_assignments_bulk(payload: dict = Body(...)):
             a = {
                 "id": "a" + uuid.uuid4().hex[:10],
                 "title": title,
+                "book": str(p.get("book", "")).strip(),
                 "type": p.get("type", "word"),
                 "items": words,
                 "meanings": p.get("meanings", []),
@@ -183,6 +185,22 @@ def add_assignments_bulk(payload: dict = Body(...)):
             created.append(a)
         save_db(db)
     return {"created": len(created), "assignments": created}
+
+
+@app.post("/api/assignments/delete-many")
+def delete_assignments(payload: dict = Body(...)):
+    ids = set(payload.get("ids") or [])
+    if not ids:
+        raise HTTPException(400, "삭제할 과제가 없어요.")
+    with _lock:
+        db = load_db()
+        before = len(db["assignments"])
+        db["assignments"] = [a for a in db["assignments"] if a["id"] not in ids]
+        for key in list(db["submissions"].keys()):
+            if key.split("__")[0] in ids:
+                del db["submissions"][key]
+        save_db(db)
+    return {"deleted": before - len(db["assignments"])}
 
 
 # ---------- submissions ----------
