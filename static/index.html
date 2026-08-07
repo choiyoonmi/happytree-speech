@@ -128,12 +128,14 @@ function useVoice() {
   }, []);
   return voice;
 }
-function speak(text, voice) {
+function speak(text, voice, rate) {
   if (!window.speechSynthesis) return alert("이 브라우저는 음성 재생을 지원하지 않아요.");
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   if (voice) u.voice = voice;
-  u.lang = "en-US"; u.rate = 0.92;
+  u.lang = "en-US";
+  u.rate = rate || 0.7;
+  u.pitch = 1.05;
   speechSynthesis.speak(u);
 }
 
@@ -276,9 +278,16 @@ function Recorder({ index, text, take, round, onSaved, voice }) {
           </div>
           <div style={{ fontSize:16, fontWeight:500, wordBreak:"break-word" }}>{text}</div>
         </div>
-        <button onClick={()=>speak(text, voice)}
-          style={{ background:"var(--cream-deep)", color:"var(--navy)", borderRadius:"50%", width:42, height:42, fontSize:18, flexShrink:0 }}
-          title="듣기">🔊</button>
+        <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
+          <button onClick={()=>speak(text, voice, 0.7)}
+            style={{ background:"var(--cream-deep)", color:"var(--navy)", borderRadius:9, padding:"8px 12px", fontSize:13, fontWeight:600, whiteSpace:"nowrap" }}>
+            🔊 듣기
+          </button>
+          <button onClick={()=>speak(text, voice, 0.45)}
+            style={{ background:"#fff", color:"var(--navy)", border:"1px solid var(--line)", borderRadius:9, padding:"7px 12px", fontSize:12, whiteSpace:"nowrap" }}>
+            🐢 천천히
+          </button>
+        </div>
       </div>
 
       <div className="row" style={{ marginTop:12 }}>
