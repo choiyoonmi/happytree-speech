@@ -132,6 +132,7 @@ def add_assignment(payload: dict = Body(...)):
             "type": payload.get("type", "word"),
             "items": payload.get("items", []),
             "dueDate": payload.get("dueDate") or None,
+            "rounds": max(1, min(3, int(payload.get("rounds") or 3))),
             "assignedIds": payload.get("assignedIds", []),
             "assignedClasses": payload.get("assignedClasses", []),
         }
