@@ -235,7 +235,7 @@ function Recorder({ index, text, take, round, onSaved, voice }) {
           const up = await fetch("/api/audio", { method: "POST", body: fd });
           const upJson = await up.json();
 
-          let score = null, recognized = null, detail = null, words = null;
+          let score = null, recognized = null, detail = null, words = null, assessError = null;
           try {
             const fd2 = new FormData();
             fd2.append("audio", blob, "take.webm");
@@ -251,10 +251,17 @@ function Recorder({ index, text, take, round, onSaved, voice }) {
                 fluency: d.fluencyScore != null ? Math.round(d.fluencyScore) : null,
                 completeness: d.completenessScore != null ? Math.round(d.completenessScore) : null,
               };
+              if (score == null) assessError = "소리가 인식되지 않았어요. 조금 더 크게 읽어볼까요?";
+            } else {
+              let m = `발음평가 오류 (${as.status})`;
+              try { const j = await as.json(); if (j.detail) m = j.detail; } catch (e) {}
+              assessError = m;
             }
-          } catch (e) {}
+          } catch (e) {
+            assessError = "발음평가 서버에 연결하지 못했어요.";
+          }
 
-          onSaved(index, round, { audio: upJson.url, recognized, score, detail, words });
+          onSaved(index, round, { audio: upJson.url, recognized, score, detail, words, assessError });
         } catch (e) {
           setErr("업로드에 실패했어요. 인터넷 연결을 확인해주세요.");
         }
@@ -304,11 +311,36 @@ function Recorder({ index, text, take, round, onSaved, voice }) {
       </div>
 
       {take && take.score != null && (
-        <div className="row" style={{ marginTop:10 }}>
-          <Badge tone={scoreTone(take.score)}>발음평가 {take.score}점</Badge>
-          {take.detail && <span className="muted">정확도 {take.detail.accuracy} · 유창성 {take.detail.fluency} · 완성도 {take.detail.completeness}</span>}
-          {take.recognized && <span className="muted">인식: "{take.recognized}"</span>}
+        <div style={{ marginTop:12, background:"var(--cream)", borderRadius:10, padding:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+            <div style={{ textAlign:"center", minWidth:70 }}>
+              <div style={{ fontSize:30, fontWeight:800, lineHeight:1,
+                color: take.score>=85 ? "#2E7D5B" : take.score>=60 ? "#8A6D0F" : "var(--danger)" }}>
+                {take.score}
+              </div>
+              <div style={{ fontSize:10, color:"var(--navy-soft)", marginTop:2 }}>종합 점수</div>
+            </div>
+            {take.detail && (
+              <div style={{ flex:1, display:"flex", gap:6 }}>
+                {[["정확도",take.detail.accuracy],["유창성",take.detail.fluency],["완성도",take.detail.completeness]].map(([l,v])=>(
+                  <div key={l} style={{ flex:1, textAlign:"center" }}>
+                    <div style={{ fontSize:16, fontWeight:700, color:"var(--navy)" }}>{v != null ? v : "-"}</div>
+                    <div style={{ fontSize:10, color:"var(--navy-soft)" }}>{l}</div>
+                    <div style={{ height:4, background:"#E3DCC8", borderRadius:2, marginTop:3, overflow:"hidden" }}>
+                      <div style={{ width:`${v||0}%`, height:"100%", background:"var(--gold)" }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {take.recognized && (
+            <div className="muted" style={{ marginTop:8 }}>이렇게 들렸어요: "{take.recognized}"</div>
+          )}
         </div>
+      )}
+      {take && take.score == null && take.assessError && (
+        <div style={{ marginTop:10, fontSize:12, color:"var(--danger)" }}>⚠ {take.assessError}</div>
       )}
       {err && <div className="err">{err}</div>}
     </div>
@@ -802,16 +834,40 @@ function AdminReview({ students, assignments }) {
                 <div key={i} className="card">
                   <div style={{ fontWeight:500, marginBottom:8 }}>{i+1}. {text}</div>
                   {takes.some(t=>t) ? takes.map((t,ti) => t && (
-                    <div key={ti} style={{ marginBottom:8 }}>
+                    <div key={ti} style={{ marginBottom:10, paddingBottom:10, borderBottom: ti<takes.length-1 ? "1px solid #F0EBDD" : "none" }}>
                       <div className="row">
-                        <span className="muted" style={{ width:28 }}>{ti+1}회</span>
+                        <span className="muted" style={{ width:28, fontWeight:700 }}>{ti+1}회</span>
                         <audio controls src={t.audio} style={{ flex:1 }} />
                       </div>
-                      {t.score != null && (
-                        <div className="row" style={{ marginTop:5, marginLeft:34 }}>
-                          <Badge tone={scoreTone(t.score)}>발음평가 {t.score}점</Badge>
-                          {t.detail && <span className="muted">정확도 {t.detail.accuracy} · 유창성 {t.detail.fluency} · 완성도 {t.detail.completeness}</span>}
-                          {t.recognized && <span className="muted">인식: "{t.recognized}"</span>}
+                      {t.score != null ? (
+                        <div style={{ display:"flex", gap:8, marginTop:8, marginLeft:34, alignItems:"center" }}>
+                          <div style={{
+                            minWidth:52, textAlign:"center", padding:"5px 8px", borderRadius:8,
+                            background: t.score>=85 ? "#DFF0E8" : t.score>=60 ? "#F3E4B8" : "#F3D9D2"
+                          }}>
+                            <div style={{ fontSize:19, fontWeight:800, lineHeight:1,
+                              color: t.score>=85 ? "#2E7D5B" : t.score>=60 ? "#8A6D0F" : "var(--danger)" }}>{t.score}</div>
+                            <div style={{ fontSize:9, color:"var(--navy-soft)" }}>종합</div>
+                          </div>
+                          {t.detail && [["정확도",t.detail.accuracy],["유창성",t.detail.fluency],["완성도",t.detail.completeness]].map(([l,v])=>(
+                            <div key={l} style={{ minWidth:46, textAlign:"center" }}>
+                              <div style={{ fontSize:15, fontWeight:700, color:"var(--navy)" }}>{v != null ? v : "-"}</div>
+                              <div style={{ fontSize:9, color:"var(--navy-soft)" }}>{l}</div>
+                            </div>
+                          ))}
+                          {t.recognized && <span className="muted" style={{ marginLeft:4 }}>"{t.recognized}"</span>}
+                        </div>
+                      ) : t.assessError ? (
+                        <div style={{ marginLeft:34, marginTop:6, fontSize:11, color:"var(--danger)" }}>⚠ {t.assessError}</div>
+                      ) : null}
+                      {t.words && t.words.filter(w=>w.accuracy!=null && w.accuracy<70).length > 0 && (
+                        <div className="row" style={{ marginLeft:34, marginTop:6, gap:5 }}>
+                          <span className="muted">약한 단어:</span>
+                          {t.words.filter(w=>w.accuracy!=null && w.accuracy<70).map((w,wi)=>(
+                            <span key={wi} style={{ fontSize:11, padding:"2px 8px", borderRadius:999, background:"#F3D9D2", color:"var(--danger)", fontWeight:600 }}>
+                              {w.word} {Math.round(w.accuracy)}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -1109,6 +1165,17 @@ function AdminReport({ students }) {
 // ---------- Admin: settings ----------
 function AdminSettings({ students, assignments, reload }) {
   const [msg, setMsg] = useState("");
+  const [diag, setDiag] = useState(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+
+  const runDiag = async () => {
+    setDiagBusy(true); setDiag(null);
+    try {
+      const r = await apiGet("/diag");
+      setDiag(r);
+    } catch (e) { setDiag({ azure_message: "진단 실패: " + e.message }); }
+    setDiagBusy(false);
+  };
 
   const backup = async () => {
     const data = await apiGet("/backup");
@@ -1135,6 +1202,28 @@ function AdminSettings({ students, assignments, reload }) {
 
   return (
     <div className="body">
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>발음평가 진단</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          점수가 안 나올 때 여기서 원인을 확인할 수 있어요.
+        </div>
+        <button className="btn" onClick={runDiag} disabled={diagBusy}>
+          {diagBusy ? "확인 중..." : "발음평가 상태 확인"}
+        </button>
+        {diag && (
+          <div style={{ marginTop:12, background:"var(--cream)", borderRadius:8, padding:12, fontSize:13 }}>
+            <div style={{ marginBottom:4 }}>Azure 키: <b>{diag.azure_key_set ? "설정됨" : "없음"}</b></div>
+            <div style={{ marginBottom:4 }}>지역: <b>{diag.azure_region}</b></div>
+            <div style={{ marginBottom:4 }}>ffmpeg: <b>{diag.ffmpeg}</b></div>
+            {diag.azure_status != null && <div style={{ marginBottom:4 }}>Azure 응답코드: <b>{diag.azure_status}</b></div>}
+            <div style={{ marginTop:8, fontWeight:700,
+              color: diag.azure_status === 200 ? "#2E7D5B" : "var(--danger)" }}>
+              {diag.azure_message}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="card">
         <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>데이터 백업 / 복원</div>
         <div className="muted" style={{ marginBottom:12 }}>
