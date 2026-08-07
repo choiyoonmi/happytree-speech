@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root {
     --navy: #1B2E4C;
@@ -868,6 +869,187 @@ function AdminReview({ students, assignments }) {
   );
 }
 
+// ---------- Admin: report ----------
+function AdminReport({ students }) {
+  const [sid, setSid] = useState(students[0]?.id || "");
+  const [start, setStart] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 29);
+    return d.toISOString().slice(0,10);
+  });
+  const [end, setEnd] = useState(() => new Date().toISOString().slice(0,10));
+  const [rep, setRep] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [note, setNote] = useState("");
+  const sheetRef = useRef(null);
+
+  const load = async () => {
+    if (!sid) return;
+    setBusy(true); setMsg(""); setRep(null);
+    try {
+      const r = await apiGet(`/report/${sid}?start=${start}&end=${end}`);
+      setRep(r); setNote(r.summary);
+    } catch (e) { setMsg("불러오기 실패: " + e.message); }
+    setBusy(false);
+  };
+
+  const saveImage = async () => {
+    if (!sheetRef.current) return;
+    setMsg("이미지 만드는 중...");
+    try {
+      const canvas = await html2canvas(sheetRef.current, {
+        backgroundColor: "#ffffff", scale: 2, useCORS: true,
+      });
+      const link = document.createElement("a");
+      link.download = `${rep.student.name}_성적표_${rep.period.start}~${rep.period.end}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      setMsg("저장했어요!");
+      setTimeout(()=>setMsg(""), 2000);
+    } catch (e) { setMsg("이미지 저장 실패: " + e.message); }
+  };
+
+  const maxW = rep && rep.weekly.length ? Math.max(...rep.weekly.map(w=>w.average)) : 100;
+
+  return (
+    <div className="body">
+      <div className="card">
+        <label className="label">학생</label>
+        <select className="field" value={sid} onChange={e=>setSid(e.target.value)}>
+          {students.map(s => <option key={s.id} value={s.id}>{s.name}{s.className?` (${s.className})`:""}</option>)}
+        </select>
+        <div style={{height:10}} />
+        <div className="row" style={{ gap:8 }}>
+          <div style={{ flex:1, minWidth:130 }}>
+            <label className="label">시작일</label>
+            <input className="field" type="date" value={start} onChange={e=>setStart(e.target.value)} />
+          </div>
+          <div style={{ flex:1, minWidth:130 }}>
+            <label className="label">종료일</label>
+            <input className="field" type="date" value={end} onChange={e=>setEnd(e.target.value)} />
+          </div>
+        </div>
+        <div style={{height:14}} />
+        <div className="row">
+          <button className="btn" onClick={load} disabled={busy || !sid}>
+            {busy ? "불러오는 중..." : "성적표 만들기"}
+          </button>
+          {rep && <button className="btn-ghost" onClick={saveImage}>🖼 이미지로 저장</button>}
+        </div>
+        {msg && <div style={{ marginTop:8, fontSize:12, fontWeight:700, color:"var(--navy)" }}>{msg}</div>}
+      </div>
+
+      {rep && (
+        <>
+          <div className="card">
+            <label className="label">총평 (수정하면 성적표에 반영돼요)</label>
+            <textarea className="field" rows={4} value={note} onChange={e=>setNote(e.target.value)} />
+          </div>
+
+          <div ref={sheetRef} style={{ background:"#fff", padding:24, borderRadius:14 }}>
+            <div style={{ borderBottom:`3px solid var(--navy)`, paddingBottom:12, marginBottom:16 }}>
+              <div style={{ fontSize:12, color:"var(--gold)", fontWeight:800, letterSpacing:1 }}>HAPPYTREE ACADEMY</div>
+              <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginTop:2 }}>낭독 학습 성적표</div>
+              <div style={{ fontSize:13, color:"var(--navy-soft)", marginTop:6 }}>
+                {rep.student.name} {rep.student.className ? `· ${rep.student.className}` : ""} &nbsp;|&nbsp; {rep.period.start} ~ {rep.period.end}
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:10, marginBottom:18 }}>
+              {[
+                ["평균 발음점수", rep.overallAverage != null ? `${rep.overallAverage}점` : "-"],
+                ["제출률", `${rep.submitRate}%`],
+                ["완료 과제", `${rep.submittedCount} / ${rep.totalAssigned}`],
+              ].map(([l,v]) => (
+                <div key={l} style={{ flex:1, background:"var(--cream)", borderRadius:10, padding:"12px 8px", textAlign:"center" }}>
+                  <div style={{ fontSize:11, color:"var(--navy-soft)", fontWeight:600 }}>{l}</div>
+                  <div style={{ fontSize:20, fontWeight:800, color:"var(--navy)", marginTop:4 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {rep.weekly.length > 0 && (
+              <div style={{ marginBottom:18 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:10 }}>주차별 점수 변화</div>
+                <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:120, borderBottom:"1px solid var(--line)", paddingBottom:4 }}>
+                  {rep.weekly.map(w => (
+                    <div key={w.week} style={{ flex:1, textAlign:"center" }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"var(--navy)", marginBottom:3 }}>{w.average}</div>
+                      <div style={{
+                        height: Math.max(6, (w.average / Math.max(maxW,1)) * 90),
+                        background:"var(--navy)", borderRadius:"5px 5px 0 0"
+                      }} />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display:"flex", gap:8, marginTop:5 }}>
+                  {rep.weekly.map(w => (
+                    <div key={w.week} style={{ flex:1, textAlign:"center", fontSize:10, color:"var(--navy-soft)" }}>
+                      {w.week.split("-W")[1]}주
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginBottom:18 }}>
+              <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>과제별 기록</div>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                <thead>
+                  <tr style={{ background:"var(--cream)" }}>
+                    {["과제","유형","마감","제출","평균"].map(h => (
+                      <th key={h} style={{ padding:"7px 6px", textAlign:"left", color:"var(--navy-soft)", fontWeight:700 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rep.assignments.map((r,i) => (
+                    <tr key={i} style={{ borderBottom:"1px solid var(--line)" }}>
+                      <td style={{ padding:"7px 6px", fontWeight:600 }}>{r.title}</td>
+                      <td style={{ padding:"7px 6px" }}>{r.type==="word"?"단어":"문장"} {r.itemCount}개</td>
+                      <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.dueDate ? formatDue(r.dueDate) : "-"}</td>
+                      <td style={{ padding:"7px 6px", color: r.status==="none" ? "var(--danger)" : "var(--navy)" }}>
+                        {r.status==="none" ? "미제출" : "제출"}
+                      </td>
+                      <td style={{ padding:"7px 6px", fontWeight:700 }}>{r.average != null ? `${r.average}점` : "-"}</td>
+                    </tr>
+                  ))}
+                  {!rep.assignments.length && (
+                    <tr><td colSpan={5} style={{ padding:14, textAlign:"center", color:"var(--navy-soft)" }}>해당 기간에 과제가 없어요.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {rep.weakWords.length > 0 && (
+              <div style={{ marginBottom:18 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>더 연습하면 좋은 단어</div>
+                <div className="row">
+                  {rep.weakWords.map(w => (
+                    <span key={w.word} style={{
+                      padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:600,
+                      background:"#F3E4B8", color:"#8A6D0F"
+                    }}>{w.word} <span style={{opacity:.7}}>{Math.round(w.accuracy)}</span></span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ background:"var(--cream)", borderLeft:"4px solid var(--gold)", padding:"12px 14px", borderRadius:8 }}>
+              <div style={{ fontSize:12, fontWeight:800, color:"var(--navy)", marginBottom:5 }}>선생님 총평</div>
+              <div style={{ fontSize:13, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{note}</div>
+            </div>
+
+            <div style={{ textAlign:"center", fontSize:11, color:"var(--navy-soft)", marginTop:16 }}>
+              해피트리학원 · 남천동 국영수 문해력센터
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---------- Admin: settings ----------
 function AdminSettings({ students, assignments, reload }) {
   const [msg, setMsg] = useState("");
@@ -947,13 +1129,14 @@ function AdminView({ onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="tabs">
-        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["settings","설정"]].map(([id,l]) => (
+        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
           <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
         ))}
       </div>
       {tab==="students" && <AdminStudents students={students} reload={reload} />}
       {tab==="assignments" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
       {tab==="review" && <AdminReview students={students} assignments={assignments} />}
+      {tab==="report" && <AdminReport students={students} />}
       {tab==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
     </div>
   );
