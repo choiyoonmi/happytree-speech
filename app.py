@@ -215,18 +215,30 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...)):
 
     try:
         seg = AudioSegment.from_file(io.BytesIO(raw))
+        orig_dbfs = seg.dBFS
+        orig_ms = len(seg)
         seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+        # 음량이 작으면 자동으로 키워서 인식률을 높인다 (목표 -20 dBFS)
+        if seg.dBFS != float("-inf") and seg.dBFS < -20:
+            seg = seg.apply_gain(min(-20 - seg.dBFS, 25))
         buf = io.BytesIO()
         seg.export(buf, format="wav")
         wav_bytes = buf.getvalue()
+        audio_info = {
+            "durationMs": orig_ms,
+            "dBFS": None if orig_dbfs == float("-inf") else round(orig_dbfs, 1),
+            "gainApplied": round(seg.dBFS - orig_dbfs, 1) if orig_dbfs != float("-inf") else None,
+        }
     except Exception as e:
         raise HTTPException(400, f"오디오 변환 실패: {e}")
 
+    # 단어 1개짜리는 EnableMiscue를 끄는 편이 인식률이 좋음
+    is_short = len(text.strip().split()) <= 2
     pa_config = {
         "ReferenceText": text,
         "GradingSystem": "HundredMark",
         "Granularity": "Word",
-        "EnableMiscue": True,
+        "EnableMiscue": not is_short,
     }
     pa_header = base64.b64encode(json.dumps(pa_config).encode("utf-8")).decode("utf-8")
 
@@ -250,9 +262,35 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...)):
         raise HTTPException(502, f"Azure 오류 ({resp.status_code}): {resp.text[:300]}")
 
     data = resp.json()
+    status = data.get("RecognitionStatus", "")
     nbest_list = data.get("NBest") or []
     nbest = nbest_list[0] if nbest_list else {}
     pa = nbest.get("PronunciationAssessment", {})
+
+    if not pa:
+        dur = audio_info["durationMs"]
+        db = audio_info["dBFS"]
+        if db is None:
+            note = "녹음이 완전히 무음이에요. 마이크가 켜져 있는지 확인해주세요."
+        elif dur < 700:
+            note = f"녹음이 너무 짧아요 ({dur/1000:.1f}초). 조금 더 길게 녹음해주세요."
+        elif status == "InitialSilenceTimeout":
+            note = "녹음 앞부분이 조용해서 인식이 멈췄어요. 버튼을 누르고 바로 읽어볼까요?"
+        elif status == "NoMatch":
+            note = "읽은 내용이 교재 내용과 다르게 들렸어요. 다시 한번 또박또박 읽어볼까요?"
+        elif status == "BabbleTimeout":
+            note = "주변 소음이 커요. 조용한 곳에서 다시 녹음해볼까요?"
+        elif status and status != "Success":
+            note = f"인식되지 않았어요 ({status}). 다시 녹음해볼까요?"
+        else:
+            note = "인식되지 않았어요. 다시 한번 녹음해볼까요?"
+        return {
+            "recognizedText": data.get("DisplayText", ""),
+            "accuracyScore": None, "fluencyScore": None,
+            "completenessScore": None, "pronScore": None,
+            "words": [], "status": status, "note": note, "audio": audio_info,
+        }
+
     words = []
     for w in nbest.get("Words", []):
         wpa = w.get("PronunciationAssessment") or {}
@@ -269,6 +307,7 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...)):
         "completenessScore": pa.get("CompletenessScore"),
         "pronScore": pa.get("PronScore"),
         "words": words,
+        "status": status,
     }
 
 
