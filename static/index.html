@@ -96,6 +96,11 @@ function formatDue(d) {
   const [y, m, day] = d.split("-").map(Number);
   return `${m}/${day}`;
 }
+// 교재 이름이 따로 없을 때, 제목 끝의 "Day N"을 떼어내 같은 시리즈로 묶어준다.
+// 예) "대치동1800 2권 단어 Day 14" -> "대치동1800 2권 단어"
+function seriesOf(title) {
+  return (title || "").replace(/\s*Day\s*\d+\s*$/i, "").trim() || (title || "");
+}
 function dueStatus(d) {
   if (!d) return null;
   const t = new Date(); t.setHours(0,0,0,0);
@@ -1330,7 +1335,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
 
   const inGroup = byGroup[group] || [];
   const byBook = {};
-  inGroup.forEach(a => { const b = a.book || a.title; (byBook[b] = byBook[b] || []).push(a); });
+  inGroup.forEach(a => { const b = a.book || seriesOf(a.title); (byBook[b] = byBook[b] || []).push(a); });
   const bookKeys = Object.keys(byBook).sort();
 
   if (!book) {
