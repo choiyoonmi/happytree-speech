@@ -1376,6 +1376,7 @@ function BookDetail({ book, group, list, reload, onBack }) {
   const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
+  const [editRounds, setEditRounds] = useState(3);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -1427,7 +1428,7 @@ function BookDetail({ book, group, list, reload, onBack }) {
     try {
       await fetch("/api/assignments/" + id, {
         method:"PATCH", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ dueDate: editDue || null })
+        body: JSON.stringify({ dueDate: editDue || null, rounds: editRounds })
       });
       await reload(); setEditing(null);
     } catch (e) { setErr(e.message); }
@@ -1517,18 +1518,28 @@ function BookDetail({ book, group, list, reload, onBack }) {
               </div>
               <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
               {editing === a.id ? (
-                <div className="row" style={{ marginTop:8, gap:6 }}>
-                  <input className="field" type="date" style={{ flex:1, padding:"7px 10px", fontSize:13 }}
+                <div style={{ marginTop:8 }}>
+                  <label className="label" style={{ marginBottom:4 }}>마감일</label>
+                  <input className="field" type="date" style={{ width:"100%", padding:"7px 10px", fontSize:13 }}
                     value={editDue} onChange={e=>setEditDue(e.target.value)} />
-                  <button className="btn" style={{ padding:"7px 12px", fontSize:12 }}
-                    onClick={()=>saveOne(a.id)} disabled={busy}>저장</button>
-                  <button className="btn-ghost" style={{ padding:"7px 12px", fontSize:12 }}
-                    onClick={()=>setEditing(null)}>취소</button>
+                  <label className="label" style={{ marginTop:10, marginBottom:4 }}>녹음 횟수</label>
+                  <div className="seg" style={{ marginTop:0 }}>
+                    {[1,2,3].map(n => (
+                      <button key={n} className={editRounds===n?"on":""}
+                        onClick={()=>setEditRounds(n)}>{n}회</button>
+                    ))}
+                  </div>
+                  <div className="row" style={{ marginTop:10, gap:6 }}>
+                    <button className="btn" style={{ flex:1, padding:"7px 12px", fontSize:12 }}
+                      onClick={()=>saveOne(a.id)} disabled={busy}>{busy ? "저장 중..." : "저장"}</button>
+                    <button className="btn-ghost" style={{ padding:"7px 12px", fontSize:12 }}
+                      onClick={()=>setEditing(null)}>취소</button>
+                  </div>
                 </div>
               ) : (
-                <button onClick={()=>{ setEditing(a.id); setEditDue(a.dueDate || ""); }}
+                <button onClick={()=>{ setEditing(a.id); setEditDue(a.dueDate || ""); setEditRounds(a.rounds || 3); }}
                   style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12 }}>
-                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} <span style={{ color:"var(--gold)" }}>✏️</span>
+                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회 <span style={{ color:"var(--gold)" }}>✏️</span>
                 </button>
               )}
             </div>
