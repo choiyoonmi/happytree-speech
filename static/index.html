@@ -1395,6 +1395,7 @@ function BookDetail({ book, group, list, reload, onBack }) {
   const [newRounds, setNewRounds] = useState(2);
   const [busy, setBusy] = useState(false);
   const [dupBusy, setDupBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
   const [err, setErr] = useState("");
 
   const DAYNAMES = ["일","월","화","수","목","금","토"];
@@ -1410,6 +1411,40 @@ function BookDetail({ book, group, list, reload, onBack }) {
     await apiPost("/assignments/delete-many", { ids: list.map(a=>a.id) });
     onBack();
     await reload();
+  };
+
+  // 이 교재의 과제 단어(items+meanings)로 단어시험지 PDF를 만든다.
+  // 시험지 생성기(vocab-test-generator) API를 호출해 책 전체(유닛별 페이지) PDF를 받는다.
+  const VOCAB_API = "https://vocab-test-generator.onrender.com";
+  const makeVocabTest = async () => {
+    const wordAsgs = list.filter(a => (a.type || "word") === "word" && (a.items || []).length);
+    if (!wordAsgs.length) { alert("이 교재에 단어 유형 과제가 없어요."); return; }
+    const units = wordAsgs.map(a => ({
+      unit_title: a.title,
+      words: (a.items || []).map((w, i) => ({
+        no: i + 1, word: w, kor: (a.meanings && a.meanings[i]) || "",
+      })),
+    }));
+    setTestBusy(true); setErr("");
+    try {
+      const res = await fetch(VOCAB_API + "/api/generate-all", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          academy_name: "해피트리학원 국영수문해력센터",
+          book_title: book, units, direction: "kor_to_eng",
+        }),
+      });
+      if (!res.ok) throw new Error("생성기 응답 오류 (" + res.status + ")");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (book || "단어").replace(/\s+/g, "_") + "_단어시험지.pdf";
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) {
+      setErr("시험지 생성 실패: " + e.message + " — 생성기 서버가 자는 중이면 20~60초 뒤 다시 눌러주세요.");
+    }
+    setTestBusy(false);
   };
 
   // 같은 과제가 두 번 등록된 것(제목+마감+문항수 동일)을 정리한다.
@@ -1538,10 +1573,17 @@ function BookDetail({ book, group, list, reload, onBack }) {
         <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="respread"?null:"respread"); setErr(""); }}>🗓 일정 다시 짜기</button>
       </div>
-      <div className="row" style={{ gap:6, marginBottom:12 }}>
+      <div className="row" style={{ gap:6, marginBottom:8 }}>
         <button className={panel==="rounds" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setErr(""); }}>🔁 녹음 회차 한꺼번에 바꾸기</button>
       </div>
+      <div className="row" style={{ gap:6, marginBottom:12 }}>
+        <button className="btn" style={{ flex:1, fontSize:13 }}
+          onClick={makeVocabTest} disabled={testBusy}>
+          {testBusy ? "시험지 만드는 중... (조금 걸려요)" : "📝 이 교재 단어시험지 만들기 (책 전체)"}
+        </button>
+      </div>
+      {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
 
       {panel === "rounds" && (
         <div className="card" style={{ background:"var(--cream)" }}>
