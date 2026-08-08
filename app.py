@@ -25,8 +25,57 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 _lock = threading.Lock()
+_sub_locks = {}
+_sub_locks_guard = threading.Lock()
 
 DEFAULT_DB = {"students": [], "assignments": [], "submissions": {}}
+
+SUB_DIR = DATA_DIR / "submissions"
+SUB_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _sub_lock(student_id: str):
+    """학생별 잠금 — 서로 다른 학생은 동시에 저장 가능."""
+    with _sub_locks_guard:
+        if student_id not in _sub_locks:
+            _sub_locks[student_id] = threading.Lock()
+        return _sub_locks[student_id]
+
+
+def _safe_id(s: str) -> str:
+    return "".join(c for c in str(s) if c.isalnum() or c in "-_")[:64] or "unknown"
+
+
+def _sub_path(student_id: str) -> Path:
+    return SUB_DIR / f"{_safe_id(student_id)}.json"
+
+
+def load_student_subs(student_id: str) -> dict:
+    """한 학생의 제출 기록 전체 {assignment_id: submission}."""
+    p = _sub_path(student_id)
+    if not p.exists():
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_student_subs(student_id: str, data: dict):
+    p = _sub_path(student_id)
+    tmp = p.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    tmp.replace(p)
+
+
+def all_student_ids() -> list:
+    return [p.stem for p in SUB_DIR.glob("*.json")]
+
+
+def get_submission_record(assignment_id: str, student_id: str) -> dict:
+    return load_student_subs(student_id).get(assignment_id) or {}
 
 
 def load_db():
@@ -47,6 +96,30 @@ def save_db(db):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False)
     tmp.replace(DB_PATH)
+
+
+def migrate_submissions_if_needed():
+    """예전 db.json 안에 있던 submissions를 학생별 파일로 옮긴다 (최초 1회)."""
+    db = load_db()
+    old = db.get("submissions") or {}
+    if not old:
+        return
+    grouped = {}
+    for key, sub in old.items():
+        if "__" not in key:
+            continue
+        aid, sid = key.split("__", 1)
+        grouped.setdefault(sid, {})[aid] = sub
+    for sid, subs in grouped.items():
+        existing = load_student_subs(sid)
+        existing.update(subs)
+        save_student_subs(sid, existing)
+    db["submissions"] = {}
+    save_db(db)
+    print(f"[migrate] {len(old)}건의 제출 기록을 학생 {len(grouped)}명 파일로 이전했어요.")
+
+
+migrate_submissions_if_needed()
 
 
 app = FastAPI(title="HappyTree Reading Homework")
@@ -196,10 +269,16 @@ def delete_assignments(payload: dict = Body(...)):
         db = load_db()
         before = len(db["assignments"])
         db["assignments"] = [a for a in db["assignments"] if a["id"] not in ids]
-        for key in list(db["submissions"].keys()):
-            if key.split("__")[0] in ids:
-                del db["submissions"][key]
         save_db(db)
+    for sid in all_student_ids():
+        with _sub_lock(sid):
+            subs = load_student_subs(sid)
+            changed = False
+            for aid in list(subs.keys()):
+                if aid in ids:
+                    del subs[aid]; changed = True
+            if changed:
+                save_student_subs(sid, subs)
     return {"deleted": before - len(db["assignments"])}
 
 
@@ -282,33 +361,29 @@ def reschedule(payload: dict = Body(...)):
 @app.get("/api/student-submissions/{student_id}")
 def student_submissions(student_id: str):
     """한 학생의 모든 과제 제출 상태를 한 번에 반환."""
-    db = load_db()
     out = {}
-    suffix = "__" + student_id
-    for key, sub in db["submissions"].items():
-        if key.endswith(suffix):
-            aid = key[: -len(suffix)]
-            scores = []
-            for takes in (sub.get("items") or []):
-                for t in (takes or []):
-                    if t and t.get("score") is not None:
-                        scores.append(t["score"])
-            out[aid] = {
-                "status": sub.get("status", "none"),
-                "submittedAt": sub.get("submittedAt"),
-                "average": round(sum(scores) / len(scores)) if scores else None,
-            }
+    for aid, sub in load_student_subs(student_id).items():
+        scores = []
+        for takes in (sub.get("items") or []):
+            for t in (takes or []):
+                if t and t.get("score") is not None:
+                    scores.append(t["score"])
+        out[aid] = {
+            "status": sub.get("status", "none"),
+            "submittedAt": sub.get("submittedAt"),
+            "average": round(sum(scores) / len(scores)) if scores else None,
+        }
     return out
 
 
 # ---------- submissions ----------
 @app.get("/api/submissions/{assignment_id}")
 def submissions_for_assignment(assignment_id: str):
-    db = load_db()
     out = {}
-    for key, sub in db["submissions"].items():
-        if key.startswith(assignment_id + "__"):
-            out[key.split("__", 1)[1]] = {
+    for sid in all_student_ids():
+        sub = load_student_subs(sid).get(assignment_id)
+        if sub:
+            out[sid] = {
                 "status": sub.get("status"),
                 "submittedAt": sub.get("submittedAt"),
             }
@@ -317,19 +392,18 @@ def submissions_for_assignment(assignment_id: str):
 
 @app.get("/api/submission/{assignment_id}/{student_id}")
 def get_submission(assignment_id: str, student_id: str):
-    db = load_db()
-    return db["submissions"].get(f"{assignment_id}__{student_id}") or {}
+    return get_submission_record(assignment_id, student_id)
 
 
 @app.post("/api/submission/{assignment_id}/{student_id}")
 def save_submission(assignment_id: str, student_id: str, payload: dict = Body(...)):
-    with _lock:
-        db = load_db()
-        key = f"{assignment_id}__{student_id}"
-        existing = db["submissions"].get(key, {})
+    # 학생별 잠금 — 다른 학생의 저장을 막지 않음
+    with _sub_lock(student_id):
+        subs = load_student_subs(student_id)
+        existing = subs.get(assignment_id, {})
         existing.update(payload)
-        db["submissions"][key] = existing
-        save_db(db)
+        subs[assignment_id] = existing
+        save_student_subs(student_id, subs)
     return existing
 
 
@@ -516,7 +590,7 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: st
 @app.post("/api/suggest-comment/{assignment_id}/{student_id}")
 def suggest_comment(assignment_id: str, student_id: str):
     db = load_db()
-    sub = db["submissions"].get(f"{assignment_id}__{student_id}")
+    sub = get_submission_record(assignment_id, student_id)
     assignment = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
     student = next((s for s in db["students"] if s["id"] == student_id), None)
     if not sub or not assignment:
@@ -619,6 +693,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     student = next((s for s in db["students"] if s["id"] == student_id), None)
     if not student:
         raise HTTPException(404, "학생을 찾을 수 없어요.")
+    student_subs = load_student_subs(student_id)
 
     def parse(d, fallback):
         try:
@@ -652,7 +727,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     acc_all, flu_all, comp_all = [], [], []
 
     for a in assigned:
-        sub = db["submissions"].get(f"{a['id']}__{student_id}") or {}
+        sub = student_subs.get(a["id"]) or {}
         status = sub.get("status", "none")
         if status in ("submitted", "reviewed"):
             submitted_count += 1
@@ -930,7 +1005,15 @@ async def translate(payload: dict = Body(...)):
 # ---------- backup ----------
 @app.get("/api/backup")
 def backup():
-    return load_db()
+    db = load_db()
+    subs = {}
+    for sid in all_student_ids():
+        subs[sid] = load_student_subs(sid)
+    return {
+        "students": db.get("students", []),
+        "assignments": db.get("assignments", []),
+        "studentSubmissions": subs,
+    }
 
 
 @app.post("/api/restore")
@@ -941,9 +1024,26 @@ def restore(payload: dict = Body(...)):
         db = load_db()
         db["students"] = payload["students"]
         db["assignments"] = payload["assignments"]
-        if isinstance(payload.get("submissions"), dict):
-            db["submissions"] = payload["submissions"]
+        db["submissions"] = {}
         save_db(db)
+
+    # 새 형식
+    subs = payload.get("studentSubmissions")
+    if isinstance(subs, dict):
+        for sid, data in subs.items():
+            if isinstance(data, dict):
+                with _sub_lock(sid):
+                    save_student_subs(sid, data)
+    # 예전 형식 ("aid__sid" 평면 구조)도 복원 가능하게
+    elif isinstance(payload.get("submissions"), dict):
+        grouped = {}
+        for key, sub in payload["submissions"].items():
+            if "__" in key:
+                aid, sid = key.split("__", 1)
+                grouped.setdefault(sid, {})[aid] = sub
+        for sid, data in grouped.items():
+            with _sub_lock(sid):
+                save_student_subs(sid, data)
     return {"ok": True}
 
 
