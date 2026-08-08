@@ -1385,6 +1385,7 @@ function BookDetail({ book, group, list, reload, onBack }) {
   const [roundsFrom, setRoundsFrom] = useState("");   // 회차 일괄변경 시작 과제 id ("" = 전체)
   const [newRounds, setNewRounds] = useState(2);
   const [busy, setBusy] = useState(false);
+  const [dupBusy, setDupBusy] = useState(false);
   const [err, setErr] = useState("");
 
   const DAYNAMES = ["일","월","화","수","목","금","토"];
@@ -1400,6 +1401,52 @@ function BookDetail({ book, group, list, reload, onBack }) {
     await apiPost("/assignments/delete-many", { ids: list.map(a=>a.id) });
     onBack();
     await reload();
+  };
+
+  // 같은 과제가 두 번 등록된 것(제목+마감+문항수 동일)을 정리한다.
+  // 학생 제출(녹음)이 있는 복사본은 남기고, 비어 있는 복사본만 삭제.
+  // 중복인데 여러 복사본에 제출이 있으면 안전하게 그대로 둔다.
+  const cleanDupes = async () => {
+    const groups = {};
+    list.forEach(a => {
+      const k = (a.title||"") + "|" + (a.dueDate||"") + "|" + ((a.items||[]).length);
+      (groups[k] = groups[k] || []).push(a);
+    });
+    const dupGroups = Object.values(groups).filter(g => g.length > 1);
+    if (!dupGroups.length) { alert("중복된 과제가 없어요. 👍"); return; }
+    setDupBusy(true); setErr("");
+    try {
+      const toDelete = [];
+      let keptConflict = 0;
+      for (const g of dupGroups) {
+        const counts = await Promise.all(g.map(async a => {
+          const r = await fetch("/api/submissions/" + a.id);
+          const j = await r.json();
+          return { a, n: Object.keys(j || {}).length };
+        }));
+        const withSubs = counts.filter(c => c.n > 0);
+        if (withSubs.length === 0) {
+          counts.slice(1).forEach(c => toDelete.push(c.a));     // 첫 개만 남기고 삭제
+        } else {
+          counts.filter(c => c.n === 0).forEach(c => toDelete.push(c.a)); // 빈 복사본만 삭제
+          if (withSubs.length > 1) keptConflict++;
+        }
+      }
+      if (!toDelete.length) {
+        alert("중복이 있지만 모두 학생 제출이 있어서 자동으로 지우지 않았어요.\n직접 확인 후 삭제해주세요.");
+        setDupBusy(false); return;
+      }
+      if (!confirm(`중복 과제 ${toDelete.length}개를 삭제할까요?\n학생 녹음이 있는 과제는 그대로 두고, 빈 복사본만 지워요.`)) {
+        setDupBusy(false); return;
+      }
+      await Promise.all(toDelete.map(a =>
+        fetch("/api/assignments/" + a.id, { method:"DELETE" })));
+      await reload();
+      let msg = `중복 ${toDelete.length}개를 정리했어요. ✅`;
+      if (keptConflict) msg += `\n(제출이 여러 개인 중복 ${keptConflict}건은 안전하게 그대로 뒀어요.)`;
+      alert(msg);
+    } catch (e) { setErr(e.message); }
+    setDupBusy(false);
   };
 
   // 미루기 대상: fromDate 이후 (비우면 전체)
@@ -1467,9 +1514,13 @@ function BookDetail({ book, group, list, reload, onBack }) {
         ‹ {group} 교재 목록으로
       </button>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8 }}>
-        <div style={{ fontWeight:800, fontSize:16 }}>📗 {book}</div>
-        <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }}
-          onClick={delBook}>교재 전체 삭제</button>
+        <div style={{ fontWeight:800, fontSize:16, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📗 {book}</div>
+        <div className="row" style={{ gap:6, flexShrink:0 }}>
+          <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px" }}
+            onClick={cleanDupes} disabled={dupBusy}>{dupBusy ? "검사 중..." : "🧹 중복 정리"}</button>
+          <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }}
+            onClick={delBook}>교재 전체 삭제</button>
+        </div>
       </div>
 
       <div className="row" style={{ gap:6, marginBottom:8 }}>
