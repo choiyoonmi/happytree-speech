@@ -1010,7 +1010,7 @@ async def translate_text_list(texts):
     if not TRANSLATOR_KEY:
         raise HTTPException(
             400,
-            "번역 키가 없어요. Cloudflare 환경변수에 AZURE_TRANSLATOR_KEY를 추가하거나, "
+            "번역 키가 없어요. Render 환경변수에 AZURE_TRANSLATOR_KEY를 추가하거나, "
             "목록에 'apple / 사과' 형태로 직접 입력해주세요."
         )
 
