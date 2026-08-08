@@ -260,6 +260,49 @@ def add_assignments_bulk(payload: dict = Body(...)):
     return {"created": len(created), "assignments": created}
 
 
+@app.post("/api/assignments/fill-meanings")
+async def fill_assignment_meanings():
+    """기존 과제에서 비어 있는 한글 뜻만 자동 번역해 채운다."""
+    with _lock:
+        db = load_db()
+        missing = []
+        for a in db["assignments"]:
+            meanings = a.get("meanings") or []
+            for idx, text in enumerate(a.get("items") or []):
+                meaning = meanings[idx] if idx < len(meanings) else ""
+                if not str(meaning or "").strip() and str(text or "").strip():
+                    missing.append((a["id"], idx, str(text).strip()))
+
+    if not missing:
+        return {"updatedAssignments": 0, "updatedMeanings": 0}
+
+    translations = await translate_text_list([row[2] for row in missing])
+    changed_assignments = set()
+    changed_meanings = 0
+    with _lock:
+        db = load_db()
+        by_id = {a["id"]: a for a in db["assignments"]}
+        for (aid, idx, source), translated in zip(missing, translations):
+            a = by_id.get(aid)
+            if not a or idx >= len(a.get("items") or []) or a["items"][idx] != source:
+                continue
+            meanings = list(a.get("meanings") or [])
+            if len(meanings) < len(a["items"]):
+                meanings.extend([""] * (len(a["items"]) - len(meanings)))
+            if not str(meanings[idx] or "").strip() and str(translated or "").strip():
+                meanings[idx] = translated
+                a["meanings"] = meanings
+                changed_assignments.add(aid)
+                changed_meanings += 1
+        if changed_meanings:
+            save_db(db)
+
+    return {
+        "updatedAssignments": len(changed_assignments),
+        "updatedMeanings": changed_meanings,
+    }
+
+
 @app.post("/api/assignments/delete-many")
 def delete_assignments(payload: dict = Body(...)):
     ids = set(payload.get("ids") or [])
@@ -959,13 +1002,11 @@ TRANSLATOR_KEY = os.environ.get("AZURE_TRANSLATOR_KEY")
 TRANSLATOR_REGION = os.environ.get("AZURE_TRANSLATOR_REGION", AZURE_REGION)
 
 
-@app.post("/api/translate")
-async def translate(payload: dict = Body(...)):
-    """영어 단어/문장 목록을 한국어로 번역."""
-    texts = payload.get("texts") or []
+async def translate_text_list(texts):
+    """영어 문자열 목록을 한국어로 번역한다."""
     texts = [str(t).strip() for t in texts if str(t).strip()]
     if not texts:
-        return {"translations": []}
+        return []
     if not TRANSLATOR_KEY:
         raise HTTPException(
             400,
@@ -998,6 +1039,14 @@ async def translate(payload: dict = Body(...)):
                     out.append(tr.get("text", ""))
     except httpx.RequestError as e:
         raise HTTPException(502, f"번역 서버에 연결하지 못했어요: {e}")
+
+    return out
+
+
+@app.post("/api/translate")
+async def translate(payload: dict = Body(...)):
+    """영어 단어/문장 목록을 한국어로 번역."""
+    out = await translate_text_list(payload.get("texts") or [])
 
     return {"translations": out}
 
