@@ -1067,6 +1067,7 @@ function AdminAssignments({ students, assignments, reload, voice }) {
   const [classes, setClasses] = useState([]); const [ids, setIds] = useState([]);
   const [err, setErr] = useState(""); const [pdfBusy, setPdfBusy] = useState(false);
   const [trBusy, setTrBusy] = useState(false);
+  const [fillBusy, setFillBusy] = useState(false);
 
   const autoTranslate = async () => {
     const lines = list.split("\n").map(s=>s.trim()).filter(Boolean);
@@ -1153,6 +1154,22 @@ function AdminAssignments({ students, assignments, reload, voice }) {
     await reload();
   };
 
+  const fillExistingMeanings = async () => {
+    if (!assignments.length) return setErr("등록된 과제가 없어요.");
+    if (!confirm("기존 과제에서 비어 있는 한글 뜻을 모두 자동 생성할까요?")) return;
+    setFillBusy(true); setErr("");
+    try {
+      const r = await apiPost("/assignments/fill-meanings", {});
+      await reload();
+      if (r.updatedMeanings) {
+        alert(`${r.updatedAssignments}개 과제의 한글 뜻 ${r.updatedMeanings}개를 채웠어요!`);
+      } else {
+        alert("이미 모든 과제에 한글 뜻이 있어요.");
+      }
+    } catch (e) { setErr(e.message); }
+    setFillBusy(false);
+  };
+
   const toggle = (arr, set, v) => set(arr.includes(v) ? arr.filter(x=>x!==v) : [...arr, v]);
 
   return (
@@ -1161,6 +1178,9 @@ function AdminAssignments({ students, assignments, reload, voice }) {
         <div className="row" style={{ gap:8 }}>
           <button className="btn" style={{ flex:1 }} onClick={()=>setShow(true)}>+ 새 과제 만들기</button>
           <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setShowBulk(true)}>📗 교재 통째로 등록</button>
+          <button className="btn-ghost" style={{ flex:1 }} onClick={fillExistingMeanings} disabled={fillBusy}>
+            {fillBusy ? "한글뜻 생성 중..." : "🇰🇷 기존 과제 한글뜻 채우기"}
+          </button>
         </div>
       ) : showBulk ? (
         <BulkUpload students={students} reload={reload} onClose={()=>setShowBulk(false)} />
