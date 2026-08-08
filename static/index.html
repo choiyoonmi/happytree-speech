@@ -1382,6 +1382,8 @@ function BookDetail({ book, group, list, reload, onBack }) {
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
   const [editRounds, setEditRounds] = useState(3);
+  const [roundsFrom, setRoundsFrom] = useState("");   // 회차 일괄변경 시작 과제 id ("" = 전체)
+  const [newRounds, setNewRounds] = useState(2);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -1440,6 +1442,25 @@ function BookDetail({ book, group, list, reload, onBack }) {
     setBusy(false);
   };
 
+  // 회차 일괄변경 대상: 선택한 과제부터 끝까지 (list는 마감일 순 정렬됨), 비우면 전체
+  const roundsStartIdx = roundsFrom ? list.findIndex(a => a.id === roundsFrom) : 0;
+  const roundsTargets = roundsStartIdx >= 0 ? list.slice(roundsStartIdx) : list;
+
+  const doSetRounds = async () => {
+    if (!roundsTargets.length) return setErr("해당하는 과제가 없어요.");
+    setBusy(true); setErr("");
+    try {
+      await Promise.all(roundsTargets.map(a =>
+        fetch("/api/assignments/" + a.id, {
+          method:"PATCH", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ rounds: newRounds })
+        })
+      ));
+      await reload(); setPanel(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
   return (
     <>
       <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
@@ -1451,12 +1472,44 @@ function BookDetail({ book, group, list, reload, onBack }) {
           onClick={delBook}>교재 전체 삭제</button>
       </div>
 
-      <div className="row" style={{ gap:6, marginBottom:12 }}>
+      <div className="row" style={{ gap:6, marginBottom:8 }}>
         <button className={panel==="shift" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="shift"?null:"shift"); setErr(""); }}>⏭ 뒤로 미루기</button>
         <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="respread"?null:"respread"); setErr(""); }}>🗓 일정 다시 짜기</button>
       </div>
+      <div className="row" style={{ gap:6, marginBottom:12 }}>
+        <button className={panel==="rounds" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setErr(""); }}>🔁 녹음 회차 한꺼번에 바꾸기</button>
+      </div>
+
+      {panel === "rounds" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            선택한 과제부터 마지막 과제까지 녹음 횟수를 한꺼번에 바꿔요.
+          </div>
+          <label className="label">어디부터 바꿀까요</label>
+          <select className="field" value={roundsFrom} onChange={e=>setRoundsFrom(e.target.value)}>
+            <option value="">처음부터 (교재 전체)</option>
+            {list.map(a => <option key={a.id} value={a.id}>{a.title}부터</option>)}
+          </select>
+          <div style={{height:10}} />
+          <label className="label">녹음 횟수</label>
+          <div className="seg" style={{ marginTop:0 }}>
+            {[1,2,3].map(n => (
+              <button key={n} className={newRounds===n?"on":""} onClick={()=>setNewRounds(n)}>{n}회</button>
+            ))}
+          </div>
+          <div className="muted" style={{ marginTop:8 }}>
+            대상 <b style={{color:"var(--navy)"}}>{roundsTargets.length}개</b> 과제
+          </div>
+          {err && <div className="err">{err}</div>}
+          <div style={{height:12}} />
+          <button className="btn full" onClick={doSetRounds} disabled={busy}>
+            {busy ? "변경 중..." : `${roundsTargets.length}개 과제를 ${newRounds}회로 변경`}
+          </button>
+        </div>
+      )}
 
       {panel === "shift" && (
         <div className="card" style={{ background:"var(--cream)" }}>
