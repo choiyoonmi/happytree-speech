@@ -441,7 +441,1437 @@ function StudentView({ student, onLogout }) {
     } catch (e) { setMsg("제출 실패: " + e.message); }
   };
 
-  if (loading) return <div className="cente…16837 tokens truncated…
+  if (loading) return <div className="center"><div className="spin" /></div>;
+
+  if (open && sub) {
+    return (
+      <div className="wrap">
+        <div className="hdr">
+          <div className="row" style={{ gap:12 }}>
+            <button onClick={()=>{ setOpen(null); setSub(null); }} style={{ background:"none", color:"var(--cream)", fontSize:22 }}>‹</button>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{open.title}</div>
+              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>
+                {open.type==="word"?"단어":"문장"} {open.items.length}개 · {open.rounds || 3}회 녹음{open.dueDate ? ` · 마감 ${formatDue(open.dueDate)}` : ""}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="body" style={{ paddingBottom:100 }}>
+          {sub.status === "reviewed" && sub.comment && (
+            <div className="card" style={{ background:"#F3E4B8" }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#8A6D0F", marginBottom:4 }}>선생님 코멘트</div>
+              <div style={{ fontSize:14 }}>{sub.comment}</div>
+            </div>
+          )}
+
+          {(open.rounds || 3) > 1 && (
+            <div className="card" style={{ padding:12 }}>
+              <div className="label" style={{ marginBottom:8 }}>몇 회차를 녹음할까요?</div>
+              <div className="seg" style={{ marginTop:0 }}>
+                {Array.from({length: open.rounds || 3}, (_,r) => {
+                  const done = sub.items.filter(it => it[r]).length;
+                  return (
+                    <button key={r} className={round===r ? "on" : ""} onClick={()=>setRound(r)}>
+                      {r+1}회차 ({done}/{sub.items.length})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {open.items.map((t,i) => (
+            <Recorder key={`${round}-${i}`} index={i} text={t} meaning={(open.meanings||[])[i]}
+              take={sub.items[i][round]} round={round} onSaved={onSaved} voice={voice} />
+          ))}
+        </div>
+        <div style={{ position:"fixed", bottom:0, left:0, right:0, padding:14, background:"var(--cream)", borderTop:"1px solid var(--line)" }}>
+          <div style={{ maxWidth:640, margin:"0 auto" }}>
+            {msg && <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:"var(--navy)", marginBottom:8 }}>{msg}</div>}
+            {!msg && saveMsg && <div style={{ textAlign:"center", fontSize:11, color:"var(--navy-soft)", marginBottom:8 }}>{saveMsg}</div>}
+            <button className="btn full" onClick={submit}>제출하기</button>
+          </div>
+        </div>
+
+        {done && (
+          <div onClick={()=>{ setDone(false); setOpen(null); setSub(null); }}
+            style={{ position:"fixed", inset:0, background:"rgba(27,46,76,0.75)", zIndex:100,
+              display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+            <div style={{ background:"#fff", borderRadius:20, padding:"36px 28px", textAlign:"center",
+              maxWidth:340, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
+              <div style={{ fontSize:56, lineHeight:1, marginBottom:14 }}>🎉</div>
+              <div style={{ fontSize:28, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>제출 완료!</div>
+              <div style={{ fontSize:15, color:"var(--navy-soft)", lineHeight:1.6, marginBottom:22 }}>
+                {student.name} 학생, 오늘도 잘했어요.<br/>선생님이 확인하고 알려줄게요.
+              </div>
+              <button className="btn full" onClick={()=>{ setDone(false); setOpen(null); setSub(null); }}>
+                확인
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="wrap">
+      <div className="hdr">
+        <div>
+          <div style={{ fontSize:11, color:"var(--gold-soft)" }}>반갑습니다</div>
+          <h1>{student.name} 학생</h1>
+        </div>
+        <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
+      </div>
+      <div className="body">
+        <StudentCalendar assignments={mine} statusMap={statusMap} onOpen={openA} />
+      </div>
+    </div>
+  );
+}
+
+// ---------- 학생 달력 ----------
+function StudentCalendar({ assignments, statusMap, onOpen }) {
+  const today = new Date();
+  const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() });
+  const [picked, setPicked] = useState(() =>
+    `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`);
+
+  const byDate = {};
+  const noDate = [];
+  assignments.forEach(a => {
+    if (a.dueDate) (byDate[a.dueDate] = byDate[a.dueDate] || []).push(a);
+    else noDate.push(a);
+  });
+
+  const first = new Date(ym.y, ym.m, 1);
+  const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
+  const startDow = first.getDay();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const key = (d) => `${ym.y}-${String(ym.m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+
+  const move = (delta) => {
+    let m = ym.m + delta, y = ym.y;
+    if (m < 0) { m = 11; y--; }
+    if (m > 11) { m = 0; y++; }
+    setYm({ y, m });
+  };
+
+  const dayState = (d) => {
+    const list = byDate[key(d)] || [];
+    if (!list.length) return null;
+    const sts = list.map(a => statusMap[a.id] || "none");
+    if (sts.every(s => s !== "none")) return "done";
+    if (key(d) < todayKey) return "late";
+    return "todo";
+  };
+
+  const pickedList = byDate[picked] || [];
+
+  return (
+    <>
+      <div className="card" style={{ padding:14 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+          <button onClick={()=>move(-1)} style={{ background:"none", fontSize:22, color:"var(--navy)", padding:"0 10px" }}>‹</button>
+          <div style={{ fontWeight:800, fontSize:17, color:"var(--navy)" }}>{ym.y}년 {ym.m+1}월</div>
+          <button onClick={()=>move(1)} style={{ background:"none", fontSize:22, color:"var(--navy)", padding:"0 10px" }}>›</button>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:4, marginBottom:6 }}>
+          {["일","월","화","수","목","금","토"].map((n,i) => (
+            <div key={n} style={{ textAlign:"center", fontSize:11, fontWeight:700,
+              color: i===0 ? "var(--danger)" : i===6 ? "#3B6FA0" : "var(--navy-soft)" }}>{n}</div>
+          ))}
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:4 }}>
+          {cells.map((d,i) => {
+            if (!d) return <div key={"e"+i} />;
+            const k = key(d);
+            const st = dayState(d);
+            const isToday = k === todayKey;
+            const isPicked = k === picked;
+            const colors = { done:"#2E7D5B", todo:"var(--gold)", late:"var(--danger)" };
+            return (
+              <button key={k} onClick={()=>setPicked(k)}
+                style={{ aspectRatio:"1", borderRadius:10, position:"relative",
+                  background: isPicked ? "var(--navy)" : isToday ? "var(--cream-deep)" : "transparent",
+                  border: isToday && !isPicked ? "1px solid var(--gold)" : "none",
+                  color: isPicked ? "#fff" : "var(--ink)",
+                  fontSize:14, fontWeight: st ? 700 : 400,
+                  display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2 }}>
+                {d}
+                {st && <span style={{ width:6, height:6, borderRadius:"50%",
+                  background: isPicked ? "#fff" : colors[st] }} />}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="row" style={{ gap:12, marginTop:12, justifyContent:"center" }}>
+          {[["#2E7D5B","완료"],["var(--gold)","해야 해요"],["var(--danger)","기한 지남"]].map(([c,l]) => (
+            <span key={l} style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
+              <span style={{ width:7, height:7, borderRadius:"50%", background:c, display:"inline-block" }} />{l}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:14 }}>
+        {picked.slice(5).replace("-","월 ")}일 숙제
+      </div>
+      {!pickedList.length && (
+        <div className="card" style={{ textAlign:"center", padding:24 }}>
+          <span className="muted">이 날은 숙제가 없어요 🎈</span>
+        </div>
+      )}
+      {pickedList.map(a => {
+        const st = statusMap[a.id] || "none";
+        return (
+          <button key={a.id} onClick={()=>onOpen(a)} className="card"
+            style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+            <div style={{ minWidth:0 }}>
+              <div className="row" style={{ marginBottom:5 }}>
+                <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
+                <span className="muted">{a.items.length}개 · {a.rounds||3}회</span>
+              </div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
+            </div>
+            <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+              {st==="none"?"미제출":st==="submitted"?"제출완료":"확인완료"}
+            </Badge>
+          </button>
+        );
+      })}
+
+      {noDate.length > 0 && (
+        <>
+          <div style={{ fontWeight:700, color:"var(--navy)", margin:"18px 4px 8px", fontSize:14 }}>날짜 없는 숙제</div>
+          {noDate.map(a => {
+            const st = statusMap[a.id] || "none";
+            return (
+              <button key={a.id} onClick={()=>onOpen(a)} className="card"
+                style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
+                <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+                  {st==="none"?"미제출":st==="submitted"?"제출완료":"확인완료"}
+                </Badge>
+              </button>
+            );
+          })}
+        </>
+      )}
+    </>
+  );
+}
+
+// ---------- Admin: students ----------
+function AdminStudents({ students, reload }) {
+  const [name, setName] = useState(""); const [cls, setCls] = useState("");
+  const [id, setId] = useState(""); const [pw, setPw] = useState("");
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+
+  const add = async () => {
+    if (!name.trim()) return setErr("이름을 입력해주세요.");
+    setBusy(true); setErr("");
+    try {
+      await apiPost("/students", { name, className: cls, id, pw });
+      setName(""); setCls(""); setId(""); setPw("");
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const del = async (sid) => {
+    if (!confirm("이 학생을 삭제할까요?")) return;
+    await apiDelete("/students/" + sid);
+    await reload();
+  };
+
+  return (
+    <div className="body">
+      <div className="card">
+        <div style={{ fontWeight:700, marginBottom:12, color:"var(--navy)" }}>학생 추가</div>
+        <label className="label">이름</label>
+        <input className="field" value={name} onChange={e=>setName(e.target.value)} placeholder="홍길동" />
+        <div style={{height:10}} />
+        <label className="label">반 (선택)</label>
+        <input className="field" value={cls} onChange={e=>setCls(e.target.value)} placeholder="초등3반" />
+        <div style={{height:10}} />
+        <label className="label">아이디 (비워두면 자동 발급)</label>
+        <input className="field" value={id} onChange={e=>setId(e.target.value)} placeholder="기존 학원 아이디" />
+        <div style={{height:10}} />
+        <label className="label">비밀번호 (비워두면 자동 발급)</label>
+        <input className="field" value={pw} onChange={e=>setPw(e.target.value)} placeholder="기존 비밀번호" />
+        {err && <div className="err">{err}</div>}
+        <div style={{height:14}} />
+        <button className="btn" onClick={add} disabled={busy}>아이디 발급</button>
+      </div>
+
+      {students.map(s => (
+        <div key={s.id} className="card" style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:14 }}>{s.name}{s.className && <span className="muted"> · {s.className}</span>}</div>
+            <div className="muted" style={{ marginTop:3 }}>
+              아이디 <b style={{color:"var(--navy)"}}>{s.id}</b> / 비밀번호 <b style={{color:"var(--navy)"}}>{s.pw}</b>
+            </div>
+          </div>
+          <button onClick={()=>del(s.id)} style={{ background:"none", color:"var(--danger)", fontSize:18 }}>🗑</button>
+        </div>
+      ))}
+      {!students.length && <div style={{ textAlign:"center", padding:40 }} className="muted">등록된 학생이 없어요.</div>}
+    </div>
+  );
+}
+
+// ---------- Admin: bulk book upload ----------
+function BulkUpload({ students, reload, onClose }) {
+  const [rows, setRows] = useState(null);       // [{day, text, meaning}]
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState("word");
+  const [rounds, setRounds] = useState(3);
+  const [perDay, setPerDay] = useState(20);
+  const [hasDayCol, setHasDayCol] = useState(false);
+  const [startDay, setStartDay] = useState(1);
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
+  const [mode, setMode] = useState("all");
+  const [classes, setClasses] = useState([]);
+  const [ids, setIds] = useState([]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [trBusy, setTrBusy] = useState(false);
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+  const DAYNAMES = ["일","월","화","수","목","금","토"];
+
+  const dayNumber = (value) => {
+    const text = String(value ?? "").trim();
+    const match = text.match(/(?:^|[^a-z])day\s*0*(\d+)(?:\D|$)/i)
+      || text.match(/(?:^|\D)0*(\d+)\s*(?:일차|과)(?:\D|$)/);
+    return match ? Number(match[1]) : null;
+  };
+
+  const readFile = async (file) => {
+    setErr(""); setRows(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      const parsed = [];
+      let dayCol = false;
+      for (const sheetName of wb.SheetNames) {
+        const sheetDay = dayNumber(sheetName);
+        if (sheetDay !== null) dayCol = true;
+        let currentDay = sheetDay;
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1 });
+        for (const r of raw) {
+          if (!r || !r.length) continue;
+          const c0 = String(r[0] ?? "").trim();
+          const c1 = String(r[1] ?? "").trim();
+          const c2 = String(r[2] ?? "").trim();
+          const rowDay = dayNumber(c0);
+
+          // 번호/영어단어 같은 표 머리글은 단어로 등록하지 않아요.
+          if (/^(?:no\.?|번호)$/i.test(c0) || /^(?:english\s*word|영어\s*단어)$/i.test(c1)) continue;
+
+          // Day 제목행은 뒤따르는 단어에도 같은 Day를 적용해요.
+          if (rowDay !== null) {
+            currentDay = rowDay;
+            dayCol = true;
+            if (!c1) continue;
+            parsed.push({ day: currentDay, text: c1, meaning: c2 });
+            continue;
+          }
+
+          // 병합된 Day 열에서는 첫 열이 비어 있고 B/C 열에 단어와 뜻이 있어요.
+          const numberedRow = /^\d+$/.test(c0) && c1;
+          const wordCell = numberedRow ? c1 : (c0 || c1);
+          if (!wordCell) continue;
+          const meaningCell = numberedRow ? c2 : (c0 ? c1 : c2);
+          const sp = splitMeaning(wordCell);
+          parsed.push({ day: currentDay, text: sp.text || wordCell, meaning: sp.meaning || meaningCell });
+        }
+      }
+      if (!parsed.length) return setErr("파일에서 읽을 내용이 없어요. A열을 확인해주세요.");
+      setHasDayCol(dayCol);
+      setRows(parsed);
+      const detectedDays = parsed.map(r=>r.day).filter(d=>d !== null);
+      setStartDay(detectedDays.length ? Math.min(...detectedDays) : 1);
+      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+    } catch (e) { setErr("엑셀 파일을 읽는 데 실패했어요."); }
+  };
+
+  // Day별로 묶기
+  const groups = React.useMemo(() => {
+    if (!rows) return [];
+    if (hasDayCol) {
+      const m = {};
+      rows.filter(r => (r.day ?? 1) >= startDay)
+        .forEach(r => { const d = r.day ?? 1; (m[d] = m[d] || []).push(r); });
+      return Object.keys(m).map(Number).sort((a,b)=>a-b).map(d => ({ day:d, rows:m[d] }));
+    }
+    const out = [];
+    for (let i=0; i<rows.length; i+=perDay) {
+      out.push({ day: out.length+1, rows: rows.slice(i, i+perDay) });
+    }
+    return out;
+  }, [rows, hasDayCol, perDay, startDay]);
+
+  // 선택한 요일에 맞춰 마감일 계산
+  const dueDates = React.useMemo(() => {
+    if (!groups.length || !weekdays.length) return [];
+    const out = [];
+    const [y,m,d] = startDate.split("-").map(Number);
+    let cur = new Date(y, m-1, d);
+    let guard = 0;
+    while (out.length < groups.length && guard < 400) {
+      if (weekdays.includes(cur.getDay())) {
+        out.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
+      }
+      cur.setDate(cur.getDate()+1);
+      guard++;
+    }
+    return out;
+  }, [groups.length, startDate, weekdays]);
+
+  const autoTranslate = async () => {
+    if (!rows) return;
+    const need = rows.map((r,i) => r.meaning ? null : i).filter(i => i !== null);
+    if (!need.length) return setErr("이미 모든 항목에 한글 뜻이 있어요.");
+    setTrBusy(true); setErr("");
+    try {
+      const r = await apiPost("/translate", { texts: need.map(i => rows[i].text) });
+      const next = rows.map(x => ({...x}));
+      need.forEach((idx,k) => { next[idx].meaning = r.translations[k] || ""; });
+      setRows(next);
+    } catch (e) { setErr(e.message); }
+    setTrBusy(false);
+  };
+
+  const submit = async () => {
+    if (!groups.length) return setErr("먼저 파일을 올려주세요.");
+    if (!title.trim()) return setErr("교재 이름을 입력해주세요.");
+    if (!weekdays.length) return setErr("숙제 요일을 하나 이상 선택해주세요.");
+    let assignedIds = [];
+    if (mode === "class") {
+      if (!classes.length) return setErr("반을 선택해주세요.");
+      assignedIds = students.filter(s=>classes.includes(s.className)).map(s=>s.id);
+    } else if (mode === "individual") {
+      if (!ids.length) return setErr("학생을 선택해주세요.");
+      assignedIds = ids;
+    }
+    setBusy(true); setErr("");
+    try {
+      const payload = groups.map((g,i) => ({
+        title: `${title.trim()} Day ${g.day}`,
+        book: title.trim(),
+        type, rounds,
+        items: g.rows.map(r=>r.text),
+        meanings: g.rows.map(r=>r.meaning || ""),
+        dueDate: dueDates[i] || null,
+        assignedIds,
+        assignedClasses: mode==="class" ? classes : [],
+      }));
+      const r = await apiPost("/assignments/bulk", { assignments: payload });
+      await reload();
+      alert(`${r.created}개 과제를 등록했어요!`);
+      onClose();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const toggle = (arr, set, v) => set(arr.includes(v) ? arr.filter(x=>x!==v) : [...arr, v]);
+
+  return (
+    <div className="card">
+      <div style={{ fontWeight:800, color:"var(--navy)", marginBottom:4 }}>교재 한 권 통째로 등록</div>
+      <div className="muted" style={{ marginBottom:12 }}>
+        엑셀을 올리면 Day별로 나눠서 여러 과제를 한 번에 만들어요.
+        Day 열이 있으면 그대로 쓰고, 없으면 정한 개수씩 자동으로 잘라요.
+      </div>
+
+      <label className="btn full" style={{ display:"block", textAlign:"center", cursor:"pointer" }}>
+        📗 교재 엑셀 올리기
+        <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
+          onChange={e=>{ const f=e.target.files[0]; if(f) readFile(f); e.target.value=""; }} />
+      </label>
+      <div className="muted" style={{ marginTop:8, fontSize:11, lineHeight:1.6 }}>
+        형식 1 — A열: Day1 / B열: 영어 / C열: 한글뜻<br/>
+        형식 2 — A열: 영어 (또는 "apple / 사과") / B열: 한글뜻
+      </div>
+
+      {err && <div className="err">{err}</div>}
+
+      {rows && (
+        <>
+          <div style={{ marginTop:14, padding:10, background:"var(--cream)", borderRadius:8 }}>
+            <b style={{ color:"var(--navy)" }}>{rows.length}개</b> 항목을 읽었어요 ·
+            {hasDayCol ? " 파일의 Day 구분 사용" : ` ${perDay}개씩 나눔`} →
+            <b style={{ color:"var(--navy)" }}> {groups.length}개 과제</b>
+            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 8px", marginLeft:8 }}
+              onClick={autoTranslate} disabled={trBusy}>
+              {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
+            </button>
+          </div>
+
+          <div style={{height:14}} />
+          <label className="label">교재 이름 (과제 제목에 들어가요)</label>
+          <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: 초등 필수 영단어" />
+          <div className="muted" style={{ marginTop:4 }}>→ "{title || "교재명"} Day 1", "{title || "교재명"} Day 2" ...</div>
+
+          {!hasDayCol && (
+            <>
+              <div style={{height:12}} />
+              <label className="label">하루에 몇 개씩</label>
+              <input className="field" type="number" min="1" max="100" value={perDay}
+                onChange={e=>setPerDay(Math.max(1, Number(e.target.value)||1))} />
+            </>
+          )}
+
+          {hasDayCol && (
+            <>
+              <div style={{height:12}} />
+              <label className="label">시작 Day</label>
+              <input className="field" type="number" min="1" value={startDay}
+                onChange={e=>setStartDay(Math.max(1, Number(e.target.value)||1))} />
+              <div className="muted" style={{ marginTop:4 }}>
+                중간에 시작하는 학생은 여기에서 첫 학습 Day를 선택하세요. 선택한 Day가 아래 시작일에 배정돼요.
+              </div>
+            </>
+          )}
+
+          <div style={{height:12}} />
+          <label className="label">유형</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["word","단어"],["sentence","문장"]].map(([v,l]) => (
+              <button key={v} className={type===v?"on":""} onClick={()=>setType(v)}>{l}</button>
+            ))}
+          </div>
+
+          <div style={{height:12}} />
+          <label className="label">녹음 횟수</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[1,2,3].map(n => (
+              <button key={n} className={rounds===n?"on":""} onClick={()=>setRounds(n)}>{n}회</button>
+            ))}
+          </div>
+
+          <div style={{height:12}} />
+          <label className="label">시작일</label>
+          <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+
+          <div style={{height:12}} />
+          <label className="label">숙제 요일 (선택한 요일에만 마감일이 잡혀요)</label>
+          <div className="row" style={{ gap:5 }}>
+            {DAYNAMES.map((n,i) => (
+              <button key={i} onClick={()=>toggle(weekdays, setWeekdays, i)}
+                style={{ width:40, height:40, borderRadius:"50%", fontSize:14, fontWeight:700,
+                  border:"1px solid var(--navy)",
+                  background: weekdays.includes(i) ? "var(--navy)" : "#fff",
+                  color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>
+                {n}
+              </button>
+            ))}
+          </div>
+
+          <div style={{height:12}} />
+          <label className="label">배정 대상</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
+              <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
+            ))}
+          </div>
+          {mode==="class" && (
+            <div className="row" style={{marginTop:10}}>
+              {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
+              {classNames.map(c=>(
+                <button key={c} onClick={()=>toggle(classes,setClasses,c)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: classes.includes(c)?"var(--navy)":"#fff", color: classes.includes(c)?"var(--cream)":"var(--navy)" }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode==="individual" && (
+            <div className="row" style={{marginTop:10}}>
+              {students.map(s=>(
+                <button key={s.id} onClick={()=>toggle(ids,setIds,s.id)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: ids.includes(s.id)?"var(--navy)":"#fff", color: ids.includes(s.id)?"var(--cream)":"var(--navy)" }}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div style={{height:16}} />
+          <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:8, fontSize:13 }}>
+            등록 미리보기 ({groups.length}개)
+          </div>
+          <div style={{ maxHeight:200, overflowY:"auto", border:"1px solid var(--line)", borderRadius:8 }}>
+            {groups.map((g,i) => (
+              <div key={g.day} style={{ padding:"8px 10px", borderBottom: i<groups.length-1?"1px solid #F0EBDD":"none",
+                display:"flex", justifyContent:"space-between", gap:8, fontSize:12 }}>
+                <span style={{ fontWeight:600 }}>{title || "교재명"} Day {g.day}</span>
+                <span className="muted" style={{ whiteSpace:"nowrap" }}>
+                  {g.rows.length}개 · {dueDates[i] ? `${dueDates[i].slice(5).replace("-","/")} (${DAYNAMES[new Date(dueDates[i]).getDay()]})` : "-"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="row" style={{ marginTop:16 }}>
+            <button className="btn-ghost" onClick={onClose}>취소</button>
+            <button className="btn" onClick={submit} disabled={busy}>
+              {busy ? "등록 중..." : `${groups.length}개 과제 등록하기`}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Admin: assignments ----------
+function AdminAssignments({ students, assignments, reload, voice }) {
+  const [show, setShow] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
+  const [title, setTitle] = useState(""); const [type, setType] = useState("word");
+  const [list, setList] = useState(""); const [due, setDue] = useState("");
+  const [rounds, setRounds] = useState(3);
+  const [mode, setMode] = useState("all");
+  const [classes, setClasses] = useState([]); const [ids, setIds] = useState([]);
+  const [err, setErr] = useState(""); const [pdfBusy, setPdfBusy] = useState(false);
+  const [trBusy, setTrBusy] = useState(false);
+
+  const autoTranslate = async () => {
+    const lines = list.split("\n").map(s=>s.trim()).filter(Boolean);
+    if (!lines.length) return setErr("먼저 목록을 입력해주세요.");
+    setTrBusy(true); setErr("");
+    try {
+      const parsed = lines.map(splitMeaning);
+      const need = parsed.map((p,i) => p.meaning ? null : i).filter(i => i !== null);
+      if (!need.length) { setErr("이미 모든 항목에 한글 뜻이 있어요."); setTrBusy(false); return; }
+      const r = await apiPost("/translate", { texts: need.map(i => parsed[i].text) });
+      need.forEach((idx, k) => { parsed[idx].meaning = r.translations[k] || ""; });
+      setList(parsed.map(p => p.meaning ? `${p.text} / ${p.meaning}` : p.text).join("\n"));
+    } catch (e) { setErr(e.message); }
+    setTrBusy(false);
+  };
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+
+  const readExcel = async (file) => {
+    setErr("");
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1 });
+      const lines = rows.map(r => (r && r.length ? String(r[0] ?? "").trim() : "")).filter(Boolean);
+      if (!lines.length) return setErr("파일에서 읽을 내용이 없어요. A열을 확인해주세요.");
+      setList(p => p.trim() ? p.trim()+"\n"+lines.join("\n") : lines.join("\n"));
+    } catch (e) { setErr("엑셀 파일을 읽는 데 실패했어요."); }
+  };
+
+  const readPdf = async (file) => {
+    setErr(""); setPdfBusy(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      let all = [];
+      for (let p=1; p<=doc.numPages; p++) {
+        const page = await doc.getPage(p);
+        const c = await page.getTextContent();
+        const rows = {};
+        c.items.forEach(it => {
+          const y = Math.round(it.transform[5]);
+          (rows[y] = rows[y] || []).push(it);
+        });
+        Object.keys(rows).map(Number).sort((a,b)=>b-a).forEach(y => {
+          const line = rows[y].sort((a,b)=>a.transform[4]-b.transform[4]).map(i=>i.str).join("").trim();
+          if (line) all.push(line);
+        });
+      }
+      if (!all.length) setErr("PDF에서 텍스트를 찾지 못했어요. 스캔 이미지형일 수 있어요.");
+      else setList(p => p.trim() ? p.trim()+"\n"+all.join("\n") : all.join("\n"));
+    } catch (e) { setErr("PDF를 읽는 데 실패했어요."); }
+    setPdfBusy(false);
+  };
+
+  const create = async () => {
+    const lines = list.split("\n").map(s=>s.trim()).filter(Boolean);
+    if (!title.trim() || !lines.length) return setErr("제목과 목록을 입력해주세요.");
+    const parsed = lines.map(splitMeaning);
+    const items = parsed.map(p => p.text);
+    const meanings = parsed.map(p => p.meaning);
+    let assignedIds = [];
+    if (mode === "class") {
+      if (!classes.length) return setErr("반을 선택해주세요.");
+      assignedIds = students.filter(s=>classes.includes(s.className)).map(s=>s.id);
+    } else if (mode === "individual") {
+      if (!ids.length) return setErr("학생을 선택해주세요.");
+      assignedIds = ids;
+    }
+    try {
+      await apiPost("/assignments", {
+        title, type, items, meanings, dueDate: due || null, rounds, assignedIds,
+        assignedClasses: mode==="class" ? classes : []
+      });
+      setTitle(""); setList(""); setDue(""); setRounds(3); setMode("all"); setClasses([]); setIds([]);
+      setShow(false); setErr("");
+      await reload();
+    } catch (e) { setErr(e.message); }
+  };
+
+  const del = async (aid) => {
+    if (!confirm("이 과제를 삭제할까요?")) return;
+    await apiDelete("/assignments/" + aid);
+    await reload();
+  };
+
+  const toggle = (arr, set, v) => set(arr.includes(v) ? arr.filter(x=>x!==v) : [...arr, v]);
+
+  return (
+    <div className="body">
+      {!show && !showBulk ? (
+        <div className="row" style={{ gap:8 }}>
+          <button className="btn" style={{ flex:1 }} onClick={()=>setShow(true)}>+ 새 과제 만들기</button>
+          <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setShowBulk(true)}>📗 교재 통째로 등록</button>
+        </div>
+      ) : showBulk ? (
+        <BulkUpload students={students} reload={reload} onClose={()=>setShowBulk(false)} />
+      ) : (
+        <div className="card">
+          <label className="label">과제 제목</label>
+          <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: Unit 3 단어" />
+          <div style={{height:10}} />
+          <label className="label">마감일 (선택)</label>
+          <input className="field" type="date" value={due} onChange={e=>setDue(e.target.value)} />
+          <div style={{height:10}} />
+          <label className="label">유형</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["word","단어"],["sentence","문장"]].map(([v,l]) => (
+              <button key={v} className={type===v?"on":""} onClick={()=>setType(v)}>{l}</button>
+            ))}
+          </div>
+          <div style={{height:10}} />
+          <label className="label">녹음 횟수 (전체를 몇 번 반복할지)</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[1,2,3].map(n => (
+              <button key={n} className={rounds===n?"on":""} onClick={()=>setRounds(n)}>{n}회</button>
+            ))}
+          </div>
+          <div style={{height:14}} />
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
+            <span className="label" style={{marginBottom:0}}>목록 (한 줄에 하나씩)</span>
+            <div className="row" style={{gap:6}}>
+              <label className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}>
+                엑셀 업로드
+                <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
+                  onChange={e=>{ const f=e.target.files[0]; if(f) readExcel(f); e.target.value=""; }} />
+              </label>
+              <label className="btn-ghost" style={{ fontSize:12, padding:"6px 10px", opacity: pdfBusy?0.5:1 }}>
+                {pdfBusy ? "분석 중..." : "PDF 업로드"}
+                <input type="file" accept=".pdf" style={{display:"none"}} disabled={pdfBusy}
+                  onChange={e=>{ const f=e.target.files[0]; if(f) readPdf(f); e.target.value=""; }} />
+              </label>
+              <button className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}
+                onClick={autoTranslate} disabled={trBusy}>
+                {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
+              </button>
+            </div>
+          </div>
+          <div style={{height:6}} />
+          <textarea className="field" rows={6} value={list} onChange={e=>setList(e.target.value)}
+            placeholder={"apple / 사과\nbanana / 바나나\n\n한글 뜻은 '/' 뒤에 쓰거나, 영어만 넣고 '한글뜻 자동'을 누르세요."} />
+          {list.trim() && (
+            <div className="row" style={{ marginTop:8 }}>
+              {list.split("\n").map(s=>s.trim()).filter(Boolean).slice(0,6).map((w,i)=>(
+                <button key={i} onClick={()=>speak(w, voice)}
+                  style={{ fontSize:11, padding:"4px 9px", borderRadius:999, background:"var(--cream-deep)", color:"var(--navy)" }}>
+                  🔊 {w}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{height:14}} />
+          <label className="label">배정 대상</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
+              <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
+            ))}
+          </div>
+          {mode==="class" && (
+            <div className="row" style={{marginTop:10}}>
+              {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
+              {classNames.map(c=>(
+                <button key={c} onClick={()=>toggle(classes,setClasses,c)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: classes.includes(c)?"var(--navy)":"#fff", color: classes.includes(c)?"var(--cream)":"var(--navy)" }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode==="individual" && (
+            <div className="row" style={{marginTop:10}}>
+              {students.map(s=>(
+                <button key={s.id} onClick={()=>toggle(ids,setIds,s.id)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: ids.includes(s.id)?"var(--navy)":"#fff", color: ids.includes(s.id)?"var(--cream)":"var(--navy)" }}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {err && <div className="err">{err}</div>}
+          <div className="row" style={{ marginTop:14 }}>
+            <button className="btn-ghost" onClick={()=>{setShow(false); setErr("");}}>취소</button>
+            <button className="btn" onClick={create}>과제 등록</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{height:12}} />
+      <AssignmentBrowser students={students} assignments={assignments} reload={reload} />
+    </div>
+  );
+}
+
+// ---------- 반 → 교재 → 과제 브라우저 ----------
+function AssignmentBrowser({ students, assignments, reload }) {
+  const [group, setGroup] = useState(null);   // 선택한 반/대상
+  const [book, setBook] = useState(null);     // 선택한 교재
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+
+  const groupsOf = (a) => {
+    if (a.assignedClasses?.length) return a.assignedClasses;
+    if (a.assignedIds?.length) {
+      const names = students.filter(s=>a.assignedIds.includes(s.id)).map(s=>s.className || s.name);
+      return [...new Set(names)];
+    }
+    return ["전체"];
+  };
+
+  // 반별 집계
+  const byGroup = {};
+  assignments.forEach(a => groupsOf(a).forEach(g => { (byGroup[g] = byGroup[g] || []).push(a); }));
+  const groupKeys = Object.keys(byGroup).sort();
+
+  if (!group) {
+    return (
+      <>
+        <div style={{ fontWeight:700, color:"var(--navy)", margin:"6px 0 10px", fontSize:13 }}>
+          반 / 대상별 보기
+        </div>
+        {!groupKeys.length && <div className="muted" style={{textAlign:"center",padding:30}}>등록된 과제가 없어요.</div>}
+        {groupKeys.map(g => {
+          const list = byGroup[g];
+          const books = new Set(list.map(a => a.book || a.title));
+          return (
+            <button key={g} className="card" onClick={()=>{setGroup(g); setBook(null);}}
+              style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:15 }}>{g}</div>
+                <div className="muted" style={{ marginTop:3 }}>교재 {books.size}권 · 과제 {list.length}개</div>
+              </div>
+              <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+            </button>
+          );
+        })}
+      </>
+    );
+  }
+
+  const inGroup = byGroup[group] || [];
+  const byBook = {};
+  inGroup.forEach(a => { const b = a.book || a.title; (byBook[b] = byBook[b] || []).push(a); });
+  const bookKeys = Object.keys(byBook).sort();
+
+  if (!book) {
+    return (
+      <>
+        <button onClick={()=>setGroup(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+          ‹ 반 목록으로
+        </button>
+        <div style={{ fontWeight:800, fontSize:16, marginBottom:10 }}>{group}</div>
+        {bookKeys.map(b => {
+          const list = byBook[b];
+          const dues = list.map(a=>a.dueDate).filter(Boolean).sort();
+          return (
+            <button key={b} className="card" onClick={()=>setBook(b)}
+              style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:15 }}>📗 {b}</div>
+                <div className="muted" style={{ marginTop:3 }}>
+                  과제 {list.length}개
+                  {dues.length ? ` · ${formatDue(dues[0])} ~ ${formatDue(dues[dues.length-1])}` : ""}
+                </div>
+              </div>
+              <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+            </button>
+          );
+        })}
+      </>
+    );
+  }
+
+  const list = [...(byBook[book] || [])].sort((x,y) => (x.dueDate||"").localeCompare(y.dueDate||""));
+
+  return <BookDetail book={book} group={group} list={list} reload={reload}
+    onBack={()=>setBook(null)} />;
+}
+
+// ---------- 교재 상세 + 일정 조정 ----------
+function BookDetail({ book, group, list, reload, onBack }) {
+  const [panel, setPanel] = useState(null);   // 'shift' | 'respread' | null
+  const [days, setDays] = useState(7);
+  const [fromDate, setFromDate] = useState("");
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
+  const [editing, setEditing] = useState(null);
+  const [editDue, setEditDue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const DAYNAMES = ["일","월","화","수","목","금","토"];
+  const toggle = (v) => setWeekdays(w => w.includes(v) ? w.filter(x=>x!==v) : [...w, v]);
+
+  const delOne = async (id) => {
+    if (!confirm("이 과제를 삭제할까요?")) return;
+    await apiDelete("/assignments/" + id);
+    await reload();
+  };
+  const delBook = async () => {
+    if (!confirm(`"${book}" 교재의 과제 ${list.length}개를 모두 삭제할까요?\n제출된 녹음 기록도 함께 지워져요.`)) return;
+    await apiPost("/assignments/delete-many", { ids: list.map(a=>a.id) });
+    onBack();
+    await reload();
+  };
+
+  // 미루기 대상: fromDate 이후 (비우면 전체)
+  const shiftTargets = fromDate
+    ? list.filter(a => a.dueDate && a.dueDate >= fromDate)
+    : list;
+
+  const doShift = async () => {
+    if (!days) return setErr("미룰 일수를 입력해주세요.");
+    if (!shiftTargets.length) return setErr("해당하는 과제가 없어요.");
+    setBusy(true); setErr("");
+    try {
+      await apiPost("/assignments/reschedule",
+        { mode:"shift", ids: shiftTargets.map(a=>a.id), days: Number(days) });
+      await reload(); setPanel(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const doRespread = async () => {
+    if (!weekdays.length) return setErr("요일을 하나 이상 선택해주세요.");
+    setBusy(true); setErr("");
+    try {
+      await apiPost("/assignments/reschedule",
+        { mode:"respread", ids: list.map(a=>a.id), startDate, weekdays });
+      await reload(); setPanel(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const saveOne = async (id) => {
+    setBusy(true); setErr("");
+    try {
+      await fetch("/api/assignments/" + id, {
+        method:"PATCH", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ dueDate: editDue || null })
+      });
+      await reload(); setEditing(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+        ‹ {group} 교재 목록으로
+      </button>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8 }}>
+        <div style={{ fontWeight:800, fontSize:16 }}>📗 {book}</div>
+        <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }}
+          onClick={delBook}>교재 전체 삭제</button>
+      </div>
+
+      <div className="row" style={{ gap:6, marginBottom:12 }}>
+        <button className={panel==="shift" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="shift"?null:"shift"); setErr(""); }}>⏭ 뒤로 미루기</button>
+        <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="respread"?null:"respread"); setErr(""); }}>🗓 일정 다시 짜기</button>
+      </div>
+
+      {panel === "shift" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            진도가 밀렸을 때, 특정 날짜부터 뒤에 있는 과제들의 마감일을 한꺼번에 미뤄요.
+          </div>
+          <label className="label">이 날짜부터 (비우면 교재 전체)</label>
+          <input className="field" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} />
+          <div style={{height:10}} />
+          <label className="label">며칠 미룰까요</label>
+          <div className="row" style={{ gap:6, marginBottom:8 }}>
+            {[1,2,3,7,14].map(n => (
+              <button key={n} onClick={()=>setDays(n)}
+                style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                  background: days===n ? "var(--navy)" : "#fff", color: days===n ? "var(--cream)" : "var(--navy)" }}>
+                {n}일
+              </button>
+            ))}
+          </div>
+          <input className="field" type="number" value={days} onChange={e=>setDays(e.target.value)} />
+          <div className="muted" style={{ marginTop:8 }}>
+            대상 <b style={{color:"var(--navy)"}}>{shiftTargets.length}개</b> 과제
+          </div>
+          {err && <div className="err">{err}</div>}
+          <div style={{height:12}} />
+          <button className="btn full" onClick={doShift} disabled={busy}>
+            {busy ? "적용 중..." : `${shiftTargets.length}개 과제를 ${days}일 미루기`}
+          </button>
+        </div>
+      )}
+
+      {panel === "respread" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            시작일과 요일을 새로 정하면, 교재 전체 일정을 처음부터 다시 계산해요.
+          </div>
+          <label className="label">새 시작일</label>
+          <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+          <div style={{height:10}} />
+          <label className="label">숙제 요일</label>
+          <div className="row" style={{ gap:5 }}>
+            {DAYNAMES.map((n,i) => (
+              <button key={i} onClick={()=>toggle(i)}
+                style={{ width:38, height:38, borderRadius:"50%", fontSize:13, fontWeight:700, border:"1px solid var(--navy)",
+                  background: weekdays.includes(i) ? "var(--navy)" : "#fff",
+                  color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
+            ))}
+          </div>
+          {err && <div className="err">{err}</div>}
+          <div style={{height:12}} />
+          <button className="btn full" onClick={doRespread} disabled={busy}>
+            {busy ? "적용 중..." : `${list.length}개 과제 일정 다시 짜기`}
+          </button>
+        </div>
+      )}
+
+      {list.map(a => (
+        <div key={a.id} className="card" style={{ padding:12 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+            <div style={{ minWidth:0 }}>
+              <div className="row" style={{ marginBottom:4 }}>
+                <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
+                <span className="muted">{a.items.length}개 · {a.rounds || 3}회</span>
+              </div>
+              <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
+              {editing === a.id ? (
+                <div className="row" style={{ marginTop:8, gap:6 }}>
+                  <input className="field" type="date" style={{ flex:1, padding:"7px 10px", fontSize:13 }}
+                    value={editDue} onChange={e=>setEditDue(e.target.value)} />
+                  <button className="btn" style={{ padding:"7px 12px", fontSize:12 }}
+                    onClick={()=>saveOne(a.id)} disabled={busy}>저장</button>
+                  <button className="btn-ghost" style={{ padding:"7px 12px", fontSize:12 }}
+                    onClick={()=>setEditing(null)}>취소</button>
+                </div>
+              ) : (
+                <button onClick={()=>{ setEditing(a.id); setEditDue(a.dueDate || ""); }}
+                  style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12 }}>
+                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} <span style={{ color:"var(--gold)" }}>✏️</span>
+                </button>
+              )}
+            </div>
+            <button onClick={()=>delOne(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// ---------- Admin: review ----------
+function AdminReview({ students, assignments }) {
+  const [view, setView] = useState("class");   // class | all
+  const [cls, setCls] = useState(null);
+  const [sid, setSid] = useState(null);
+
+  const classNames = [...new Set(students.map(s => s.className).filter(Boolean))].sort();
+  const noClass = students.filter(s => !s.className);
+
+  if (sid) {
+    const student = students.find(s => s.id === sid);
+    return <StudentReview student={student} assignments={assignments}
+      onBack={() => setSid(null)} />;
+  }
+
+  // 학생 목록 (반 선택됨 또는 전체보기)
+  if (cls || view === "all") {
+    const list = view === "all" ? students : students.filter(s => s.className === cls);
+    return (
+      <div className="body">
+        <button onClick={() => { setCls(null); if (view === "all") setView("class"); }}
+          style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+          ‹ 목록으로
+        </button>
+        <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>
+          {view === "all" ? "전체 학생" : cls}
+        </div>
+        {list.map(s => (
+          <button key={s.id} className="card" onClick={() => setSid(s.id)}
+            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{s.name}</div>
+              {s.className && <div className="muted" style={{ marginTop:2 }}>{s.className}</div>}
+            </div>
+            <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+          </button>
+        ))}
+        {!list.length && <div className="muted" style={{ textAlign:"center", padding:30 }}>학생이 없어요.</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="body">
+      <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
+        <button className={view==="class" ? "on" : ""} onClick={()=>setView("class")}>반별</button>
+        <button className={view==="all" ? "on" : ""} onClick={()=>setView("all")}>개인별</button>
+      </div>
+
+      {classNames.map(c => {
+        const n = students.filter(s => s.className === c).length;
+        return (
+          <button key={c} className="card" onClick={() => setCls(c)}
+            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{c}</div>
+              <div className="muted" style={{ marginTop:2 }}>학생 {n}명</div>
+            </div>
+            <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+          </button>
+        );
+      })}
+
+      {noClass.length > 0 && (
+        <>
+          <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:13 }}>반 미지정</div>
+          {noClass.map(s => (
+            <button key={s.id} className="card" onClick={() => setSid(s.id)}
+              style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+              <div style={{ fontWeight:700, fontSize:15 }}>{s.name}</div>
+              <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+            </button>
+          ))}
+        </>
+      )}
+
+      {!classNames.length && !noClass.length &&
+        <div className="muted" style={{ textAlign:"center", padding:30 }}>등록된 학생이 없어요.</div>}
+    </div>
+  );
+}
+
+// ---------- 학생 한 명의 제출 현황 ----------
+function StudentReview({ student, assignments, onBack }) {
+  const [tab, setTab] = useState("word");
+  const [subs, setSubs] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [openA, setOpenA] = useState(null);
+
+  useEffect(() => {
+    apiGet(`/student-submissions/${student.id}`)
+      .then(setSubs).catch(()=>setSubs({})).finally(()=>setLoading(false));
+  }, [student.id]);
+
+  const mine = assignments.filter(a =>
+    (!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id));
+  const list = mine.filter(a => (a.type || "word") === tab)
+    .sort((x,y) => (y.dueDate||"").localeCompare(x.dueDate||""));
+
+  if (openA) {
+    return <SubmissionDetail student={student} assignment={openA}
+      onBack={() => { setOpenA(null); apiGet(`/student-submissions/${student.id}`).then(setSubs).catch(()=>{}); }} />;
+  }
+
+  const counts = {
+    word: mine.filter(a => (a.type||"word") === "word").length,
+    sentence: mine.filter(a => a.type === "sentence").length,
+  };
+
+  return (
+    <div className="body">
+      <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+        ‹ 학생 목록으로
+      </button>
+      <div style={{ fontWeight:800, fontSize:18, marginBottom:2 }}>{student.name}</div>
+      {student.className && <div className="muted" style={{ marginBottom:12 }}>{student.className}</div>}
+
+      <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
+        <button className={tab==="word" ? "on" : ""} onClick={()=>setTab("word")}>
+          단어 ({counts.word})
+        </button>
+        <button className={tab==="sentence" ? "on" : ""} onClick={()=>setTab("sentence")}>
+          문장 ({counts.sentence})
+        </button>
+      </div>
+
+      {loading && <div className="center"><div className="spin" /></div>}
+
+      {!loading && !list.length && (
+        <div className="muted" style={{ textAlign:"center", padding:30 }}>
+          {tab==="word" ? "단어" : "문장"} 과제가 없어요.
+        </div>
+      )}
+
+      {!loading && list.map(a => {
+        const s = subs[a.id] || {};
+        const st = s.status || "none";
+        return (
+          <button key={a.id} className="card" onClick={()=>setOpenA(a)}
+            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left", gap:10 }}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
+              <div className="muted" style={{ marginTop:3 }}>
+                {a.items.length}개 · {a.rounds||3}회
+                {a.dueDate ? ` · 마감 ${formatDue(a.dueDate)}` : ""}
+              </div>
+            </div>
+            <div style={{ textAlign:"right", flexShrink:0 }}>
+              {s.average != null && (
+                <div style={{ fontSize:19, fontWeight:800, marginBottom:2,
+                  color: s.average>=85 ? "#2E7D5B" : s.average>=60 ? "#8A6D0F" : "var(--danger)" }}>
+                  {s.average}
+                </div>
+              )}
+              <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+                {st==="none"?"미제출":st==="submitted"?"확인 대기":"확인완료"}
+              </Badge>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- 과제 하나의 녹음 상세 ----------
+function SubmissionDetail({ student, assignment, onBack }) {
+  const a = assignment;
+  const [sub, setSub] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [comment, setComment] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const s = await apiGet(`/submission/${a.id}/${student.id}`);
+      setSub(s); setComment(s.comment || "");
+      setLoading(false);
+      if (s && s.items && !s.comment) {
+        setAiBusy(true);
+        try {
+          const r = await apiPost(`/suggest-comment/${a.id}/${student.id}`);
+          setComment(r.comment);
+        } catch (e) {}
+        setAiBusy(false);
+      }
+    })();
+  }, [a.id, student.id]);
+
+  const regenerate = async () => {
+    setAiBusy(true);
+    try {
+      const r = await apiPost(`/suggest-comment/${a.id}/${student.id}`);
+      setComment(r.comment);
+    } catch (e) { setMsg("코멘트 생성 실패: " + e.message); }
+    setAiBusy(false);
+  };
+
+  const markDone = async () => {
+    try {
+      await apiPost(`/submission/${a.id}/${student.id}`,
+        { status:"reviewed", comment, reviewedAt: nowStr() });
+      setMsg("저장됐어요."); setTimeout(()=>setMsg(""), 1800);
+    } catch (e) { setMsg("저장 실패: " + e.message); }
+  };
+
+  if (loading) return <div className="body"><div className="center"><div className="spin" /></div></div>;
+
+  return (
+    <div className="body">
+      <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+        ‹ {student.name} 과제 목록으로
+      </button>
+      <div style={{ fontWeight:800, fontSize:16, marginBottom:2 }}>
+        [{a.type==="word"?"단어":"문장"}] {a.title}
+      </div>
+      <div className="muted" style={{ marginBottom:14 }}>
+        {student.name}{student.className ? ` · ${student.className}` : ""}
+      </div>
+
+      {!sub || !sub.items ? (
+        <div className="muted" style={{ textAlign:"center", padding:40 }}>아직 제출하지 않았어요.</div>
+      ) : (
+        <>
+          {a.items.map((text,i) => {
+            const takes = normalizeTakes(sub.items[i]).slice(0, a.rounds || 3);
+            return (
+              <div key={i} className="card">
+                <div style={{ fontWeight:600, fontSize:15, marginBottom:8 }}>
+                  {i+1}. {text}
+                  {(a.meanings||[])[i] && <span className="muted" style={{ marginLeft:8 }}>{(a.meanings||[])[i]}</span>}
+                </div>
+                {takes.some(t=>t) ? takes.map((t,ti) => t && (
+                  <div key={ti} style={{ marginBottom:10, paddingBottom:10,
+                    borderBottom: ti<takes.length-1 ? "1px solid #F0EBDD" : "none" }}>
+                    <div className="row">
+                      <span className="muted" style={{ width:28, fontWeight:700 }}>{ti+1}회</span>
+                      <audio controls src={t.audio} style={{ flex:1 }} />
+                    </div>
+                    {t.score != null ? (
+                      <div style={{ display:"flex", gap:8, marginTop:8, marginLeft:34, alignItems:"center", flexWrap:"wrap" }}>
+                        <div style={{ minWidth:52, textAlign:"center", padding:"5px 8px", borderRadius:8,
+                          background: t.score>=85 ? "#DFF0E8" : t.score>=60 ? "#F3E4B8" : "#F3D9D2" }}>
+                          <div style={{ fontSize:19, fontWeight:800, lineHeight:1,
+                            color: t.score>=85 ? "#2E7D5B" : t.score>=60 ? "#8A6D0F" : "var(--danger)" }}>{t.score}</div>
+                          <div style={{ fontSize:9, color:"var(--navy-soft)" }}>종합</div>
+                        </div>
+                        {t.detail && [["정확도",t.detail.accuracy],["유창성",t.detail.fluency],["완성도",t.detail.completeness]].map(([l,v])=>(
+                          <div key={l} style={{ minWidth:46, textAlign:"center" }}>
+                            <div style={{ fontSize:15, fontWeight:700, color:"var(--navy)" }}>{v != null ? v : "-"}</div>
+                            <div style={{ fontSize:9, color:"var(--navy-soft)" }}>{l}</div>
+                          </div>
+                        ))}
+                        {t.recognized && <span className="muted">"{t.recognized}"</span>}
+                      </div>
+                    ) : t.assessError ? (
+                      <div style={{ marginLeft:34, marginTop:6 }}>
+                        <div style={{ fontSize:11, color:"var(--danger)" }}>⚠ {t.assessError}</div>
+                        {t.assessDebug && <div style={{ fontSize:10, color:"var(--navy-soft)", marginTop:2 }}>{t.assessDebug}</div>}
+                      </div>
+                    ) : null}
+                    {t.words && t.words.filter(w=>w.accuracy!=null && w.accuracy<70).length > 0 && (
+                      <div className="row" style={{ marginLeft:34, marginTop:6, gap:5 }}>
+                        <span className="muted">약한 단어:</span>
+                        {t.words.filter(w=>w.accuracy!=null && w.accuracy<70).map((w,wi)=>(
+                          <span key={wi} style={{ fontSize:11, padding:"2px 8px", borderRadius:999,
+                            background:"#F3D9D2", color:"var(--danger)", fontWeight:600 }}>
+                            {w.word} {Math.round(w.accuracy)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )) : <div className="err">녹음 없음</div>}
+              </div>
+            );
+          })}
+
+          <div className="card">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom:6 }}>
+              <span className="label" style={{ marginBottom:0 }}>선생님 코멘트 (학생에게 표시됩니다)</span>
+              <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px" }}
+                onClick={regenerate} disabled={aiBusy}>
+                {aiBusy ? "분석 중..." : "✨ 코멘트 다시 만들기"}
+              </button>
+            </div>
+            <textarea className="field" rows={5} value={comment} onChange={e=>setComment(e.target.value)}
+              placeholder="예) 발음이 좋아요! r 발음만 한번 더 연습해볼까요?" />
+          </div>
+
+          {msg && <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:"var(--navy)", marginBottom:8 }}>{msg}</div>}
+          <button className="btn full" onClick={markDone}>확인 완료로 표시</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Line chart (SVG) ----------
+function LineChart({ data }) {
+  const W = 560, H = 200, PL = 34, PR = 12, PT = 12, PB = 30;
+  const iw = W - PL - PR, ih = H - PT - PB;
+  const n = data.length;
+  const x = i => n === 1 ? PL + iw/2 : PL + (i / (n - 1)) * iw;
+  const y = v => PT + ih - (v / 100) * ih;
+
+  const series = [
+    { key:"pron",        color:"#1B2E4C", w:2.5 },
+    { key:"accuracy",    color:"#C9A227", w:2 },
+    { key:"fluency",     color:"#5B8C7B", w:2 },
+    { key:"submitRate",  color:"#B3432F", w:1.5, dash:"4 3" },
+  ];
+
+  const pathFor = key => {
+    let d = "", started = false;
+    data.forEach((p, i) => {
+      const v = p[key];
+      if (v == null) { started = false; return; }
+      d += (started ? " L" : " M") + x(i) + " " + y(v);
+      started = true;
+    });
+    return d.trim();
+  };
+
+  const labelEvery = Math.max(1, Math.ceil(n / 6));
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:"auto", display:"block" }}>
+      {[0,25,50,75,100].map(g => (
+        <g key={g}>
+          <line x1={PL} y1={y(g)} x2={W-PR} y2={y(g)} stroke="#E3DCC8" strokeWidth="1" />
+          <text x={PL-6} y={y(g)+3.5} textAnchor="end" fontSize="9" fill="#3C5075">{g}</text>
+        </g>
+      ))}
+      {series.map(s => (
+        <path key={s.key} d={pathFor(s.key)} fill="none" stroke={s.color}
+          strokeWidth={s.w} strokeDasharray={s.dash || "none"}
+          strokeLinejoin="round" strokeLinecap="round" />
+      ))}
+      {series.map(s => data.map((p,i) => p[s.key] == null ? null : (
+        <circle key={s.key+i} cx={x(i)} cy={y(p[s.key])} r={s.key==="pron" ? 3.2 : 2.2} fill={s.color} />
+      )))}
+      {data.map((p,i) => (i % labelEvery === 0 || i === n-1) && (
+        <text key={"lb"+i} x={x(i)} y={H-10} textAnchor="middle" fontSize="9" fill="#3C5075">
+          {p.date.slice(5).replace("-","/")}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+// ---------- Admin: report ----------
+function AdminReport({ students }) {
+  const [sid, setSid] = useState(students[0]?.id || "");
+  const [start, setStart] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 29);
+    return d.toISOString().slice(0,10);
+  });
+  const [end, setEnd] = useState(() => new Date().toISOString().slice(0,10));
+  const [rep, setRep] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [note, setNote] = useState("");
+  const sheetRef = useRef(null);
+
+  const load = async () => {
+    if (!sid) return;
+    setBusy(true); setMsg(""); setRep(null);
+    try {
       const r = await apiGet(`/report/${sid}?start=${start}&end=${end}`);
       setRep(r); setNote(r.summary);
     } catch (e) { setMsg("불러오기 실패: " + e.message); }
