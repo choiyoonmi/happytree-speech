@@ -101,6 +101,11 @@ function formatDue(d) {
 function seriesOf(title) {
   return (title || "").replace(/\s*Day\s*\d+\s*$/i, "").trim() || (title || "");
 }
+// 제목 끝의 "Day N"에서 숫자만 뽑는다. 없으면 null.
+function dayNum(title) {
+  const m = /Day\s*(\d+)\s*$/i.exec(title || "");
+  return m ? parseInt(m[1], 10) : null;
+}
 function dueStatus(d) {
   if (!d) return null;
   const t = new Date(); t.setHours(0,0,0,0);
@@ -1366,7 +1371,11 @@ function AssignmentBrowser({ students, assignments, reload }) {
     );
   }
 
-  const list = [...(byBook[book] || [])].sort((x,y) => (x.dueDate||"").localeCompare(y.dueDate||""));
+  const list = [...(byBook[book] || [])].sort((x,y) => {
+    const dx = dayNum(x.title), dy = dayNum(y.title);
+    if (dx != null && dy != null && dx !== dy) return dx - dy;   // Day 1 → 마지막 Day
+    return (x.dueDate||"").localeCompare(y.dueDate||"");          // Day 번호 없으면 마감일 순
+  });
 
   return <BookDetail book={book} group={group} list={list} reload={reload}
     onBack={()=>setBook(null)} />;
