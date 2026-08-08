@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, UploadFile, Form, HTTPException, File, Body
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydub import AudioSegment
 
@@ -1049,6 +1049,38 @@ async def translate(payload: dict = Body(...)):
     out = await translate_text_list(payload.get("texts") or [])
 
     return {"translations": out}
+
+
+VOCAB_TEST_URL = "https://vocab-test-generator.onrender.com/api/generate-all"
+
+
+@app.post("/api/vocab-test")
+async def vocab_test(payload: dict = Body(...)):
+    """과제 단어(units)를 시험지 생성기로 프록시해 시험지 PDF를 받아온다.
+    브라우저는 같은 출처만 호출하므로 CORS/프리플라이트가 필요 없다."""
+    units = payload.get("units") or []
+    if not units:
+        raise HTTPException(400, "시험지로 만들 단어가 없어요.")
+    body = {
+        "academy_name": payload.get("academy_name") or "해피트리학원 국영수문해력센터",
+        "book_title": payload.get("book_title") or "",
+        "units": units,
+        "shuffle": bool(payload.get("shuffle")),
+        "direction": payload.get("direction") or "kor_to_eng",
+    }
+    try:
+        # 생성기가 자고 있으면 깨어나는 데 시간이 걸려 넉넉히 대기
+        async with httpx.AsyncClient(timeout=180) as client:
+            r = await client.post(VOCAB_TEST_URL, json=body)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"시험지 생성기 연결 실패: {e}")
+    if r.status_code != 200:
+        raise HTTPException(502, f"시험지 생성기 오류 ({r.status_code})")
+    return Response(
+        content=r.content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=vocab_test.pdf"},
+    )
 
 
 # ---------- backup ----------

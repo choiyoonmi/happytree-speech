@@ -1414,8 +1414,7 @@ function BookDetail({ book, group, list, reload, onBack }) {
   };
 
   // 이 교재의 과제 단어(items+meanings)로 단어시험지 PDF를 만든다.
-  // 시험지 생성기(vocab-test-generator) API를 호출해 책 전체(유닛별 페이지) PDF를 받는다.
-  const VOCAB_API = "https://vocab-test-generator.onrender.com";
+  // 낭독 앱 백엔드(/api/vocab-test)가 시험지 생성기를 대신 호출하므로 CORS가 필요 없다.
   const makeVocabTest = async () => {
     const wordAsgs = list.filter(a => (a.type || "word") === "word" && (a.items || []).length);
     if (!wordAsgs.length) { alert("이 교재에 단어 유형 과제가 없어요."); return; }
@@ -1427,14 +1426,18 @@ function BookDetail({ book, group, list, reload, onBack }) {
     }));
     setTestBusy(true); setErr("");
     try {
-      const res = await fetch(VOCAB_API + "/api/generate-all", {
+      const res = await fetch("/api/vocab-test", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           academy_name: "해피트리학원 국영수문해력센터",
           book_title: book, units, direction: "kor_to_eng",
         }),
       });
-      if (!res.ok) throw new Error("생성기 응답 오류 (" + res.status + ")");
+      if (!res.ok) {
+        let detail = "생성기 응답 오류 (" + res.status + ")";
+        try { const j = await res.json(); detail = j.detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
