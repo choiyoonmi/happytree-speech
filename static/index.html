@@ -867,7 +867,25 @@ function BulkUpload({ students, reload, onClose }) {
     }
     setBusy(true); setErr("");
     try {
-      const payload = groups.map((g,i) => ({
+      // 뜻이 비어 있는 단어는 과제 등록 전에 자동으로 한글 뜻을 생성해요.
+      const translatedGroups = groups.map(g => ({
+        ...g,
+        rows: g.rows.map(r => ({...r})),
+      }));
+      const missing = [];
+      translatedGroups.forEach((g,gi) => g.rows.forEach((r,ri) => {
+        if (!r.meaning) missing.push({ gi, ri, text:r.text });
+      }));
+      if (missing.length) {
+        setTrBusy(true);
+        const tr = await apiPost("/translate", { texts:missing.map(x=>x.text) });
+        missing.forEach((m,k) => {
+          translatedGroups[m.gi].rows[m.ri].meaning = tr.translations[k] || "";
+        });
+        setTrBusy(false);
+      }
+
+      const payload = translatedGroups.map((g,i) => ({
         title: `${title.trim()} Day ${g.day}`,
         book: title.trim(),
         type, rounds,
@@ -881,7 +899,7 @@ function BulkUpload({ students, reload, onClose }) {
       await reload();
       alert(`${r.created}개 과제를 등록했어요!`);
       onClose();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { setErr(e.message); setTrBusy(false); }
     setBusy(false);
   };
 
