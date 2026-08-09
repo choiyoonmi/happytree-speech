@@ -1505,7 +1505,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
 
   const groupsOf = (a) => {
-    if (a.published === false) return ["📦 보관함 (미배정)"];
+    if (a.published === false) return ["📦 보관함"];
     if (a.assignedClasses?.length) return a.assignedClasses;
     if (a.assignedIds?.length) {
       const names = students.filter(s=>a.assignedIds.includes(s.id)).map(s=>s.className || s.name);
@@ -2112,7 +2112,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
               ) : (
                 <button onClick={()=>openEdit(a)}
                   style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12, textAlign:"left" }}>
-                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회 · {a.published===false ? "📦 보관(미배정)" : (a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
+                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회 · {a.published===false ? "📦 보관함" : (a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
                 </button>
               )}
             </div>
