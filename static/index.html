@@ -166,6 +166,11 @@ function speak(text, voice, rate) {
   u.pitch = 1.05;
   speechSynthesis.speak(u);
 }
+// 선생님이 올린 음원(url)이 있으면 그걸 재생, 없으면 TTS로 읽기
+function playModel(url, text, voice, rate) {
+  if (url) { try { const a = new Audio(url); a.play(); return; } catch (e) {} }
+  speak(text, voice, rate);
+}
 
 function Badge({ tone, children }) {
   return <span className={"badge " + tone}>{children}</span>;
@@ -240,7 +245,7 @@ function Login({ onStudent, onAdmin, onBattle }) {
 }
 
 // ---------- Recorder ----------
-function Recorder({ index, text, meaning, take, round, onSaved, voice }) {
+function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl }) {
   const [rec, setRec] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -331,13 +336,13 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice }) {
           )}
         </div>
         <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
-          <button onClick={()=>speak(text, voice, 0.7)}
+          <button onClick={()=>playModel(audioUrl, text, voice, 0.7)}
             style={{ background:"var(--cream-deep)", color:"var(--navy)", borderRadius:9, padding:"8px 12px", fontSize:13, fontWeight:600, whiteSpace:"nowrap" }}>
-            🔊 듣기
+            {audioUrl ? "🔊 선생님 발음" : "🔊 듣기"}
           </button>
-          <button onClick={()=>speak(text, voice, 0.45)}
+          <button onClick={()=> audioUrl ? playModel(audioUrl, text, voice) : speak(text, voice, 0.45)}
             style={{ background:"#fff", color:"var(--navy)", border:"1px solid var(--line)", borderRadius:9, padding:"7px 12px", fontSize:12, whiteSpace:"nowrap" }}>
-            🐢 천천히
+            {audioUrl ? "🔁 다시" : "🐢 천천히"}
           </button>
         </div>
       </div>
@@ -516,7 +521,8 @@ function StudentView({ student, onLogout }) {
 
           {open.items.map((t,i) => (
             <Recorder key={`${round}-${i}`} index={i} text={t} meaning={(open.meanings||[])[i]}
-              take={sub.items[i][round]} round={round} onSaved={onSaved} voice={voice} />
+              take={sub.items[i][round]} round={round} onSaved={onSaved} voice={voice}
+              audioUrl={(open.exampleAudio||[])[i]} />
           ))}
         </div>
         <div style={{ position:"fixed", bottom:0, left:0, right:0, padding:14, background:"var(--cream)", borderTop:"1px solid var(--line)" }}>
@@ -1469,9 +1475,29 @@ function BookDetail({ book, group, list, reload, onBack }) {
   const [busy, setBusy] = useState(false);
   const [dupBusy, setDupBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
+  const [audioAsg, setAudioAsg] = useState(null);
+  const [audioBusy, setAudioBusy] = useState(null);
   const [err, setErr] = useState("");
 
   const DAYNAMES = ["일","월","화","수","목","금","토"];
+
+  const uploadEx = async (aid, i, file) => {
+    if (!file) return;
+    setAudioBusy(aid + ":" + i);
+    try {
+      const fd = new FormData();
+      fd.append("index", i);
+      fd.append("audio", file);
+      const res = await fetch(`/api/assignments/${aid}/example-audio`, { method:"POST", body: fd });
+      if (!res.ok) throw new Error("업로드 실패 (" + res.status + ")");
+      await reload();
+    } catch (e) { alert("음원 업로드 실패: " + e.message); }
+    setAudioBusy(null);
+  };
+  const clearEx = async (aid, i) => {
+    await fetch(`/api/assignments/${aid}/example-audio/${i}`, { method:"DELETE" });
+    await reload();
+  };
   const toggle = (v) => setWeekdays(w => w.includes(v) ? w.filter(x=>x!==v) : [...w, v]);
 
   const delOne = async (id) => {
@@ -1779,8 +1805,34 @@ function BookDetail({ book, group, list, reload, onBack }) {
                 </button>
               )}
             </div>
-            <button onClick={()=>delOne(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, alignItems:"flex-end", flexShrink:0 }}>
+              <button onClick={()=>delOne(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
+              <button onClick={()=>setAudioAsg(audioAsg===a.id ? null : a.id)} title="발음/음가 음원 관리"
+                style={{ background:"none", fontSize:16 }}>🎵</button>
+            </div>
           </div>
+
+          {audioAsg === a.id && (
+            <div style={{ marginTop:10, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+              <div className="muted" style={{ marginBottom:8 }}>각 항목에 선생님 발음·음가 음원을 올려요 (mp3·m4a 등). 카드암기·녹음 화면에서 학생이 이 소리를 들어요.</div>
+              {a.items.map((it, i) => {
+                const url = (a.exampleAudio || [])[i];
+                const key = a.id + ":" + i;
+                return <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
+                  <div style={{ flex:1, minWidth:0, fontWeight:700, fontSize:14, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {url ? "🔊 " : "⬜ "}{it}
+                  </div>
+                  {url && <button onClick={()=>playModel(url)} className="btn-ghost" style={{ padding:"4px 9px", fontSize:12 }}>▶</button>}
+                  <label className="btn-ghost" style={{ padding:"4px 9px", fontSize:12, whiteSpace:"nowrap", opacity: audioBusy===key ? 0.5 : 1 }}>
+                    {audioBusy===key ? "올리는 중..." : (url ? "교체" : "음원 올리기")}
+                    <input type="file" accept="audio/*" style={{ display:"none" }}
+                      onChange={e=>{ const f=e.target.files[0]; if(f) uploadEx(a.id, i, f); e.target.value=""; }} />
+                  </label>
+                  {url && <button onClick={()=>clearEx(a.id, i)} style={{ background:"none", color:"var(--danger)", fontSize:14 }}>✕</button>}
+                </div>;
+              })}
+            </div>
+          )}
         </div>
       ))}
     </>
@@ -2596,7 +2648,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const reloadProgress = () => apiGet(`/vocab/${student.id}`).then(d => setRec(d[cur.id] || null)).catch(()=>{});
   useEffect(() => { reloadProgress(); }, []);
 
-  const pairs = cur.items.map((w, i) => ({ word: w, kor: (cur.meanings && cur.meanings[i]) || "" }));
+  const pairs = cur.items.map((w, i) => ({ word: w, kor: (cur.meanings && cur.meanings[i]) || "", audio: (cur.exampleAudio && cur.exampleAudio[i]) || null }));
 
   const backToModes = () => { setMode(null); };
   const saveResult = async (correct, total) => {
@@ -2634,7 +2686,7 @@ function Flashcards({ pairs, title, voice, onBack }) {
   const [i, setI] = useState(0);
   const [flip, setFlip] = useState(false);
   const p = order[i];
-  useEffect(() => { if (p) speak(p.word, voice); }, [i]);   // 카드가 바뀌면 발음 자동재생
+  useEffect(() => { if (p) playModel(p.audio, p.word, voice); }, [i]);   // 카드가 바뀌면 발음 자동재생(선생님 음원 우선)
   const move = (d) => { setFlip(false); setI(x => Math.max(0, Math.min(order.length - 1, x + d))); };
   return <>
     <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
@@ -2644,7 +2696,7 @@ function Flashcards({ pairs, title, voice, onBack }) {
       <div style={{ fontSize:26, fontWeight:800, color:"var(--navy)" }}>{flip ? p.kor : p.word}</div>
       <div className="muted">{flip ? "영어 보기" : "뜻 보기"} (탭)</div>
     </button>
-    <button className="btn-ghost" style={{ width:"100%", marginTop:8 }} onClick={()=>speak(p.word, voice)}>🔊 다시 듣기</button>
+    <button className="btn-ghost" style={{ width:"100%", marginTop:8 }} onClick={()=>playModel(p.audio, p.word, voice)}>🔊 다시 듣기{p.audio ? " (선생님)" : ""}</button>
     <div className="row" style={{ gap:8, marginTop:8 }}>
       <button className="btn-ghost" style={{ flex:1 }} onClick={()=>move(-1)} disabled={i===0}>이전</button>
       <button className="btn" style={{ flex:1 }} onClick={()=>move(1)} disabled={i===order.length-1}>다음</button>

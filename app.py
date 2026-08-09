@@ -523,12 +523,61 @@ async def upload_audio(audio: UploadFile = File(...)):
     return {"url": f"/api/audio/{name}"}
 
 
+AUDIO_TYPES = {
+    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".mp4": "audio/mp4",
+    ".wav": "audio/wav", ".ogg": "audio/ogg", ".webm": "audio/webm",
+    ".aac": "audio/aac",
+}
+
+
 @app.get("/api/audio/{name}")
 def get_audio(name: str):
     path = AUDIO_DIR / name
     if not path.exists():
         raise HTTPException(404, "not found")
-    return FileResponse(path, media_type="audio/webm")
+    ext = os.path.splitext(name)[1].lower()
+    return FileResponse(path, media_type=AUDIO_TYPES.get(ext, "audio/webm"))
+
+
+@app.post("/api/assignments/{assignment_id}/example-audio")
+async def set_example_audio(assignment_id: str, index: int = Form(...), audio: UploadFile = File(...)):
+    """과제 한 항목(예: 알파벳)에 선생님 발음/음가 음원 파일을 올려 붙인다."""
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(400, "빈 오디오 파일이에요.")
+    ext = os.path.splitext(audio.filename or "")[1].lower()
+    if ext not in AUDIO_TYPES:
+        ext = ".mp3"
+    name = "ex_" + uuid.uuid4().hex + ext
+    with open(AUDIO_DIR / name, "wb") as f:
+        f.write(raw)
+    url = f"/api/audio/{name}"
+    with _lock:
+        db = load_db()
+        for a in db["assignments"]:
+            if a["id"] == assignment_id:
+                n = len(a.get("items", []))
+                arr = a.get("exampleAudio") or []
+                while len(arr) < n:
+                    arr.append(None)
+                if 0 <= index < n:
+                    arr[index] = url
+                a["exampleAudio"] = arr
+                save_db(db)
+                return {"url": url, "index": index}
+    raise HTTPException(404, "과제를 찾을 수 없어요.")
+
+
+@app.delete("/api/assignments/{assignment_id}/example-audio/{index}")
+def clear_example_audio(assignment_id: str, index: int):
+    with _lock:
+        db = load_db()
+        for a in db["assignments"]:
+            if a["id"] == assignment_id and a.get("exampleAudio") and 0 <= index < len(a["exampleAudio"]):
+                a["exampleAudio"][index] = None
+                save_db(db)
+                return {"ok": True}
+    return {"ok": True}
 
 
 # ---------- Azure pronunciation assessment ----------
