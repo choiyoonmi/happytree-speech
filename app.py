@@ -33,6 +33,9 @@ DEFAULT_DB = {"students": [], "assignments": [], "submissions": {}}
 SUB_DIR = DATA_DIR / "submissions"
 SUB_DIR.mkdir(parents=True, exist_ok=True)
 
+VOCAB_DIR = DATA_DIR / "vocab"   # 단어 자습 점수/진도 (학생별 파일)
+VOCAB_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def _sub_lock(student_id: str):
     """학생별 잠금 — 서로 다른 학생은 동시에 저장 가능."""
@@ -72,6 +75,34 @@ def save_student_subs(student_id: str, data: dict):
 
 def all_student_ids() -> list:
     return [p.stem for p in SUB_DIR.glob("*.json")]
+
+
+# ---------- 단어 자습 저장소 (학생별 파일, assignment_id별 기록) ----------
+def _vocab_path(student_id: str) -> Path:
+    return VOCAB_DIR / f"{_safe_id(student_id)}.json"
+
+
+def load_vocab(student_id: str) -> dict:
+    p = _vocab_path(student_id)
+    if not p.exists():
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_vocab(student_id: str, data: dict):
+    p = _vocab_path(student_id)
+    tmp = p.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    tmp.replace(p)
+
+
+def all_vocab_student_ids() -> list:
+    return [p.stem for p in VOCAB_DIR.glob("*.json")]
 
 
 def get_submission_record(assignment_id: str, student_id: str) -> dict:
@@ -1081,6 +1112,54 @@ async def vocab_test(payload: dict = Body(...)):
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=vocab_test.pdf"},
     )
+
+
+# ---------- 단어 자습 (같은 과제 단어를 자습·시험, 점수 저장) ----------
+def _now_kr() -> str:
+    from datetime import datetime
+    d = datetime.now()
+    return f"{d.month}/{d.day} {d.hour:02d}:{d.minute:02d}"
+
+
+@app.post("/api/vocab/{assignment_id}/{student_id}")
+def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(...)):
+    """단어 자습 한 판 결과 저장. body: {mode, correct, total}"""
+    mode = str(payload.get("mode") or "test")[:20]
+    correct = max(0, int(payload.get("correct") or 0))
+    total = int(payload.get("total") or 0)
+    if total <= 0:
+        raise HTTPException(400, "문항 수가 없어요.")
+    correct = min(correct, total)
+    score = round(correct * 100 / total)
+    now = _now_kr()
+    with _sub_lock(student_id):
+        data = load_vocab(student_id)
+        rec = data.get(assignment_id) or {"attempts": 0, "best": 0, "byMode": {}}
+        rec["attempts"] = rec.get("attempts", 0) + 1
+        rec["best"] = max(rec.get("best", 0), score)
+        rec["last"] = {"mode": mode, "correct": correct, "total": total, "score": score, "at": now}
+        by = rec.get("byMode") or {}
+        bm = by.get(mode) or {"attempts": 0, "best": 0}
+        bm["attempts"] = bm.get("attempts", 0) + 1
+        bm["best"] = max(bm.get("best", 0), score)
+        bm["last"] = {"correct": correct, "total": total, "score": score, "at": now}
+        by[mode] = bm
+        rec["byMode"] = by
+        data[assignment_id] = rec
+        save_vocab(student_id, data)
+    return rec
+
+
+@app.get("/api/vocab/{student_id}")
+def get_vocab(student_id: str):
+    """한 학생의 단어 자습 기록 전체 {assignment_id: record}."""
+    return load_vocab(student_id)
+
+
+@app.get("/api/vocab-all")
+def get_vocab_all():
+    """선생님 대시보드용: 모든 학생의 단어 자습 기록 {student_id: {aid: record}}."""
+    return {sid: load_vocab(sid) for sid in all_vocab_student_ids()}
 
 
 # ---------- backup ----------

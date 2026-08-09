@@ -387,6 +387,7 @@ function StudentView({ student, onLogout }) {
   const [msg, setMsg] = useState("");
   const [saveMsg, setSaveMsg] = useState("");
   const [done, setDone] = useState(false);
+  const [homeTab, setHomeTab] = useState("record");
 
   const mine = assignments.filter(a =>
     (!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id));
@@ -535,7 +536,13 @@ function StudentView({ student, onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="body">
-        <StudentCalendar assignments={mine} statusMap={statusMap} onOpen={openA} />
+        <div className="seg" style={{ marginBottom:14 }}>
+          <button className={homeTab==="record" ? "on" : ""} onClick={()=>setHomeTab("record")}>📅 녹음 숙제</button>
+          <button className={homeTab==="vocab" ? "on" : ""} onClick={()=>setHomeTab("vocab")}>📚 단어 자습</button>
+        </div>
+        {homeTab === "record"
+          ? <StudentCalendar assignments={mine} statusMap={statusMap} onOpen={openA} />
+          : <VocabStudy student={student} assignments={mine} />}
       </div>
     </div>
   );
@@ -2451,17 +2458,277 @@ function AdminView({ onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="tabs">
-        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
+        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["vocab","단어자습"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
           <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
         ))}
       </div>
       {tab==="students" && <AdminStudents students={students} reload={reload} />}
       {tab==="assignments" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
       {tab==="review" && <AdminReview students={students} assignments={assignments} />}
+      {tab==="vocab" && <AdminVocab students={students} assignments={assignments} />}
       {tab==="report" && <AdminReport students={students} />}
       {tab==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
     </div>
   );
+}
+
+// ---------- 단어 자습 ----------
+function shuffleArr(a) {
+  const b = a.slice();
+  for (let i = b.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [b[i], b[j]] = [b[j], b[i]];
+  }
+  return b;
+}
+
+function VocabStudy({ student, assignments }) {
+  const sets = assignments.filter(a => (a.type || "word") === "word" && (a.items || []).length);
+  const [progress, setProgress] = useState({});
+  const [setId, setSetId] = useState(null);
+  const [mode, setMode] = useState(null);
+
+  const reloadProgress = () => apiGet(`/vocab/${student.id}`).then(setProgress).catch(()=>{});
+  useEffect(() => { reloadProgress(); }, []);
+
+  if (!sets.length) {
+    return <div className="card" style={{ textAlign:"center", padding:24 }}>
+      <span className="muted">아직 배정된 단어장이 없어요. 선생님이 단어 과제를 내주면 여기서 자습할 수 있어요.</span>
+    </div>;
+  }
+
+  const cur = sets.find(s => s.id === setId);
+
+  if (!cur) {
+    return <>
+      <div style={{ fontWeight:700, color:"var(--navy)", margin:"4px 4px 8px", fontSize:14 }}>단어장을 골라 자습해요</div>
+      {sets.map(s => {
+        const rec = progress[s.id];
+        return <button key={s.id} className="card" onClick={()=>{ setSetId(s.id); setMode(null); }}
+          style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontWeight:700, fontSize:15 }}>{s.title}</div>
+            <div className="muted" style={{ marginTop:3 }}>{s.items.length}단어{rec ? ` · 최고 ${rec.best}점` : ""}</div>
+          </div>
+          <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+        </button>;
+      })}
+    </>;
+  }
+
+  const pairs = cur.items.map((w, i) => ({ word: w, kor: (cur.meanings && cur.meanings[i]) || "" }));
+
+  if (!mode) {
+    const rec = progress[cur.id];
+    const bm = (rec && rec.byMode) || {};
+    const modes = [
+      ["flash", "🃏 카드 암기", "단어와 뜻을 넘기며 외워요"],
+      ["choice", "✅ 뜻 고르기", "4개 중 맞는 뜻 고르기"],
+      ["spell", "⌨️ 스펠링", "뜻을 보고 영어 단어 쓰기"],
+      ["test", "📝 미니 테스트", "섞어서 시험 · 점수 기록"],
+    ];
+    return <>
+      <button onClick={()=>setSetId(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 단어장 목록</button>
+      <div style={{ fontWeight:800, fontSize:16, marginBottom:4 }}>{cur.title}</div>
+      <div className="muted" style={{ marginBottom:12 }}>{pairs.length}단어{rec ? ` · 최고 ${rec.best}점 · ${rec.attempts}회` : ""}</div>
+      {modes.map(([id, label, desc]) => (
+        <button key={id} className="card" onClick={()=>setMode(id)}
+          style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+          <div><div style={{ fontWeight:700, fontSize:15 }}>{label}</div>
+            <div className="muted" style={{ marginTop:2 }}>{desc}{bm[id] ? ` · 최고 ${bm[id].best}점` : ""}</div></div>
+          <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+        </button>
+      ))}
+    </>;
+  }
+
+  const backToModes = () => { setMode(null); };
+  const saveResult = async (correct, total) => {
+    try { await apiPost(`/vocab/${cur.id}/${student.id}`, { mode, correct, total }); } catch (e) {}
+    reloadProgress();
+  };
+
+  if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} onBack={backToModes} />;
+  if (mode === "choice") return <ChoiceQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} />;
+  if (mode === "spell") return <SpellQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} />;
+  if (mode === "test") return <ChoiceQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} limit={Math.min(20, pairs.length)} />;
+  return null;
+}
+
+function Flashcards({ pairs, title, onBack }) {
+  const [order] = useState(() => shuffleArr(pairs));
+  const [i, setI] = useState(0);
+  const [flip, setFlip] = useState(false);
+  const p = order[i];
+  const move = (d) => { setFlip(false); setI(x => Math.max(0, Math.min(order.length - 1, x + d))); };
+  return <>
+    <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
+    <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{order.length}</div>
+    <button onClick={()=>setFlip(f=>!f)} className="card"
+      style={{ width:"100%", minHeight:180, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:10 }}>
+      <div style={{ fontSize:26, fontWeight:800, color:"var(--navy)" }}>{flip ? p.kor : p.word}</div>
+      <div className="muted">{flip ? "영어 보기" : "뜻 보기"} (탭)</div>
+    </button>
+    <div className="row" style={{ gap:8, marginTop:12 }}>
+      <button className="btn-ghost" style={{ flex:1 }} onClick={()=>move(-1)} disabled={i===0}>이전</button>
+      <button className="btn" style={{ flex:1 }} onClick={()=>move(1)} disabled={i===order.length-1}>다음</button>
+    </div>
+  </>;
+}
+
+function ChoiceQuiz({ pairs, title, onBack, onDone, limit }) {
+  const [qs] = useState(() => shuffleArr(pairs).slice(0, limit || pairs.length).map(q => {
+    const others = shuffleArr(pairs.filter(p => p !== q)).slice(0, 3).map(p => p.kor);
+    return { ...q, options: shuffleArr([q.kor, ...others]) };
+  }));
+  const [i, setI] = useState(0);
+  const [score, setScore] = useState(0);
+  const [picked, setPicked] = useState(null);
+  const [wrong, setWrong] = useState([]);
+  const [phase, setPhase] = useState("q");
+  const q = qs[i];
+
+  const choose = (opt) => {
+    if (picked != null) return;
+    setPicked(opt);
+    const ok = opt === q.kor;
+    const ns = score + (ok ? 1 : 0);
+    if (!ok) setWrong(w => [...w, q]);
+    setTimeout(() => {
+      setScore(ns);
+      if (i + 1 >= qs.length) { setPhase("result"); onDone(ns, qs.length); }
+      else { setI(i + 1); setPicked(null); }
+    }, 620);
+  };
+
+  if (phase === "result") return <QuizResult title={title} score={score} total={qs.length} wrong={wrong} onBack={onBack} />;
+
+  return <>
+    <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
+    <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{qs.length} · 맞음 {score}</div>
+    <div className="card" style={{ padding:22, textAlign:"center" }}>
+      <div style={{ fontSize:24, fontWeight:800, color:"var(--navy)" }}>{q.word}</div>
+    </div>
+    <div style={{ marginTop:10, display:"grid", gap:8 }}>
+      {q.options.map((opt, k) => {
+        let bg = "#fff", col = "var(--navy)", bd = "var(--line)";
+        if (picked != null) {
+          if (opt === q.kor) { bg = "#E3F1E9"; col = "#2E7D5B"; bd = "#8FC7AA"; }
+          else if (opt === picked) { bg = "#F6E1DC"; col = "var(--danger)"; bd = "#E8C4BC"; }
+        }
+        return <button key={k} onClick={()=>choose(opt)} disabled={picked != null}
+          style={{ textAlign:"left", padding:"12px 14px", borderRadius:10, border:`1px solid ${bd}`, background:bg, color:col, fontSize:15, fontWeight:600 }}>{opt}</button>;
+      })}
+    </div>
+  </>;
+}
+
+function SpellQuiz({ pairs, title, onBack, onDone }) {
+  const [qs] = useState(() => shuffleArr(pairs));
+  const [i, setI] = useState(0);
+  const [val, setVal] = useState("");
+  const [score, setScore] = useState(0);
+  const [checked, setChecked] = useState(null); // null | "ok" | "no"
+  const [wrong, setWrong] = useState([]);
+  const [phase, setPhase] = useState("q");
+  const q = qs[i];
+  const norm = (s) => (s || "").trim().toLowerCase();
+
+  const check = () => {
+    if (checked != null) return;
+    const ok = norm(val) === norm(q.word) && norm(val) !== "";
+    setChecked(ok ? "ok" : "no");
+    if (!ok) setWrong(w => [...w, q]);
+    const ns = score + (ok ? 1 : 0);
+    setTimeout(() => {
+      setScore(ns);
+      if (i + 1 >= qs.length) { setPhase("result"); onDone(ns, qs.length); }
+      else { setI(i + 1); setVal(""); setChecked(null); }
+    }, 850);
+  };
+
+  if (phase === "result") return <QuizResult title={title} score={score} total={qs.length} wrong={wrong} onBack={onBack} />;
+
+  return <>
+    <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
+    <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{qs.length} · 맞음 {score}</div>
+    <div className="card" style={{ padding:22, textAlign:"center" }}>
+      <div style={{ fontSize:20, fontWeight:800, color:"var(--navy)" }}>{q.kor}</div>
+      <div className="muted" style={{ marginTop:4 }}>영어로 쓰기</div>
+    </div>
+    <input className="field" value={val} onChange={e=>setVal(e.target.value)}
+      onKeyDown={e=>{ if (e.key === "Enter") check(); }} placeholder="정답 입력" disabled={checked != null}
+      style={{ marginTop:10, borderColor: checked==="ok" ? "#8FC7AA" : checked==="no" ? "#E8C4BC" : undefined }} />
+    {checked === "no" && <div style={{ marginTop:6, color:"var(--danger)", fontSize:13 }}>정답: <b>{q.word}</b></div>}
+    <button className="btn full" style={{ marginTop:10 }} onClick={check} disabled={checked != null}>확인</button>
+  </>;
+}
+
+function QuizResult({ title, score, total, wrong, onBack }) {
+  const pct = total ? Math.round(score * 100 / total) : 0;
+  return <>
+    <div className="card" style={{ textAlign:"center", padding:24 }}>
+      <div style={{ fontSize:13, color:"var(--navy-soft)" }}>{title}</div>
+      <div style={{ fontSize:40, fontWeight:800, color:"var(--navy)", marginTop:8 }}>{pct}점</div>
+      <div className="muted" style={{ marginTop:4 }}>{total}문제 중 {score}개 정답</div>
+    </div>
+    {wrong.length > 0 && <>
+      <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:14 }}>틀린 단어 {wrong.length}개</div>
+      {wrong.map((p, k) => (
+        <div key={k} className="card" style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px" }}>
+          <b style={{ color:"var(--navy)" }}>{p.word}</b><span className="muted">{p.kor}</span>
+        </div>
+      ))}
+    </>}
+    <button className="btn full" style={{ marginTop:14 }} onClick={onBack}>모드 선택으로</button>
+  </>;
+}
+
+// ---------- Admin: 단어 자습 현황 ----------
+function AdminVocab({ students, assignments }) {
+  const [all, setAll] = useState(null);
+  const [sid, setSid] = useState(null);
+  useEffect(() => { apiGet("/vocab-all").then(setAll).catch(()=>setAll({})); }, []);
+
+  if (all == null) return <div className="body"><div className="center"><div className="spin" /></div></div>;
+
+  const titleOf = (aid) => { const a = assignments.find(x => x.id === aid); return a ? a.title : aid; };
+  const nameOf = (id) => { const s = students.find(x => x.id === id); return s ? s.name : id; };
+  const studiedCount = (id) => Object.keys(all[id] || {}).length;
+
+  if (sid) {
+    const recs = all[sid] || {};
+    const entries = Object.keys(recs).map(aid => [aid, recs[aid]])
+      .sort((a, b) => (((b[1].last && b[1].last.at) || "")).localeCompare((a[1].last && a[1].last.at) || ""));
+    return <div className="body">
+      <button onClick={()=>setSid(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 목록</button>
+      <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>{nameOf(sid)} · 단어 자습</div>
+      {!entries.length && <div className="muted" style={{ textAlign:"center", padding:24 }}>아직 자습 기록이 없어요.</div>}
+      {entries.map(([aid, rec]) => (
+        <div key={aid} className="card" style={{ padding:12 }}>
+          <div style={{ fontWeight:700, fontSize:14 }}>{titleOf(aid)}</div>
+          <div className="muted" style={{ marginTop:4 }}>
+            최고 <b style={{ color:"var(--navy)" }}>{rec.best}점</b> · {rec.attempts}회
+            {rec.last ? ` · 최근 ${rec.last.score}점 (${rec.last.at})` : ""}
+          </div>
+        </div>
+      ))}
+    </div>;
+  }
+
+  const active = students.filter(s => studiedCount(s.id) > 0).length;
+  return <div className="body">
+    <div className="muted" style={{ marginBottom:10 }}>학생을 누르면 단어 자습 점수·기록을 볼 수 있어요. (자습 참여 {active}/{students.length}명)</div>
+    {students.map(s => (
+      <button key={s.id} className="card" onClick={()=>setSid(s.id)}
+        style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+        <div><div style={{ fontWeight:700, fontSize:15 }}>{s.name}</div>
+          {s.className && <div className="muted" style={{ marginTop:2 }}>{s.className}</div>}</div>
+        <span className="muted">{studiedCount(s.id) ? `${studiedCount(s.id)}세트` : "기록 없음"}</span>
+      </button>
+    ))}
+    {!students.length && <div className="muted" style={{ textAlign:"center", padding:24 }}>학생이 없어요.</div>}
+  </div>;
 }
 
 // ---------- Root ----------
