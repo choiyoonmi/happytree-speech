@@ -411,7 +411,8 @@ function StudentView({ student, onLogout }) {
   const [vocabProgress, setVocabProgress] = useState({});
 
   const mine = assignments.filter(a =>
-    (!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id));
+    a.published !== false &&
+    ((!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id)));
 
   const reloadVocab = () => apiGet(`/vocab/${student.id}`).then(setVocabProgress).catch(()=>{});
 
@@ -945,7 +946,8 @@ function BulkUpload({ students, reload, onClose }) {
   const submit = async () => {
     if (!groups.length) return setErr("먼저 파일을 올려주세요.");
     if (!title.trim()) return setErr("교재 이름을 입력해주세요.");
-    if (!weekdays.length) return setErr("숙제 요일을 하나 이상 선택해주세요.");
+    const hidden = mode === "hidden";
+    if (!hidden && !weekdays.length) return setErr("숙제 요일을 하나 이상 선택해주세요.");
     let assignedIds = [];
     if (mode === "class") {
       if (!classes.length) return setErr("반을 선택해주세요.");
@@ -980,9 +982,10 @@ function BulkUpload({ students, reload, onClose }) {
         type, rounds,
         items: g.rows.map(r=>r.text),
         meanings: g.rows.map(r=>r.meaning || ""),
-        dueDate: dueDates[i] || null,
+        dueDate: hidden ? null : (dueDates[i] || null),
         assignedIds,
         assignedClasses: mode==="class" ? classes : [],
+        published: !hidden,
       }));
       const r = await apiPost("/assignments/bulk", { assignments: payload });
       await reload();
@@ -1089,10 +1092,11 @@ function BulkUpload({ students, reload, onClose }) {
           <div style={{height:12}} />
           <label className="label">배정 대상</label>
           <div className="seg" style={{marginTop:0}}>
-            {[["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
+            {[["all","전체"],["class","반별"],["individual","개별"],["hidden","보관"]].map(([v,l]) => (
               <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
             ))}
           </div>
+          {mode==="hidden" && <div className="muted" style={{ marginTop:8, fontSize:12 }}>📦 보관: 학생에게 안 보이게 저장만 해요. 나중에 과제 카드의 ✏️에서 전체/반별/개별로 배정하세요.</div>}
           {mode==="class" && (
             <div className="row" style={{marginTop:10}}>
               {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
@@ -1228,8 +1232,8 @@ function AdminAssignments({ students, assignments, reload, voice }) {
     }
     try {
       await apiPost("/assignments", {
-        title, type, items, meanings, dueDate: due || null, rounds, assignedIds,
-        assignedClasses: mode==="class" ? classes : []
+        title, type, items, meanings, dueDate: mode==="hidden" ? null : (due || null), rounds, assignedIds,
+        assignedClasses: mode==="class" ? classes : [], published: mode!=="hidden"
       });
       setTitle(""); setList(""); setDue(""); setRounds(3); setMode("all"); setClasses([]); setIds([]);
       setShow(false); setErr("");
@@ -1330,10 +1334,11 @@ function AdminAssignments({ students, assignments, reload, voice }) {
           <div style={{height:14}} />
           <label className="label">배정 대상</label>
           <div className="seg" style={{marginTop:0}}>
-            {[["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
+            {[["all","전체"],["class","반별"],["individual","개별"],["hidden","보관"]].map(([v,l]) => (
               <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
             ))}
           </div>
+          {mode==="hidden" && <div className="muted" style={{ marginTop:8, fontSize:12 }}>📦 보관: 학생에게 안 보이게 저장만 해요. 나중에 과제 카드의 ✏️에서 전체/반별/개별로 배정하세요.</div>}
           {mode==="class" && (
             <div className="row" style={{marginTop:10}}>
               {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
@@ -1649,7 +1654,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     setEditRounds(a.rounds || 3);
     const hasClass = (a.assignedClasses || []).length > 0;
     const hasIds = (a.assignedIds || []).length > 0;
-    setEditMode(hasClass ? "class" : hasIds ? "individual" : "all");
+    setEditMode(a.published === false ? "hidden" : hasClass ? "class" : hasIds ? "individual" : "all");
     setEditClasses(a.assignedClasses || []);
     setEditIds(a.assignedIds || []);
   };
@@ -1664,10 +1669,11 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     } else if (editMode === "individual") {
       assignedIds = editIds;
     }
+    const published = editMode !== "hidden";
     try {
       await fetch("/api/assignments/" + id, {
         method:"PATCH", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ dueDate: editDue || null, rounds: editRounds, assignedIds, assignedClasses })
+        body: JSON.stringify({ dueDate: editDue || null, rounds: editRounds, assignedIds, assignedClasses, published })
       });
       await reload(); setEditing(null);
     } catch (e) { setErr(e.message); }
@@ -1832,10 +1838,11 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
                   </div>
                   <label className="label" style={{ marginTop:10, marginBottom:4 }}>배정 대상</label>
                   <div className="seg" style={{ marginTop:0 }}>
-                    {[["all","전체"],["class","반별"],["individual","개별"]].map(([m,l]) => (
+                    {[["all","전체"],["class","반별"],["individual","개별"],["hidden","보관"]].map(([m,l]) => (
                       <button key={m} className={editMode===m?"on":""} onClick={()=>setEditMode(m)}>{l}</button>
                     ))}
                   </div>
+                  {editMode==="hidden" && <div className="muted" style={{ marginTop:6, fontSize:11 }}>보관 상태: 학생에게 안 보여요. 필요할 때 전체/반별/개별로 배정하세요.</div>}
                   {editMode==="class" && (
                     <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
                       {classNames.length ? classNames.map(c => (
@@ -1864,7 +1871,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
               ) : (
                 <button onClick={()=>openEdit(a)}
                   style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12, textAlign:"left" }}>
-                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회 · {(a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
+                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회 · {a.published===false ? "📦 보관(미배정)" : (a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
                 </button>
               )}
             </div>
@@ -2003,7 +2010,8 @@ function StudentReview({ student, assignments, onBack }) {
   }, [student.id]);
 
   const mine = assignments.filter(a =>
-    (!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id));
+    a.published !== false &&
+    ((!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id)));
   const list = mine.filter(a => (a.type || "word") === tab)
     .sort((x,y) => (y.dueDate||"").localeCompare(x.dueDate||""));
 

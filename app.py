@@ -273,6 +273,7 @@ def add_assignment(payload: dict = Body(...)):
             "rounds": max(1, min(3, int(payload.get("rounds") or 3))),
             "assignedIds": payload.get("assignedIds", []),
             "assignedClasses": payload.get("assignedClasses", []),
+            "published": bool(payload.get("published", True)),
         }
         if not a["title"] or not a["items"]:
             raise HTTPException(400, "제목과 목록을 입력해주세요.")
@@ -315,6 +316,7 @@ def add_assignments_bulk(payload: dict = Body(...)):
                 "rounds": max(1, min(3, int(p.get("rounds") or 3))),
                 "assignedIds": p.get("assignedIds", []),
                 "assignedClasses": p.get("assignedClasses", []),
+                "published": bool(p.get("published", True)),
             }
             db["assignments"].insert(0, a)
             created.append(a)
@@ -390,7 +392,7 @@ def delete_assignments(payload: dict = Body(...)):
 @app.patch("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: str, payload: dict = Body(...)):
     """과제 하나 수정 (마감일, 제목, 녹음 횟수, 배정 대상 등)."""
-    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses"}
+    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published"}
     with _lock:
         db = load_db()
         for a in db["assignments"]:
@@ -402,6 +404,8 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
                         a[k] = max(1, min(3, int(v or 3)))
                     elif k == "dueDate":
                         a[k] = v or None
+                    elif k == "published":
+                        a[k] = bool(v)
                     elif k in ("assignedIds", "assignedClasses"):
                         a[k] = v if isinstance(v, list) else []
                     else:
@@ -919,7 +923,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
 
     assigned = [
         a for a in db["assignments"]
-        if in_range(a) and (not a.get("assignedIds") or student_id in a["assignedIds"])
+        if a.get("published", True) and in_range(a) and (not a.get("assignedIds") or student_id in a["assignedIds"])
     ]
 
     rows = []
