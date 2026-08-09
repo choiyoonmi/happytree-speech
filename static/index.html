@@ -768,6 +768,50 @@ function AdminStudents({ students, reload }) {
   const [name, setName] = useState(""); const [cls, setCls] = useState("");
   const [id, setId] = useState(""); const [pw, setPw] = useState("");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null); const [bulkBusy, setBulkBusy] = useState(false);
+
+  const readStudentsFile = async (file) => {
+    if (!file) return;
+    setErr(""); setPreview(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      const rows = [];
+      const idxOf = (h, keys) => h.findIndex(v => keys.some(k => v.replace(/\s/g,"").toLowerCase().includes(k)));
+      for (const sh of wb.SheetNames) {
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[sh], { header:1 });
+        if (!raw.length) continue;
+        let cName = 0, cClass = 1, cId = -1, cPw = -1, start = 0;
+        const h = (raw[0] || []).map(x => String(x ?? "").trim());
+        const ni = idxOf(h, ["이름","name","성명","학생"]);
+        if (ni >= 0) { cName = ni; start = 1;
+          const ci = idxOf(h, ["반","class","클래스"]); if (ci>=0) cClass = ci;
+          const ii = idxOf(h, ["아이디","id"]); if (ii>=0) cId = ii;
+          const pi = idxOf(h, ["비밀","비번","pw","password"]); if (pi>=0) cPw = pi;
+        }
+        for (let r = start; r < raw.length; r++) {
+          const row = raw[r] || [];
+          const nm = String(row[cName] ?? "").trim();
+          if (!nm) continue;
+          rows.push({ name: nm, className: String(row[cClass] ?? "").trim(),
+            id: cId>=0 ? String(row[cId] ?? "").trim() : "", pw: cPw>=0 ? String(row[cPw] ?? "").trim() : "" });
+        }
+      }
+      if (!rows.length) return setErr("파일에서 학생 이름을 찾지 못했어요. (첫 열에 이름, 둘째 열에 반)");
+      setPreview(rows);
+    } catch (e) { setErr("엑셀을 읽는 데 실패했어요."); }
+  };
+  const submitBulk = async () => {
+    if (!preview || !preview.length) return;
+    setBulkBusy(true); setErr("");
+    try {
+      const r = await apiPost("/students/bulk", { students: preview });
+      setPreview(null);
+      await reload();
+      alert(`${r.created}명을 등록했어요!`);
+    } catch (e) { setErr(e.message); }
+    setBulkBusy(false);
+  };
 
   const add = async () => {
     if (!name.trim()) return setErr("이름을 입력해주세요.");
@@ -801,9 +845,46 @@ function AdminStudents({ students, reload }) {
         <div style={{height:10}} />
         <label className="label">비밀번호 (비워두면 자동 발급)</label>
         <input className="field" value={pw} onChange={e=>setPw(e.target.value)} placeholder="기존 비밀번호" />
-        {err && <div className="err">{err}</div>}
+        {err && !preview && <div className="err">{err}</div>}
         <div style={{height:14}} />
         <button className="btn" onClick={add} disabled={busy}>아이디 발급</button>
+      </div>
+
+      <div className="card">
+        <div style={{ fontWeight:700, marginBottom:6, color:"var(--navy)" }}>📋 엑셀로 한꺼번에 등록</div>
+        <div className="muted" style={{ marginBottom:10, fontSize:13, lineHeight:1.6 }}>
+          첫 줄 머리글: <b>이름 · 반 · 아이디 · 비밀번호</b> (반·아이디·비번은 없어도 됨 → 자동 발급).<br/>
+          머리글이 없으면 <b>1열=이름, 2열=반</b>으로 읽어요.
+        </div>
+        <label className="btn-ghost full" style={{ display:"block", textAlign:"center", cursor:"pointer" }}>
+          📄 학생 명단 엑셀 올리기
+          <input type="file" accept=".xlsx,.xls,.csv" style={{ display:"none" }}
+            onChange={e=>{ const f=e.target.files[0]; if(f) readStudentsFile(f); e.target.value=""; }} />
+        </label>
+        {err && preview===null && <div className="err">{err}</div>}
+        {preview && (
+          <>
+            <div style={{ marginTop:12, marginBottom:8, fontWeight:700, color:"var(--navy)", fontSize:13 }}>
+              미리보기 · <b>{preview.length}명</b>
+            </div>
+            <div style={{ maxHeight:200, overflowY:"auto", border:"1px solid var(--line)", borderRadius:8 }}>
+              {preview.map((s,i) => (
+                <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:8, padding:"7px 10px",
+                  borderBottom: i<preview.length-1 ? "1px solid #F0EBDD" : "none", fontSize:13 }}>
+                  <span style={{ fontWeight:600 }}>{s.name}</span>
+                  <span className="muted">{s.className || "반 미지정"}{s.id ? ` · ${s.id}` : ""}</span>
+                </div>
+              ))}
+            </div>
+            {err && <div className="err">{err}</div>}
+            <div className="row" style={{ marginTop:12, gap:6 }}>
+              <button className="btn" style={{ flex:1 }} onClick={submitBulk} disabled={bulkBusy}>
+                {bulkBusy ? "등록 중..." : `${preview.length}명 등록하기`}
+              </button>
+              <button className="btn-ghost" onClick={()=>setPreview(null)}>취소</button>
+            </div>
+          </>
+        )}
       </div>
 
       {(() => {

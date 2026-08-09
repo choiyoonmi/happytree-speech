@@ -243,6 +243,37 @@ def add_student(payload: dict = Body(...)):
     return student
 
 
+@app.post("/api/students/bulk")
+def add_students_bulk(payload: dict = Body(...)):
+    """엑셀 명단으로 학생 여러 명을 한 번에 등록. body: {students:[{name, className?, id?, pw?}]}"""
+    items = payload.get("students") or []
+    created = []
+    with _lock:
+        db = load_db()
+        existing = {s["id"] for s in db["students"]}
+        for it in items:
+            name = str((it or {}).get("name", "")).strip()
+            if not name:
+                continue
+            sid = str((it or {}).get("id", "")).strip()
+            if not sid or sid in existing:   # 비었거나 겹치면 자동 발급
+                while True:
+                    sid = "ht" + uuid.uuid4().hex[:4]
+                    if sid not in existing:
+                        break
+            existing.add(sid)
+            student = {
+                "id": sid,
+                "pw": str((it or {}).get("pw", "")).strip() or uuid.uuid4().hex[:4],
+                "name": name,
+                "className": str((it or {}).get("className", "")).strip(),
+            }
+            db["students"].append(student)
+            created.append(student)
+        save_db(db)
+    return {"created": len(created), "students": created}
+
+
 @app.delete("/api/students/{student_id}")
 def delete_student(student_id: str):
     with _lock:
