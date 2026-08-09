@@ -1436,7 +1436,7 @@ async def _run_battle(room):
             "type": "reveal", "correct": q["correct"],
             "answer": q["options"][q["correct"]],
         })
-        await asyncio.sleep(1.8)   # 문제 사이 간격 짧게
+        await asyncio.sleep(1.0)   # 정답 표시 후 다음 문제까지 (짧게)
         # 중간점검 순위: 배틀 절반 지점에 딱 한 번만
         if not shown_mid and (_time.time() - battle_start) >= room.get("totalSec", 90) / 2:
             room["phase"] = "standings"
