@@ -1116,8 +1116,8 @@ async def vocab_test(payload: dict = Body(...)):
 
 # ---------- 단어 자습 (같은 과제 단어를 자습·시험, 점수 저장) ----------
 def _now_kr() -> str:
-    from datetime import datetime
-    d = datetime.now()
+    from datetime import datetime, timezone, timedelta
+    d = datetime.now(timezone.utc) + timedelta(hours=9)  # 서버 UTC → 한국시간(KST)
     return f"{d.month}/{d.day} {d.hour:02d}:{d.minute:02d}"
 
 
