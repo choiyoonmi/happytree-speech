@@ -274,6 +274,22 @@ def add_students_bulk(payload: dict = Body(...)):
     return {"created": len(created), "students": created}
 
 
+@app.patch("/api/students/{student_id}")
+def update_student(student_id: str, payload: dict = Body(...)):
+    """학생 정보 수정 (반, 이름 등)."""
+    allowed = {"name", "className", "pw"}
+    with _lock:
+        db = load_db()
+        for s in db["students"]:
+            if s["id"] == student_id:
+                for k, v in payload.items():
+                    if k in allowed:
+                        s[k] = str(v).strip()
+                save_db(db)
+                return s
+    raise HTTPException(404, "학생을 찾을 수 없어요.")
+
+
 @app.delete("/api/students/{student_id}")
 def delete_student(student_id: str):
     with _lock:

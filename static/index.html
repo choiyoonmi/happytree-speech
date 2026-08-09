@@ -769,6 +769,15 @@ function AdminStudents({ students, reload }) {
   const [id, setId] = useState(""); const [pw, setPw] = useState("");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null); const [bulkBusy, setBulkBusy] = useState(false);
+  const [editSid, setEditSid] = useState(null); const [editCls, setEditCls] = useState("");
+
+  const saveClass = async (sid) => {
+    try {
+      await fetch("/api/students/" + sid, { method:"PATCH", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ className: editCls }) });
+      setEditSid(null); await reload();
+    } catch (e) { setErr(e.message); }
+  };
 
   const readStudentsFile = async (file) => {
     if (!file) return;
@@ -846,6 +855,9 @@ function AdminStudents({ students, reload }) {
 
   return (
     <div className="body">
+      <datalist id="cls-list">
+        {[...new Set(students.map(s=>s.className).filter(Boolean))].map(c => <option key={c} value={c} />)}
+      </datalist>
       <div className="card">
         <div style={{ fontWeight:700, marginBottom:12, color:"var(--navy)" }}>학생 추가</div>
         <label className="label">이름</label>
@@ -913,14 +925,30 @@ function AdminStudents({ students, reload }) {
               📚 {c} <span className="muted" style={{ fontWeight:500, fontSize:13 }}>{byClass[c].length}명</span>
             </div>
             {byClass[c].slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(s => (
-              <div key={s.id} className="card" style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:14 }}>{s.name}</div>
-                  <div className="muted" style={{ marginTop:3 }}>
-                    아이디 <b style={{color:"var(--navy)"}}>{s.id}</b> / 비밀번호 <b style={{color:"var(--navy)"}}>{s.pw}</b>
+              <div key={s.id} className="card">
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{s.name}
+                      <span className="muted" style={{ fontWeight:500 }}> · {s.className || "반 미지정"}</span></div>
+                    <div className="muted" style={{ marginTop:3 }}>
+                      아이디 <b style={{color:"var(--navy)"}}>{s.id}</b> / 비밀번호 <b style={{color:"var(--navy)"}}>{s.pw}</b>
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap:8, flexShrink:0 }}>
+                    <button onClick={()=>{ setEditSid(editSid===s.id?null:s.id); setEditCls(s.className||""); }}
+                      title="반 변경" style={{ background:"none", fontSize:16 }}>✏️</button>
+                    <button onClick={()=>del(s.id)} style={{ background:"none", color:"var(--danger)", fontSize:18 }}>🗑</button>
                   </div>
                 </div>
-                <button onClick={()=>del(s.id)} style={{ background:"none", color:"var(--danger)", fontSize:18 }}>🗑</button>
+                {editSid===s.id && (
+                  <div className="row" style={{ gap:6, marginTop:10 }}>
+                    <input className="field" style={{ flex:1, padding:"7px 10px", fontSize:13 }} value={editCls}
+                      onChange={e=>setEditCls(e.target.value)} placeholder="반 이름 (예: 초등5반)"
+                      list="cls-list" onKeyDown={e=>e.key==="Enter"&&saveClass(s.id)} autoFocus />
+                    <button className="btn" style={{ padding:"7px 12px", fontSize:12 }} onClick={()=>saveClass(s.id)}>저장</button>
+                    <button className="btn-ghost" style={{ padding:"7px 12px", fontSize:12 }} onClick={()=>setEditSid(null)}>취소</button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
