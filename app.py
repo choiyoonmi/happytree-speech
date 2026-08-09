@@ -392,7 +392,7 @@ def delete_assignments(payload: dict = Body(...)):
 @app.patch("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: str, payload: dict = Body(...)):
     """과제 하나 수정 (마감일, 제목, 녹음 횟수, 배정 대상 등)."""
-    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published"}
+    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings"}
     with _lock:
         db = load_db()
         for a in db["assignments"]:
@@ -406,7 +406,7 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
                         a[k] = v or None
                     elif k == "published":
                         a[k] = bool(v)
-                    elif k in ("assignedIds", "assignedClasses"):
+                    elif k in ("assignedIds", "assignedClasses", "items", "meanings"):
                         a[k] = v if isinstance(v, list) else []
                     else:
                         a[k] = str(v).strip()

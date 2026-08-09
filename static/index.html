@@ -1600,6 +1600,8 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [editMode, setEditMode] = useState("all");     // all | class | individual
   const [editClasses, setEditClasses] = useState([]);
   const [editIds, setEditIds] = useState([]);
+  const [editItems, setEditItems] = useState("");      // "단어 / 뜻" 줄들
+  const [showItems, setShowItems] = useState(false);
   const classNames = [...new Set((students || []).map(s => s.className).filter(Boolean))];
   const [roundsFrom, setRoundsFrom] = useState("");   // 회차 일괄변경 시작 과제 id ("" = 전체)
   const [newRounds, setNewRounds] = useState(2);
@@ -1779,6 +1781,11 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     setEditMode(a.published === false ? "hidden" : hasClass ? "class" : hasIds ? "individual" : "all");
     setEditClasses(a.assignedClasses || []);
     setEditIds(a.assignedIds || []);
+    setShowItems(false);
+    setEditItems((a.items || []).map((w, i) => {
+      const m = (a.meanings || [])[i];
+      return m ? `${w} / ${m}` : w;
+    }).join("\n"));
   };
   const toggleIn = (arr, set, v) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
 
@@ -1792,10 +1799,15 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       assignedIds = editIds;
     }
     const published = editMode !== "hidden";
+    const body = { dueDate: editDue || null, rounds: editRounds, assignedIds, assignedClasses, published };
+    if (showItems) {
+      const parsed = editItems.split("\n").map(s => s.trim()).filter(Boolean).map(splitMeaning);
+      if (parsed.length) { body.items = parsed.map(p => p.text); body.meanings = parsed.map(p => p.meaning || ""); }
+    }
     try {
       await fetch("/api/assignments/" + id, {
         method:"PATCH", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ dueDate: editDue || null, rounds: editRounds, assignedIds, assignedClasses, published })
+        body: JSON.stringify(body)
       });
       await reload(); setEditing(null);
     } catch (e) { setErr(e.message); }
@@ -1983,6 +1995,16 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
                       ))}
                     </div>
                   )}
+                  <div style={{ marginTop:10 }}>
+                    <button className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}
+                      onClick={()=>setShowItems(v=>!v)}>{showItems ? "▼ 단어 목록 수정" : "▶ 단어 목록 수정"}</button>
+                    {showItems && <>
+                      <textarea className="field" value={editItems} onChange={e=>setEditItems(e.target.value)} rows={8}
+                        style={{ marginTop:6, resize:"vertical", fontFamily:"inherit", fontSize:12, lineHeight:1.6 }}
+                        placeholder={"한 줄에 하나씩\napple / 사과\nrun / 달리다"} />
+                      <div className="muted" style={{ fontSize:11, marginTop:4 }}>단어 / 뜻 형식. 줄을 추가·삭제·수정하면 저장 시 반영돼요. (빠진 단어 추가 가능)</div>
+                    </>}
+                  </div>
                   <div className="row" style={{ marginTop:10, gap:6 }}>
                     <button className="btn" style={{ flex:1, padding:"7px 12px", fontSize:12 }}
                       onClick={()=>saveOne(a.id)} disabled={busy}>{busy ? "저장 중..." : "저장"}</button>
