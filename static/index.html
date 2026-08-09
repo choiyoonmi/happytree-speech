@@ -840,11 +840,25 @@ function BulkUpload({ students, reload, onClose }) {
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
   const DAYNAMES = ["일","월","화","수","목","금","토"];
 
+  const [unitLabel, setUnitLabel] = useState("Day");   // Day | Unit | Lesson | 과 | 주차
+
+  // Day/Unit/Lesson/과 등 단위 번호를 인식 (표기 다양)
   const dayNumber = (value) => {
     const text = String(value ?? "").trim();
-    const match = text.match(/(?:^|[^a-z])day\s*0*(\d+)(?:\D|$)/i)
-      || text.match(/(?:^|\D)0*(\d+)\s*(?:일차|과)(?:\D|$)/);
+    const match = text.match(/(?:^|[^a-z])(?:day|unit|lesson|lec|chapter)\s*0*(\d+)(?:\D|$)/i)
+      || text.match(/(?:^|\D)0*(\d+)\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)(?:\D|$)/);
     return match ? Number(match[1]) : null;
+  };
+  // 어떤 단위 표기가 쓰였는지 감지
+  const detectLabel = (text) => {
+    const t = String(text || "");
+    if (/unit/i.test(t) || /유닛/.test(t)) return "Unit";
+    if (/lesson|lec/i.test(t) || /레슨/.test(t)) return "Lesson";
+    if (/chapter|챕터|단원/i.test(t)) return "Unit";
+    if (/주차|강/.test(t)) return "주차";
+    if (/일차|과/.test(t)) return "과";
+    if (/day/i.test(t)) return "Day";
+    return null;
   };
 
   // 한 줄에서 영어(단어/구)와 한글 뜻을 분리. 영어가 없으면 null.
@@ -864,8 +878,10 @@ function BulkUpload({ students, reload, onClose }) {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type:"array" });
     const parsed = [];
+    let label = null;
     for (const sheetName of wb.SheetNames) {
       let currentDay = dayNumber(sheetName);
+      if (currentDay !== null) label = label || detectLabel(sheetName);
       const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1 });
       for (const r of raw) {
         if (!r || !r.length) continue;
@@ -876,6 +892,7 @@ function BulkUpload({ students, reload, onClose }) {
         if (/^(?:no\.?|번호)$/i.test(c0) || /^(?:english\s*word|영어\s*단어)$/i.test(c1)) continue;
         if (rowDay !== null) {
           currentDay = rowDay;
+          label = label || detectLabel(c0);
           if (!c1) continue;
           parsed.push({ day: currentDay, text: c1, meaning: c2 });
           continue;
@@ -888,7 +905,7 @@ function BulkUpload({ students, reload, onClose }) {
         parsed.push({ day: currentDay, text: sp.text || wordCell, meaning: sp.meaning || meaningCell });
       }
     }
-    return parsed;
+    return { parsed, label };
   };
 
   const parsePdf = async (file) => {
@@ -907,11 +924,14 @@ function BulkUpload({ students, reload, onClose }) {
     }
     const out = [];
     let curDay = null;
+    let label = null;
     lines.forEach(line => {
       const d = dayNumber(line);
       if (d !== null) {
         curDay = d;
-        const rest = line.replace(/.*day\s*0*\d+/i, "").trim();
+        label = label || detectLabel(line);
+        const rest = line.replace(/.*(?:day|unit|lesson|lec|chapter)\s*0*\d+/i, "")
+          .replace(/.*\d+\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)/, "").trim();
         const e = extractEng(rest);
         if (e) out.push({ day: curDay, text: e.text, meaning: e.meaning });
         return;
@@ -920,20 +940,21 @@ function BulkUpload({ students, reload, onClose }) {
       const e = extractEng(line);
       if (e) out.push({ day: curDay, text: e.text, meaning: e.meaning });
     });
-    return out;
+    return { parsed: out, label };
   };
 
   const readFile = async (file) => {
     setErr(""); setRows(null);
     const name = (file.name || "").toLowerCase();
     try {
-      let parsed = name.endsWith(".pdf") ? await parsePdf(file) : await parseExcel(file);
+      const res = name.endsWith(".pdf") ? await parsePdf(file) : await parseExcel(file);
       // 영어만: 영문자가 들어간 항목만 남김 (머리글·번호·한글전용 줄 제거)
-      parsed = parsed.filter(r => /[a-zA-Z]/.test(r.text || ""));
+      const parsed = res.parsed.filter(r => /[a-zA-Z]/.test(r.text || ""));
       if (!parsed.length) return setErr("파일에서 영어 단어를 찾지 못했어요. (엑셀은 A/B열, PDF는 텍스트형인지 확인)");
       const dayCol = parsed.some(r => r.day != null);
       setHasDayCol(dayCol);
       setRows(parsed);
+      if (res.label) setUnitLabel(res.label);
       const detectedDays = parsed.map(r=>r.day).filter(d=>d != null);
       setStartDay(detectedDays.length ? Math.min(...detectedDays) : 1);
       if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
@@ -1021,7 +1042,7 @@ function BulkUpload({ students, reload, onClose }) {
       }
 
       const payload = translatedGroups.map((g,i) => ({
-        title: `${title.trim()} Day ${g.day}`,
+        title: `${title.trim()} ${unitLabel} ${g.day}`,
         book: title.trim(),
         type, rounds,
         items: g.rows.map(r=>r.text),
@@ -1166,6 +1187,12 @@ function BulkUpload({ students, reload, onClose }) {
           )}
 
           <div style={{height:16}} />
+          <label className="label">단위 표기 (제목에 붙어요)</label>
+          <div className="seg" style={{ marginTop:0, marginBottom:12 }}>
+            {["Day","Unit","Lesson","과","주차"].map(l => (
+              <button key={l} className={unitLabel===l?"on":""} onClick={()=>setUnitLabel(l)}>{l}</button>
+            ))}
+          </div>
           <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:8, fontSize:13 }}>
             등록 미리보기 ({groups.length}개)
           </div>
@@ -1173,7 +1200,7 @@ function BulkUpload({ students, reload, onClose }) {
             {groups.map((g,i) => (
               <div key={g.day} style={{ padding:"8px 10px", borderBottom: i<groups.length-1?"1px solid #F0EBDD":"none",
                 display:"flex", justifyContent:"space-between", gap:8, fontSize:12 }}>
-                <span style={{ fontWeight:600 }}>{title || "교재명"} Day {g.day}</span>
+                <span style={{ fontWeight:600 }}>{title || "교재명"} {unitLabel} {g.day}</span>
                 <span className="muted" style={{ whiteSpace:"nowrap" }}>
                   {g.rows.length}개 · {dueDates[i] ? `${dueDates[i].slice(5).replace("-","/")} (${DAYNAMES[new Date(dueDates[i]).getDay()]})` : "-"}
                 </span>
