@@ -1456,12 +1456,12 @@ function AssignmentBrowser({ students, assignments, reload }) {
     return (x.dueDate||"").localeCompare(y.dueDate||"");          // Day 번호 없으면 마감일 순
   });
 
-  return <BookDetail book={book} group={group} list={list} reload={reload}
+  return <BookDetail book={book} group={group} list={list} reload={reload} students={students}
     onBack={()=>setBook(null)} />;
 }
 
 // ---------- 교재 상세 + 일정 조정 ----------
-function BookDetail({ book, group, list, reload, onBack }) {
+function BookDetail({ book, group, list, reload, onBack, students }) {
   const [panel, setPanel] = useState(null);   // 'shift' | 'respread' | null
   const [days, setDays] = useState(7);
   const [fromDate, setFromDate] = useState("");
@@ -1470,6 +1470,10 @@ function BookDetail({ book, group, list, reload, onBack }) {
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
   const [editRounds, setEditRounds] = useState(3);
+  const [editMode, setEditMode] = useState("all");     // all | class | individual
+  const [editClasses, setEditClasses] = useState([]);
+  const [editIds, setEditIds] = useState([]);
+  const classNames = [...new Set((students || []).map(s => s.className).filter(Boolean))];
   const [roundsFrom, setRoundsFrom] = useState("");   // 회차 일괄변경 시작 과제 id ("" = 전체)
   const [newRounds, setNewRounds] = useState(2);
   const [busy, setBusy] = useState(false);
@@ -1639,12 +1643,31 @@ function BookDetail({ book, group, list, reload, onBack }) {
     setBusy(false);
   };
 
+  const openEdit = (a) => {
+    setEditing(a.id);
+    setEditDue(a.dueDate || "");
+    setEditRounds(a.rounds || 3);
+    const hasClass = (a.assignedClasses || []).length > 0;
+    const hasIds = (a.assignedIds || []).length > 0;
+    setEditMode(hasClass ? "class" : hasIds ? "individual" : "all");
+    setEditClasses(a.assignedClasses || []);
+    setEditIds(a.assignedIds || []);
+  };
+  const toggleIn = (arr, set, v) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+
   const saveOne = async (id) => {
     setBusy(true); setErr("");
+    let assignedIds = [], assignedClasses = [];
+    if (editMode === "class") {
+      assignedClasses = editClasses;
+      assignedIds = (students || []).filter(s => editClasses.includes(s.className)).map(s => s.id);
+    } else if (editMode === "individual") {
+      assignedIds = editIds;
+    }
     try {
       await fetch("/api/assignments/" + id, {
         method:"PATCH", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ dueDate: editDue || null, rounds: editRounds })
+        body: JSON.stringify({ dueDate: editDue || null, rounds: editRounds, assignedIds, assignedClasses })
       });
       await reload(); setEditing(null);
     } catch (e) { setErr(e.message); }
@@ -1807,6 +1830,30 @@ function BookDetail({ book, group, list, reload, onBack }) {
                         onClick={()=>setEditRounds(n)}>{n}회</button>
                     ))}
                   </div>
+                  <label className="label" style={{ marginTop:10, marginBottom:4 }}>배정 대상</label>
+                  <div className="seg" style={{ marginTop:0 }}>
+                    {[["all","전체"],["class","반별"],["individual","개별"]].map(([m,l]) => (
+                      <button key={m} className={editMode===m?"on":""} onClick={()=>setEditMode(m)}>{l}</button>
+                    ))}
+                  </div>
+                  {editMode==="class" && (
+                    <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
+                      {classNames.length ? classNames.map(c => (
+                        <button key={c} onClick={()=>toggleIn(editClasses, setEditClasses, c)}
+                          style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                            background: editClasses.includes(c)?"var(--navy)":"#fff", color: editClasses.includes(c)?"var(--cream)":"var(--navy)" }}>{c}</button>
+                      )) : <span className="muted" style={{ fontSize:12 }}>반이 없어요 (학생관리에서 반 입력)</span>}
+                    </div>
+                  )}
+                  {editMode==="individual" && (
+                    <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
+                      {(students||[]).map(s => (
+                        <button key={s.id} onClick={()=>toggleIn(editIds, setEditIds, s.id)}
+                          style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                            background: editIds.includes(s.id)?"var(--navy)":"#fff", color: editIds.includes(s.id)?"var(--cream)":"var(--navy)" }}>{s.name}</button>
+                      ))}
+                    </div>
+                  )}
                   <div className="row" style={{ marginTop:10, gap:6 }}>
                     <button className="btn" style={{ flex:1, padding:"7px 12px", fontSize:12 }}
                       onClick={()=>saveOne(a.id)} disabled={busy}>{busy ? "저장 중..." : "저장"}</button>
@@ -1815,9 +1862,9 @@ function BookDetail({ book, group, list, reload, onBack }) {
                   </div>
                 </div>
               ) : (
-                <button onClick={()=>{ setEditing(a.id); setEditDue(a.dueDate || ""); setEditRounds(a.rounds || 3); }}
-                  style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12 }}>
-                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회 <span style={{ color:"var(--gold)" }}>✏️</span>
+                <button onClick={()=>openEdit(a)}
+                  style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12, textAlign:"left" }}>
+                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회 · {(a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
                 </button>
               )}
             </div>
