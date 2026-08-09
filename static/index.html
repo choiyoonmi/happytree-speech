@@ -806,17 +806,29 @@ function AdminStudents({ students, reload }) {
         <button className="btn" onClick={add} disabled={busy}>아이디 발급</button>
       </div>
 
-      {students.map(s => (
-        <div key={s.id} className="card" style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div>
-            <div style={{ fontWeight:700, fontSize:14 }}>{s.name}{s.className && <span className="muted"> · {s.className}</span>}</div>
-            <div className="muted" style={{ marginTop:3 }}>
-              아이디 <b style={{color:"var(--navy)"}}>{s.id}</b> / 비밀번호 <b style={{color:"var(--navy)"}}>{s.pw}</b>
+      {(() => {
+        const byClass = {};
+        students.forEach(s => { const c = s.className || "반 미지정"; (byClass[c] = byClass[c] || []).push(s); });
+        const keys = Object.keys(byClass).sort((a,b) => a==="반 미지정" ? 1 : b==="반 미지정" ? -1 : a.localeCompare(b));
+        return keys.map(c => (
+          <div key={c}>
+            <div style={{ fontWeight:800, color:"var(--navy)", margin:"18px 4px 8px", fontSize:15 }}>
+              📚 {c} <span className="muted" style={{ fontWeight:500, fontSize:13 }}>{byClass[c].length}명</span>
             </div>
+            {byClass[c].slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(s => (
+              <div key={s.id} className="card" style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{s.name}</div>
+                  <div className="muted" style={{ marginTop:3 }}>
+                    아이디 <b style={{color:"var(--navy)"}}>{s.id}</b> / 비밀번호 <b style={{color:"var(--navy)"}}>{s.pw}</b>
+                  </div>
+                </div>
+                <button onClick={()=>del(s.id)} style={{ background:"none", color:"var(--danger)", fontSize:18 }}>🗑</button>
+              </div>
+            ))}
           </div>
-          <button onClick={()=>del(s.id)} style={{ background:"none", color:"var(--danger)", fontSize:18 }}>🗑</button>
-        </div>
-      ))}
+        ));
+      })()}
       {!students.length && <div style={{ textAlign:"center", padding:40 }} className="muted">등록된 학생이 없어요.</div>}
     </div>
   );
