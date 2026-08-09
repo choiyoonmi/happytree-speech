@@ -1267,34 +1267,40 @@ battle_rooms = {}   # code -> room dict (메모리, 배틀 진행 중에만 유�
 
 
 def _gen_code() -> str:
-    for _ in range(50):
-        c = "".join(_rnd.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(4))
+    """숫자 8자리 랜덤 코드."""
+    for _ in range(80):
+        c = "".join(_rnd.choice("0123456789") for _ in range(8))
         if c not in battle_rooms:
             return c
-    return "".join(_rnd.choice("23456789") for _ in range(6))
+    return "".join(_rnd.choice("0123456789") for _ in range(8))
 
 
-def _make_battle_questions(a: dict):
-    """단어 과제(items=용어, meanings=설명)로 4지선다 문제 생성. 설명→용어 맞히기."""
+def _pairs_from_assignment(a: dict):
+    """단어 과제 → [(정답=용어, 문제=설명)] 목록."""
     items = a.get("items") or []
     meanings = a.get("meanings") or []
-    pairs = []
+    out = []
     for i, w in enumerate(items):
         m = meanings[i] if i < len(meanings) else ""
         w = (w or "").strip()
         m = (m or "").strip()
         if w and m:
-            pairs.append((w, m))
-    words = [w for w, _ in pairs]
-    if len(set(words)) < 4:
+            out.append((w, m))
+    return out
+
+
+def _questions_from_pairs(pairs):
+    """[(정답, 문제)] → 4지선다 문제. 오답 보기는 다른 정답들에서 뽑음."""
+    answers = [a for a, _ in pairs]
+    if len(set(answers)) < 4:
         return []
     qs = []
-    for w, m in pairs:
-        others = [x for x in words if x != w]
+    for ans, prompt in pairs:
+        others = [x for x in answers if x != ans]
         _rnd.shuffle(others)
-        opts = [w] + others[:3]
+        opts = [ans] + others[:3]
         _rnd.shuffle(opts)
-        qs.append({"prompt": m, "options": opts, "correct": opts.index(w)})
+        qs.append({"prompt": prompt, "options": opts, "correct": opts.index(ans)})
     _rnd.shuffle(qs)
     return qs
 
@@ -1330,33 +1336,63 @@ async def _battle_broadcast(room, obj, to_host=True, to_players=True):
 
 @app.post("/api/battle/create")
 def battle_create(payload: dict = Body(...)):
-    """선생님이 단어 과제로 배틀 방 생성. body: {assignmentId, duration?}"""
-    aid = payload.get("assignmentId")
-    db = load_db()
-    a = next((x for x in db["assignments"] if x["id"] == aid), None)
-    if not a:
-        raise HTTPException(404, "과제를 찾을 수 없어요.")
-    qs = _make_battle_questions(a)
+    """배틀 방 생성.
+    body: { assignmentIds?[], assignmentId?, custom?[{prompt,answer}], title?, duration?, totalSec? }
+    - assignmentIds: 여러 단어 Day를 합쳐서 (과목 무관, 용어+설명)
+    - custom: 영어와 무관한 직접 퀴즈 (문제+정답)
+    """
+    duration = max(5, min(120, int(payload.get("duration") or 15)))     # 문제당 제한시간
+    total_sec = max(30, min(1800, int(payload.get("totalSec") or 90)))  # 전체 배틀 시간(기본 1분30초)
+    pairs = []
+    title = (payload.get("title") or "").strip()
+
+    custom = payload.get("custom")
+    if custom:
+        for it in custom:
+            ans = str((it or {}).get("answer") or "").strip()
+            pr = str((it or {}).get("prompt") or "").strip()
+            if ans and pr:
+                pairs.append((ans, pr))
+        if not title:
+            title = "직접 만든 퀴즈"
+    else:
+        aids = payload.get("assignmentIds")
+        if not aids:
+            aids = [payload["assignmentId"]] if payload.get("assignmentId") else []
+        db = load_db()
+        titles = []
+        for aid in aids:
+            a = next((x for x in db["assignments"] if x["id"] == aid), None)
+            if not a:
+                continue
+            pairs += _pairs_from_assignment(a)
+            titles.append(a.get("title", ""))
+        if not title and titles:
+            title = titles[0] + (f" 외 {len(titles) - 1}개" if len(titles) > 1 else "")
+
+    if not title:
+        title = "배틀"
+    qs = _questions_from_pairs(pairs)
     if len(qs) < 4:
-        raise HTTPException(400, "설명이 있는 단어가 4개 이상이어야 배틀을 만들 수 있어요.")
+        raise HTTPException(400, "정답이 4개 이상이어야 배틀을 만들 수 있어요. (문제/단어를 더 넣어주세요)")
     _prune_battle_rooms()
     code = _gen_code()
-    duration = max(5, min(60, int(payload.get("duration") or 15)))
     battle_rooms[code] = {
         "code": code,
-        "title": a.get("title", "배틀"),
+        "title": title,
         "questions": qs,
-        "players": {},        # pid -> {name, ws, score, answered, lastCorrect}
+        "players": {},
         "host": None,
-        "phase": "lobby",     # lobby | starting | question | reveal | end
+        "phase": "lobby",
         "qIndex": -1,
         "duration": duration,
+        "totalSec": total_sec,
         "qStart": 0,
         "skip": False,
         "started": False,
         "createdAt": _time.time(),
     }
-    return {"code": code, "title": a.get("title"), "count": len(qs), "duration": duration}
+    return {"code": code, "title": title, "count": len(qs), "duration": duration, "totalSec": total_sec}
 
 
 async def _run_battle(room):
@@ -1364,7 +1400,10 @@ async def _run_battle(room):
     room["phase"] = "starting"
     await _battle_broadcast(room, {"type": "starting", "count": len(room["questions"])})
     await asyncio.sleep(2)
+    battle_start = _time.time()
     for qi, q in enumerate(room["questions"]):
+        if _time.time() - battle_start >= room.get("totalSec", 90):
+            break   # 전체 배틀 시간(예: 1분30초) 지나면 종료
         room["qIndex"] = qi
         room["phase"] = "question"
         room["qStart"] = _time.time()

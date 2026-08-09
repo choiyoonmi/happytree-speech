@@ -2975,9 +2975,9 @@ function BattlePlayer({ initialCode, onExit }) {
           <div className="muted" style={{ marginTop:6 }}>코드와 이름을 입력하고 참가해요</div>
         </div>
         <div className="card">
-          <label className="label">접속 코드</label>
-          <input className="field" value={code} onChange={e=>setCode(e.target.value.toUpperCase())}
-            placeholder="예: ABCD" style={{ textTransform:"uppercase", letterSpacing:2, fontWeight:700 }} />
+          <label className="label">접속 코드 (숫자 8자리)</label>
+          <input className="field" value={code} onChange={e=>setCode(e.target.value.replace(/[^0-9]/g,"").slice(0,8))}
+            inputMode="numeric" placeholder="예: 12345678" style={{ letterSpacing:3, fontWeight:700 }} />
           <div style={{ height:10 }} />
           <label className="label">내 이름</label>
           <input className="field" value={name} onChange={e=>setName(e.target.value)}
@@ -3077,11 +3077,21 @@ function BattlePlayer({ initialCode, onExit }) {
 }
 
 function BattleHost({ assignments }) {
-  const wordSets = assignments.filter(a =>
-    (a.type || "word") === "word" &&
-    (a.items || []).filter((w, i) => w && ((a.meanings || [])[i] || "").trim()).length >= 4);
+  const validCount = (a) => (a.items || []).filter((w, i) => w && ((a.meanings || [])[i] || "").trim()).length;
+  const wordSets = assignments
+    .filter(a => (a.type || "word") === "word" && validCount(a) >= 1)
+    .slice()
+    .sort((x, y) => {
+      const dx = dayNum(x.title), dy = dayNum(y.title);
+      if (dx != null && dy != null && dx !== dy) return dx - dy;
+      return (x.title || "").localeCompare(y.title || "");
+    });
   const [step, setStep] = useState("pick");   // pick | live
+  const [mode, setMode] = useState("sets");   // sets | custom
   const [duration, setDuration] = useState(15);
+  const [totalSec, setTotalSec] = useState(90);
+  const [selected, setSelected] = useState([]);
+  const [customText, setCustomText] = useState("");
   const [info, setInfo] = useState(null);
   const [st, setSt] = useState({ phase:"lobby", players:[], q:null, reveal:null, board:[] });
   const [balloons, setBalloons] = useState([]);
@@ -3108,35 +3118,77 @@ function BattleHost({ assignments }) {
     else if (m.type === "balloon") popBalloon(m.name);
   };
 
-  const startBattle = async (set) => {
+  const toggleSel = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+
+  const startWith = async (extra) => {
     setErr("");
     try {
-      const r = await apiPost("/battle/create", { assignmentId: set.id, duration });
+      const r = await apiPost("/battle/create", { duration, totalSec, ...extra });
       setInfo(r); setStep("live");
       const ws = new WebSocket(wsUrl(r.code, "role=host"));
       wsRef.current = ws;
       ws.onmessage = (ev) => { try { handle(JSON.parse(ev.data)); } catch (e) {} };
     } catch (e) { setErr(e.message); }
   };
+  const startSets = () => {
+    if (!selected.length) { setErr("단어장을 하나 이상 골라주세요."); return; }
+    startWith({ assignmentIds: selected });
+  };
+  const startCustom = () => {
+    const custom = customText.split("\n").map(line => {
+      const i = line.indexOf("/");
+      if (i < 0) return null;
+      const p = line.slice(0, i).trim(), a = line.slice(i + 1).trim();
+      return (p && a) ? { prompt: p, answer: a } : null;
+    }).filter(Boolean);
+    if (custom.length < 4) { setErr("‘문제 / 정답’ 형식으로 4줄 이상 입력해주세요."); return; }
+    startWith({ custom, title: "직접 만든 퀴즈" });
+  };
   const send = (o) => { try { wsRef.current.send(JSON.stringify(o)); } catch (e) {} };
 
   if (step === "pick") {
     return <div className="body">
-      <div className="muted" style={{ marginBottom:10 }}>단어 과제를 골라 실시간 배틀을 열어요. (설명 있는 단어 4개 이상)</div>
+      <div className="seg" style={{ marginBottom:14 }}>
+        <button className={mode==="sets"?"on":""} onClick={()=>{ setMode("sets"); setErr(""); }}>📚 단어 과제로</button>
+        <button className={mode==="custom"?"on":""} onClick={()=>{ setMode("custom"); setErr(""); }}>✏️ 직접 만들기</button>
+      </div>
+      <label className="label">전체 배틀 시간</label>
+      <div className="seg" style={{ marginTop:0, marginBottom:10 }}>
+        {[[90,"1분 30초"],[120,"2분"],[180,"3분"]].map(([v,l]) => <button key={v} className={totalSec===v?"on":""} onClick={()=>setTotalSec(v)}>{l}</button>)}
+      </div>
       <label className="label">문제당 제한시간</label>
       <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
         {[10,15,20].map(n => <button key={n} className={duration===n?"on":""} onClick={()=>setDuration(n)}>{n}초</button>)}
       </div>
       {err && <div className="err">{err}</div>}
-      {!wordSets.length && <div className="card" style={{ textAlign:"center", padding:24 }}><span className="muted">배틀 가능한 단어 과제가 없어요. (설명이 채워진 단어 4개 이상 필요)</span></div>}
-      {wordSets.map(s => (
-        <button key={s.id} className="card" onClick={()=>startBattle(s)}
-          style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
-          <div><div style={{ fontWeight:700, fontSize:15 }}>{s.title}</div>
-            <div className="muted" style={{ marginTop:3 }}>{s.items.length}단어</div></div>
-          <span style={{ color:"var(--navy-soft)", fontWeight:700 }}>배틀 열기 ›</span>
-        </button>
-      ))}
+
+      {mode === "sets" ? (
+        <>
+          <div className="muted" style={{ marginBottom:8 }}>배틀에 넣을 단어장을 여러 개 고를 수 있어요. (합쳐서 랜덤 출제 · 과목 무관)</div>
+          {!wordSets.length && <div className="card" style={{ textAlign:"center", padding:24 }}><span className="muted">단어장이 없어요.</span></div>}
+          {wordSets.map(s => {
+            const on = selected.includes(s.id);
+            return <button key={s.id} onClick={()=>toggleSel(s.id)} className="card"
+              style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10,
+                border: on ? "2px solid var(--navy)" : undefined, background: on ? "var(--cream)" : undefined }}>
+              <div><div style={{ fontWeight:700, fontSize:15 }}>{on ? "✅ " : "⬜ "}{s.title}</div>
+                <div className="muted" style={{ marginTop:3 }}>{validCount(s)}단어</div></div>
+            </button>;
+          })}
+          <button className="btn full" style={{ marginTop:12 }} onClick={startSets} disabled={!selected.length}>
+            {selected.length ? `${selected.length}개 단어장으로 배틀 열기 🚀` : "단어장을 골라주세요"}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="muted" style={{ marginBottom:8 }}>과목 상관없이 직접 문제를 만들 수 있어요. 한 줄에 하나씩 <b>문제 / 정답</b> 형식으로 적어주세요.</div>
+          <textarea className="field" value={customText} onChange={e=>setCustomText(e.target.value)} rows={9}
+            placeholder={"예)\n조선을 건국한 왕은? / 이성계\n3·1운동이 일어난 해는? / 1919\n임진왜란 때 활약한 장군은? / 이순신\n한글을 만든 왕은? / 세종대왕"}
+            style={{ resize:"vertical", fontFamily:"inherit", lineHeight:1.6 }} />
+          <div className="muted" style={{ marginTop:6, fontSize:11 }}>4문제 이상 필요해요. 오답 보기는 다른 문제의 정답에서 자동으로 만들어집니다.</div>
+          <button className="btn full" style={{ marginTop:12 }} onClick={startCustom}>직접 만든 퀴즈로 배틀 열기 🚀</button>
+        </>
+      )}
     </div>;
   }
 
@@ -3218,7 +3270,7 @@ function BattleHost({ assignments }) {
           </div>
         ))}
         {!st.board.length && <div className="muted">참가 기록이 없어요.</div>}
-        <button className="btn" style={{ marginTop:16 }} onClick={()=>{ if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} } setStep("pick"); setInfo(null); setSt({ phase:"lobby", players:[], q:null, reveal:null, board:[] }); }}>새 배틀 열기</button>
+        <button className="btn" style={{ marginTop:16 }} onClick={()=>{ if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} } setStep("pick"); setInfo(null); setSelected([]); setCustomText(""); setSt({ phase:"lobby", players:[], q:null, reveal:null, board:[] }); }}>새 배틀 열기</button>
       </div>
     )}
   </div>;
