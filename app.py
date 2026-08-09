@@ -13,6 +13,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydub import AudioSegment
 
+from notify import send_telegram
+
 AZURE_KEY = os.environ.get("AZURE_SPEECH_KEY")
 AZURE_REGION = os.environ.get("AZURE_SPEECH_REGION", "eastus")
 ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "happytree")
@@ -553,15 +555,51 @@ def get_submission(assignment_id: str, student_id: str):
     return get_submission_record(assignment_id, student_id)
 
 
+def _avg_score_from_items(items):
+    scores = []
+    for takes in (items or []):
+        for t in (takes or []):
+            if t and t.get("score") is not None:
+                scores.append(t["score"])
+    return round(sum(scores) / len(scores)) if scores else None
+
+
+def _notify_reading_submission(student_id, assignment_id, sub):
+    """학생이 낭독 숙제를 '제출'하면 원장님 텔레그램으로 알림."""
+    db = load_db()
+    student = next((s for s in db.get("students", []) if s.get("id") == student_id), None)
+    assignment = next((a for a in db.get("assignments", []) if a.get("id") == assignment_id), None)
+    name = (student or {}).get("name") or student_id
+    cls = (student or {}).get("className") or ""
+    title = (assignment or {}).get("title") or "과제"
+    who = "%s (%s)" % (name, cls) if cls else name
+    lines = ["🎤 <b>%s</b> 낭독 제출 완료" % who, "과제: %s" % title]
+    avg = _avg_score_from_items(sub.get("items"))
+    if avg is not None:
+        lines.append("평균 점수: %s점" % avg)
+    if sub.get("submittedAt"):
+        lines.append("시간: %s" % sub["submittedAt"])
+    send_telegram("\n".join(lines))
+
+
 @app.post("/api/submission/{assignment_id}/{student_id}")
 def save_submission(assignment_id: str, student_id: str, payload: dict = Body(...)):
     # 학생별 잠금 — 다른 학생의 저장을 막지 않음
     with _sub_lock(student_id):
         subs = load_student_subs(student_id)
         existing = subs.get(assignment_id, {})
+        prev_status = existing.get("status")
         existing.update(payload)
         subs[assignment_id] = existing
         save_student_subs(student_id, subs)
+
+    # 이번 저장으로 '제출됨' 상태가 새로 된 경우에만 알림 (중간 저장·재저장 시엔 안 보냄)
+    if payload.get("status") == "submitted" and prev_status != "submitted":
+        try:
+            _notify_reading_submission(student_id, assignment_id, existing)
+        except Exception as e:
+            print("[telegram] 낭독 제출 알림 실패:", e)
+
     return existing
 
 
