@@ -85,6 +85,8 @@ const apiPost = (p, body) => api(p, {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {})
 });
 const apiDelete = (p) => api(p, { method: "DELETE" });
+// 학생이 학습을 시작하면 실시간 현황판에 알림 (실패해도 무시)
+const pingActivity = (sid, kind, title) => apiPost(`/activity/${sid}`, { kind, title }).catch(()=>{});
 
 function normalizeTakes(v) {
   const arr = Array.isArray(v) ? v.slice(0, TAKES) : [];
@@ -414,6 +416,7 @@ function StudentView({ student, onLogout }) {
 
   const openA = async (a) => {
     setOpen(a);
+    pingActivity(student.id, "record", a.title);
     const s = await apiGet(`/submission/${a.id}/${student.id}`);
     const items = a.items.map((_, i) => normalizeTakes((s.items || [])[i]));
     setSub({ items, comment: s.comment || "", status: s.status || "none" });
@@ -2276,6 +2279,45 @@ function AdminReport({ students }) {
               </table>
             </div>
 
+            {rep.vocab && rep.vocab.studiedSets > 0 && (
+              <div style={{ marginBottom:18 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>단어 자습 성취도</div>
+                <div className="row" style={{ gap:10, marginBottom:10, flexWrap:"wrap" }}>
+                  {[["평균 최고점", rep.vocab.avgBest != null ? `${rep.vocab.avgBest}점` : "-"],
+                    ["자습한 단어장", `${rep.vocab.studiedSets}개`],
+                    ["뜻고르기", rep.vocab.byMode && rep.vocab.byMode.choice != null ? `${rep.vocab.byMode.choice}점` : "-"],
+                    ["스펠링", rep.vocab.byMode && rep.vocab.byMode.spell != null ? `${rep.vocab.byMode.spell}점` : "-"],
+                    ["미니테스트", rep.vocab.byMode && rep.vocab.byMode.test != null ? `${rep.vocab.byMode.test}점` : "-"]].map(([l,v]) => (
+                    <div key={l} style={{ flex:"1 1 90px", background:"var(--cream)", borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
+                      <div style={{ fontSize:10, color:"var(--navy-soft)" }}>{l}</div>
+                      <div style={{ fontSize:15, fontWeight:800, color:"var(--navy)", marginTop:2 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:"var(--cream)" }}>
+                      {["단어장","최고점","뜻고르기","스펠링","미니테스트","시도"].map(h => (
+                        <th key={h} style={{ padding:"7px 6px", textAlign:"left", color:"var(--navy-soft)", fontWeight:700 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rep.vocab.rows.map((r,i) => (
+                      <tr key={i} style={{ borderBottom:"1px solid var(--line)" }}>
+                        <td style={{ padding:"7px 6px", fontWeight:600 }}>{r.title}</td>
+                        <td style={{ padding:"7px 6px", fontWeight:700 }}>{r.best != null ? `${r.best}점` : "-"}</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.choice != null ? `${r.choice}` : "-"}</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.spell != null ? `${r.spell}` : "-"}</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.test != null ? `${r.test}` : "-"}</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.attempts}회</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {rep.weakWords.length > 0 && (
               <div style={{ marginBottom:18 }}>
                 <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>더 연습하면 좋은 단어</div>
@@ -2506,14 +2548,14 @@ function AdminView({ onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="tabs">
-        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["vocab","단어자습"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
+        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["vocab","학습현황"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
           <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
         ))}
       </div>
       {tab==="students" && <AdminStudents students={students} reload={reload} />}
       {tab==="assignments" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
       {tab==="review" && <AdminReview students={students} assignments={assignments} />}
-      {tab==="vocab" && <AdminVocab students={students} assignments={assignments} />}
+      {tab==="vocab" && <AdminDashboard students={students} assignments={assignments} />}
       {tab==="report" && <AdminReport students={students} />}
       {tab==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
     </div>
@@ -2561,7 +2603,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   return <>
     <div className="muted" style={{ marginBottom:12 }}>{pairs.length}단어{rec ? ` · 최고 ${rec.best}점 · ${rec.attempts}회` : ""}</div>
     {modes.map(([id, label, desc]) => (
-      <button key={id} className="card" onClick={()=>setMode(id)}
+      <button key={id} className="card" onClick={()=>{ pingActivity(student.id, id, cur.title); setMode(id); }}
         style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
         <div><div style={{ fontWeight:700, fontSize:15 }}>{label}</div>
           <div className="muted" style={{ marginTop:2 }}>{desc}{bm[id] ? ` · 최고 ${bm[id].best}점` : ""}</div></div>
@@ -2702,50 +2744,109 @@ function QuizResult({ title, score, total, wrong, onBack }) {
   </>;
 }
 
-// ---------- Admin: 단어 자습 현황 ----------
-function AdminVocab({ students, assignments }) {
-  const [all, setAll] = useState(null);
-  const [sid, setSid] = useState(null);
-  useEffect(() => { apiGet("/vocab-all").then(setAll).catch(()=>setAll({})); }, []);
+// ---------- Admin: 학습 현황 (실시간 현황판 + 학생별 자습 점수) ----------
+const ACT_COLS = [["record","녹음"],["flash","카드암기"],["choice","뜻고르기"],["spell","스펠링"],["test","미니테스트"]];
 
-  if (all == null) return <div className="body"><div className="center"><div className="spin" /></div></div>;
+function AdminDashboard({ students, assignments }) {
+  const [act, setAct] = useState({});
+  const [vocab, setVocab] = useState({});
+  const [sid, setSid] = useState(null);
+  const [nowTs, setNowTs] = useState(Math.floor(Date.now()/1000));
+
+  const refresh = () => {
+    apiGet("/activity-all").then(setAct).catch(()=>{});
+    apiGet("/vocab-all").then(setVocab).catch(()=>{});
+    setNowTs(Math.floor(Date.now()/1000));
+  };
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 7000);   // 7초마다 실시간 갱신
+    return () => clearInterval(t);
+  }, []);
 
   const titleOf = (aid) => { const a = assignments.find(x => x.id === aid); return a ? a.title : aid; };
   const nameOf = (id) => { const s = students.find(x => x.id === id); return s ? s.name : id; };
-  const studiedCount = (id) => Object.keys(all[id] || {}).length;
+  const isLive = (ts) => ts && (nowTs - ts) < 300;   // 5분 이내면 '학습중'
 
   if (sid) {
-    const recs = all[sid] || {};
+    const recs = vocab[sid] || {};
     const entries = Object.keys(recs).map(aid => [aid, recs[aid]])
       .sort((a, b) => (((b[1].last && b[1].last.at) || "")).localeCompare((a[1].last && a[1].last.at) || ""));
     return <div className="body">
-      <button onClick={()=>setSid(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 목록</button>
-      <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>{nameOf(sid)} · 단어 자습</div>
-      {!entries.length && <div className="muted" style={{ textAlign:"center", padding:24 }}>아직 자습 기록이 없어요.</div>}
-      {entries.map(([aid, rec]) => (
-        <div key={aid} className="card" style={{ padding:12 }}>
+      <button onClick={()=>setSid(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 현황판</button>
+      <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>{nameOf(sid)} · 단어 자습 점수</div>
+      {!entries.length && <div className="muted" style={{ textAlign:"center", padding:24 }}>아직 자습 점수 기록이 없어요.</div>}
+      {entries.map(([aid, rec]) => {
+        const by = rec.byMode || {};
+        return <div key={aid} className="card" style={{ padding:12 }}>
           <div style={{ fontWeight:700, fontSize:14 }}>{titleOf(aid)}</div>
           <div className="muted" style={{ marginTop:4 }}>
             최고 <b style={{ color:"var(--navy)" }}>{rec.best}점</b> · {rec.attempts}회
             {rec.last ? ` · 최근 ${rec.last.score}점 (${rec.last.at})` : ""}
           </div>
-        </div>
-      ))}
+          <div className="row" style={{ gap:8, marginTop:6, flexWrap:"wrap" }}>
+            {[["choice","뜻고르기"],["spell","스펠링"],["test","미니테스트"]].map(([k,l]) =>
+              by[k] ? <span key={k} className="muted" style={{ fontSize:11 }}>{l} {by[k].best}점</span> : null
+            )}
+          </div>
+        </div>;
+      })}
     </div>;
   }
 
-  const active = students.filter(s => studiedCount(s.id) > 0).length;
+  const liveCount = students.filter(s => {
+    const a = act[s.id] || {};
+    return ACT_COLS.some(([k]) => a[k] && isLive(a[k].ts));
+  }).length;
+
   return <div className="body">
-    <div className="muted" style={{ marginBottom:10 }}>학생을 누르면 단어 자습 점수·기록을 볼 수 있어요. (자습 참여 {active}/{students.length}명)</div>
-    {students.map(s => (
-      <button key={s.id} className="card" onClick={()=>setSid(s.id)}
-        style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
-        <div><div style={{ fontWeight:700, fontSize:15 }}>{s.name}</div>
-          {s.className && <div className="muted" style={{ marginTop:2 }}>{s.className}</div>}</div>
-        <span className="muted">{studiedCount(s.id) ? `${studiedCount(s.id)}세트` : "기록 없음"}</span>
-      </button>
-    ))}
-    {!students.length && <div className="muted" style={{ textAlign:"center", padding:24 }}>학생이 없어요.</div>}
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+      <div className="muted">실시간 학습 현황 · 7초마다 자동 갱신</div>
+      <span style={{ fontSize:12, fontWeight:700, color: liveCount ? "#2E7D5B" : "var(--navy-soft)" }}>
+        🟢 지금 학습 중 {liveCount}명
+      </span>
+    </div>
+    <div style={{ overflowX:"auto" }}>
+      <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, minWidth:520 }}>
+        <thead>
+          <tr style={{ background:"var(--cream)" }}>
+            <th style={{ padding:"8px 8px", textAlign:"left", color:"var(--navy-soft)", position:"sticky", left:0, background:"var(--cream)" }}>학생</th>
+            {ACT_COLS.map(([k,l]) => (
+              <th key={k} style={{ padding:"8px 6px", textAlign:"center", color:"var(--navy-soft)", fontWeight:700, whiteSpace:"nowrap" }}>{l}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {students.map(s => {
+            const a = act[s.id] || {};
+            return (
+              <tr key={s.id} style={{ borderBottom:"1px solid var(--line)", cursor:"pointer" }} onClick={()=>setSid(s.id)}>
+                <td style={{ padding:"8px 8px", fontWeight:700, whiteSpace:"nowrap", position:"sticky", left:0, background:"#fff" }}>
+                  {s.name}{s.className ? <span className="muted" style={{ fontWeight:400 }}> · {s.className}</span> : ""}
+                </td>
+                {ACT_COLS.map(([k]) => {
+                  const c = a[k];
+                  const live = c && isLive(c.ts);
+                  return (
+                    <td key={k} style={{ padding:"6px 4px", textAlign:"center",
+                      background: live ? "#E3F1E9" : "transparent" }}>
+                      {c
+                        ? <div>
+                            <div style={{ fontWeight:700, color: live ? "#2E7D5B" : "var(--navy)", fontSize:11 }}>{live ? "🟢 학습중" : c.at}</div>
+                            {live && <div className="muted" style={{ fontSize:10 }}>{c.at}</div>}
+                          </div>
+                        : <span style={{ color:"var(--line)" }}>–</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+          {!students.length && <tr><td colSpan={ACT_COLS.length+1} style={{ padding:16, textAlign:"center", color:"var(--navy-soft)" }}>학생이 없어요.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+    <div className="muted" style={{ marginTop:10, fontSize:11 }}>학생 이름을 누르면 단어 자습 점수 상세를 볼 수 있어요.</div>
   </div>;
 }
 

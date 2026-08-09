@@ -36,6 +36,9 @@ SUB_DIR.mkdir(parents=True, exist_ok=True)
 VOCAB_DIR = DATA_DIR / "vocab"   # 단어 자습 점수/진도 (학생별 파일)
 VOCAB_DIR.mkdir(parents=True, exist_ok=True)
 
+ACT_DIR = DATA_DIR / "activity"  # 실시간 학습 현황 (학생별, 활동종류별 최근 기록)
+ACT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def _sub_lock(student_id: str):
     """학생별 잠금 — 서로 다른 학생은 동시에 저장 가능."""
@@ -103,6 +106,34 @@ def save_vocab(student_id: str, data: dict):
 
 def all_vocab_student_ids() -> list:
     return [p.stem for p in VOCAB_DIR.glob("*.json")]
+
+
+# ---------- 실시간 학습 활동 (학생별, 활동종류별 최근 1건) ----------
+def _act_path(student_id: str) -> Path:
+    return ACT_DIR / f"{_safe_id(student_id)}.json"
+
+
+def load_activity(student_id: str) -> dict:
+    p = _act_path(student_id)
+    if not p.exists():
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_activity(student_id: str, data: dict):
+    p = _act_path(student_id)
+    tmp = p.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    tmp.replace(p)
+
+
+def all_activity_student_ids() -> list:
+    return [p.stem for p in ACT_DIR.glob("*.json")]
 
 
 def get_submission_record(assignment_id: str, student_id: str) -> dict:
@@ -931,6 +962,46 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             "submitRate": round(v["done"] / v["total"] * 100) if v["total"] else 0,
         })
 
+    # 단어 자습 요약 (기간 내 배정된 단어 과제 기준)
+    vocab = load_vocab(student_id)
+    vocab_rows = []
+    vocab_bests = []
+    mode_bests = {"choice": [], "spell": [], "test": []}
+    flash_count = 0
+    for a in assigned:
+        rec = vocab.get(a["id"])
+        if not rec:
+            continue
+        by = rec.get("byMode") or {}
+        if by.get("flash"):
+            flash_count += 1
+        vocab_rows.append({
+            "title": a.get("title"),
+            "best": rec.get("best"),
+            "attempts": rec.get("attempts", 0),
+            "choice": (by.get("choice") or {}).get("best"),
+            "spell": (by.get("spell") or {}).get("best"),
+            "test": (by.get("test") or {}).get("best"),
+        })
+        if rec.get("best") is not None:
+            vocab_bests.append(rec["best"])
+        for mkey in mode_bests:
+            b = (by.get(mkey) or {}).get("best")
+            if b is not None:
+                mode_bests[mkey].append(b)
+    vocab_rows.sort(key=lambda r: (r.get("title") or ""))
+    vocab_summary = {
+        "studiedSets": len(vocab_rows),
+        "avgBest": avg_of(vocab_bests),
+        "byMode": {mkey: avg_of(v) for mkey, v in mode_bests.items()},
+        "flashSets": flash_count,
+        "rows": vocab_rows,
+    }
+    if vocab_summary["studiedSets"] and vocab_summary["avgBest"] is not None:
+        lines.append(
+            f"단어 자습도 {vocab_summary['studiedSets']}개 단어장에서 평균 {vocab_summary['avgBest']}점을 기록하며 스스로 복습했어요."
+        )
+
     return {
         "student": {"name": student.get("name"), "className": student.get("className")},
         "period": {"start": d_start.isoformat(), "end": d_end.isoformat()},
@@ -947,6 +1018,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
         "weekly": weekly_list,
         "daily": daily_list,
         "weakWords": [{"word": w, "accuracy": a} for w, a in sorted(weak_words.items(), key=lambda x: x[1])[:8]],
+        "vocab": vocab_summary,
         "summary": " ".join(lines),
     }
 
@@ -1160,6 +1232,31 @@ def get_vocab(student_id: str):
 def get_vocab_all():
     """선생님 대시보드용: 모든 학생의 단어 자습 기록 {student_id: {aid: record}}."""
     return {sid: load_vocab(sid) for sid in all_vocab_student_ids()}
+
+
+# ---------- 실시간 학습 현황 ----------
+ACTIVITY_KINDS = {"record", "flash", "choice", "spell", "test"}
+
+
+@app.post("/api/activity/{student_id}")
+def ping_activity(student_id: str, payload: dict = Body(...)):
+    """학생이 어떤 학습을 시작하면 호출. body: {kind, title}"""
+    import time
+    kind = str(payload.get("kind") or "").strip()
+    if kind not in ACTIVITY_KINDS:
+        raise HTTPException(400, "알 수 없는 활동이에요.")
+    title = str(payload.get("title") or "")[:120]
+    with _sub_lock(student_id):
+        data = load_activity(student_id)
+        data[kind] = {"at": _now_kr(), "ts": int(time.time()), "title": title}
+        save_activity(student_id, data)
+    return {"ok": True}
+
+
+@app.get("/api/activity-all")
+def get_activity_all():
+    """선생님 실시간 현황판용: {student_id: {kind: {at, ts, title}}}."""
+    return {sid: load_activity(sid) for sid in all_activity_student_ids()}
 
 
 # ---------- backup ----------
