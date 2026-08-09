@@ -1290,16 +1290,21 @@ def _pairs_from_assignment(a: dict):
 
 
 def _questions_from_pairs(pairs):
-    """[(정답, 문제)] → 4지선다 문제. 오답 보기는 다른 정답들에서 뽑음."""
+    """[(정답, 문제)] → 4지선다 문제. 오답 보기는 다른 정답들에서 뽑음.
+    정답 위치(0~3)를 균등 분배해서 한 번호에 몰리지 않게 한다(찍기 방지)."""
     answers = [a for a, _ in pairs]
     if len(set(answers)) < 4:
         return []
+    n = len(pairs)
+    positions = [i % 4 for i in range(n)]   # 0,1,2,3,0,1,2,3...
+    _rnd.shuffle(positions)
     qs = []
-    for ans, prompt in pairs:
+    for k, (ans, prompt) in enumerate(pairs):
         others = [x for x in answers if x != ans]
         _rnd.shuffle(others)
-        opts = [ans] + others[:3]
-        _rnd.shuffle(opts)
+        picks = others[:3]
+        pos = positions[k] if picks and len(picks) == 3 else 0
+        opts = picks[:pos] + [ans] + picks[pos:]
         qs.append({"prompt": prompt, "options": opts, "correct": opts.index(ans)})
     _rnd.shuffle(qs)
     return qs
