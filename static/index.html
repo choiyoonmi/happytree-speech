@@ -2942,7 +2942,8 @@ function BattlePlayer({ initialCode, onExit }) {
     else if (m.type === "starting") { setPhase("lobby"); }
     else if (m.type === "question") { setQ(m); setPicked(null); setResult(null); setTleft(m.duration); setPhase("question"); }
     else if (m.type === "answered") { setResult(m); setScore(m.score); setPhase("answered"); }
-    else if (m.type === "reveal") { setReveal(m); setBoard(m.board || []); setPhase("reveal"); }
+    else if (m.type === "reveal") { setReveal(m); setPhase("reveal"); }
+    else if (m.type === "standings") { setBoard(m.board || []); setPhase("standings"); }
     else if (m.type === "end") { setBoard(m.board || []); setPhase("end"); if (musicRef.current) musicRef.current.stop(); }
   };
 
@@ -3044,15 +3045,19 @@ function BattlePlayer({ initialCode, onExit }) {
     </div>;
   }
   if (phase === "reveal") {
-    return <div style={wrapStyle}>{musicBtn}
-      <div style={{ textAlign:"center", marginTop:40 }}>
-        <div style={{ opacity:.8, fontSize:13, marginBottom:6 }}>정답</div>
-        <div style={{ fontSize:26, fontWeight:800, color:"#F4D06F" }}>{reveal.answer}</div>
+    return <div style={{ ...wrapStyle, display:"flex", alignItems:"center", justifyContent:"center", textAlign:"center" }}>{musicBtn}
+      <div>
+        <div style={{ opacity:.8, fontSize:14, marginBottom:8 }}>정답</div>
+        <div style={{ fontSize:34, fontWeight:800, color:"#F4D06F" }}>{reveal.answer}</div>
       </div>
-      <div style={{ marginTop:26, maxWidth:360, margin:"26px auto 0" }}>
-        <div style={{ fontWeight:700, marginBottom:8, opacity:.9 }}>현재 순위</div>
-        {board.slice(0, 8).map((b, i) => (
-          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"9px 12px", borderRadius:10,
+    </div>;
+  }
+  if (phase === "standings") {
+    return <div style={wrapStyle}>{musicBtn}
+      <div style={{ textAlign:"center", marginTop:34, fontSize:22, fontWeight:800 }}>🏅 중간 순위</div>
+      <div style={{ maxWidth:360, margin:"18px auto 0" }}>
+        {board.slice(0, 10).map((b, i) => (
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"10px 12px", borderRadius:10,
             background: b.name === name ? "rgba(244,162,89,.35)" : "rgba(255,255,255,.1)", marginBottom:6, fontWeight: b.name === name ? 800 : 500 }}>
             <span>{i + 1}. {b.name}</span><span>{b.score}점</span>
           </div>
@@ -3114,7 +3119,8 @@ function BattleHost({ assignments }) {
     else if (m.type === "players") setSt(s => ({ ...s, players: m.players || [] }));
     else if (m.type === "starting") setSt(s => ({ ...s, phase: "starting" }));
     else if (m.type === "question") setSt(s => ({ ...s, phase: "question", q: m, reveal: null }));
-    else if (m.type === "reveal") setSt(s => ({ ...s, phase: "reveal", reveal: m, board: m.board || [] }));
+    else if (m.type === "reveal") setSt(s => ({ ...s, phase: "reveal", reveal: m }));
+    else if (m.type === "standings") setSt(s => ({ ...s, phase: "standings", board: m.board || [] }));
     else if (m.type === "end") setSt(s => ({ ...s, phase: "end", board: m.board || [] }));
     else if (m.type === "balloon") popBalloon(m.name);
   };
@@ -3283,11 +3289,17 @@ function BattleHost({ assignments }) {
     )}
 
     {st.phase === "reveal" && st.reveal && (
+      <div className="card" style={{ padding:22, textAlign:"center" }}>
+        <div className="muted">정답</div>
+        <div style={{ fontSize:28, fontWeight:800, color:"#2E7D5B", marginTop:6 }}>{st.reveal.answer}</div>
+      </div>
+    )}
+
+    {st.phase === "standings" && (
       <div className="card" style={{ padding:18 }}>
-        <div className="muted" style={{ textAlign:"center" }}>정답</div>
-        <div style={{ fontSize:24, fontWeight:800, color:"#2E7D5B", textAlign:"center", marginBottom:12 }}>{st.reveal.answer}</div>
-        {st.board.slice(0, 8).map((b, i) => (
-          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"8px 12px", borderBottom:"1px solid var(--line)" }}>
+        <div style={{ fontSize:18, fontWeight:800, color:"var(--navy)", textAlign:"center", marginBottom:12 }}>🏅 중간 순위</div>
+        {st.board.slice(0, 10).map((b, i) => (
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"9px 12px", borderBottom:"1px solid var(--line)" }}>
             <span style={{ fontWeight:700 }}>{i + 1}. {b.name}</span><span style={{ fontWeight:700, color:"var(--navy)" }}>{b.score}점</span>
           </div>
         ))}

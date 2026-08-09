@@ -1401,6 +1401,7 @@ async def _run_battle(room):
     await _battle_broadcast(room, {"type": "starting", "count": len(room["questions"])})
     await asyncio.sleep(2)
     battle_start = _time.time()
+    shown_mid = False
     for qi, q in enumerate(room["questions"]):
         if _time.time() - battle_start >= room.get("totalSec", 90):
             break   # 전체 배틀 시간(예: 1분30초) 지나면 종료
@@ -1431,12 +1432,17 @@ async def _run_battle(room):
                 await asyncio.sleep(0.3)
                 break
         room["phase"] = "reveal"
-        board = _battle_scoreboard(room)
         await _battle_broadcast(room, {
             "type": "reveal", "correct": q["correct"],
-            "answer": q["options"][q["correct"]], "board": board,
+            "answer": q["options"][q["correct"]],
         })
-        await asyncio.sleep(4)
+        await asyncio.sleep(1.8)   # 문제 사이 간격 짧게
+        # 중간점검 순위: 배틀 절반 지점에 딱 한 번만
+        if not shown_mid and (_time.time() - battle_start) >= room.get("totalSec", 90) / 2:
+            room["phase"] = "standings"
+            await _battle_broadcast(room, {"type": "standings", "board": _battle_scoreboard(room)})
+            await asyncio.sleep(5)
+            shown_mid = True
     room["phase"] = "end"
     await _battle_broadcast(room, {"type": "end", "board": _battle_scoreboard(room)})
 
