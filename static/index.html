@@ -400,15 +400,17 @@ function StudentView({ student, onLogout }) {
   useEffect(() => {
     reloadVocab();
     (async () => {
-      const list = await apiGet("/assignments");
+      // 과제 목록 + 제출상태를 각각 1번씩만 호출 (과제마다 따로 부르지 않음 → 접속 로딩 대폭 단축)
+      const [list, subs] = await Promise.all([
+        apiGet("/assignments"),
+        apiGet(`/student-submissions/${student.id}`).catch(() => ({})),
+      ]);
       setAssignments(list);
       const map = {};
-      for (const a of list) {
-        try {
-          const s = await apiGet(`/submission/${a.id}/${student.id}`);
-          map[a.id] = s && s.status ? s.status : "none";
-        } catch (e) { map[a.id] = "none"; }
-      }
+      list.forEach(a => {
+        const s = subs[a.id];
+        map[a.id] = (s && s.status) ? s.status : "none";
+      });
       setStatusMap(map);
       setLoading(false);
     })();
