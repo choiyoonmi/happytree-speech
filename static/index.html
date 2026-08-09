@@ -801,6 +801,20 @@ function AdminStudents({ students, reload }) {
       setPreview(rows);
     } catch (e) { setErr("엑셀을 읽는 데 실패했어요."); }
   };
+  const downloadTemplate = () => {
+    const data = [
+      ["이름","반","아이디","비밀번호"],
+      ["홍길동","초등5반","",""],
+      ["김철수","초등5반","",""],
+      ["이영희","초등3반","",""],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [{ wch:12 },{ wch:12 },{ wch:14 },{ wch:12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "학생명단");
+    XLSX.writeFile(wb, "학생명단_예시.xlsx");
+  };
+
   const submitBulk = async () => {
     if (!preview || !preview.length) return;
     setBulkBusy(true); setErr("");
@@ -856,6 +870,8 @@ function AdminStudents({ students, reload }) {
           첫 줄 머리글: <b>이름 · 반 · 아이디 · 비밀번호</b> (반·아이디·비번은 없어도 됨 → 자동 발급).<br/>
           머리글이 없으면 <b>1열=이름, 2열=반</b>으로 읽어요.
         </div>
+        <button className="btn full" style={{ marginBottom:8 }} onClick={downloadTemplate}>📥 예시 엑셀 먼저 받기</button>
+        <div className="muted" style={{ marginBottom:8, fontSize:12 }}>예시 파일을 받아 <b>틀 안에 채운 뒤</b> 아래로 올리면 오류가 없어요.</div>
         <label className="btn-ghost full" style={{ display:"block", textAlign:"center", cursor:"pointer" }}>
           📄 학생 명단 엑셀 올리기
           <input type="file" accept=".xlsx,.xls,.csv" style={{ display:"none" }}
