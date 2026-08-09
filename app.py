@@ -568,6 +568,54 @@ async def set_example_audio(assignment_id: str, index: int = Form(...), audio: U
     raise HTTPException(404, "과제를 찾을 수 없어요.")
 
 
+@app.post("/api/assignments/{assignment_id}/tts-audio")
+def gen_tts_audio(assignment_id: str, payload: dict = Body(...)):
+    """적어준 텍스트를 Azure TTS로 음원 생성해 항목에 붙인다. body: {index, text, voice?}"""
+    if not AZURE_KEY:
+        raise HTTPException(500, "서버에 AZURE_SPEECH_KEY가 없어 음성 생성을 할 수 없어요.")
+    index = int(payload.get("index", -1))
+    text = str(payload.get("text") or "").strip()
+    voice = str(payload.get("voice") or "en-US-AriaNeural")
+    if not text:
+        raise HTTPException(400, "읽을 텍스트를 입력해주세요.")
+    import azure.cognitiveservices.speech as speechsdk
+    cfg = speechsdk.SpeechConfig(subscription=AZURE_KEY, region=AZURE_REGION)
+    cfg.speech_synthesis_voice_name = voice
+    cfg.set_speech_synthesis_output_format(
+        speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3)
+    synth = speechsdk.SpeechSynthesizer(speech_config=cfg, audio_config=None)
+    result = synth.speak_text_async(text).get()
+    if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
+        detail = ""
+        try:
+            if result.reason == speechsdk.ResultReason.Canceled:
+                detail = str(result.cancellation_details.reason) + " " + (result.cancellation_details.error_details or "")
+        except Exception:
+            pass
+        raise HTTPException(502, f"음성 생성 실패. {detail}"[:300])
+    data = result.audio_data
+    if not data:
+        raise HTTPException(502, "생성된 음성이 비어 있어요.")
+    name = "tts_" + uuid.uuid4().hex + ".mp3"
+    with open(AUDIO_DIR / name, "wb") as f:
+        f.write(data)
+    url = f"/api/audio/{name}"
+    with _lock:
+        db = load_db()
+        for a in db["assignments"]:
+            if a["id"] == assignment_id:
+                n = len(a.get("items", []))
+                arr = a.get("exampleAudio") or []
+                while len(arr) < n:
+                    arr.append(None)
+                if 0 <= index < n:
+                    arr[index] = url
+                a["exampleAudio"] = arr
+                save_db(db)
+                return {"url": url, "index": index}
+    raise HTTPException(404, "과제를 찾을 수 없어요.")
+
+
 @app.delete("/api/assignments/{assignment_id}/example-audio/{index}")
 def clear_example_audio(assignment_id: str, index: int):
     with _lock:

@@ -1477,6 +1477,8 @@ function BookDetail({ book, group, list, reload, onBack }) {
   const [testBusy, setTestBusy] = useState(false);
   const [audioAsg, setAudioAsg] = useState(null);
   const [audioBusy, setAudioBusy] = useState(null);
+  const [ttsText, setTtsText] = useState({});
+  const [ttsBusy, setTtsBusy] = useState(null);
   const [err, setErr] = useState("");
 
   const DAYNAMES = ["일","월","화","수","목","금","토"];
@@ -1497,6 +1499,20 @@ function BookDetail({ book, group, list, reload, onBack }) {
   const clearEx = async (aid, i) => {
     await fetch(`/api/assignments/${aid}/example-audio/${i}`, { method:"DELETE" });
     await reload();
+  };
+  const genTts = async (aid, i, text) => {
+    const t = (text || "").trim();
+    if (!t) { alert("읽을 영어 텍스트를 입력해주세요."); return; }
+    setTtsBusy(aid + ":" + i);
+    try {
+      const res = await fetch(`/api/assignments/${aid}/tts-audio`, {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ index: i, text: t, voice: "en-US-AriaNeural" }),
+      });
+      if (!res.ok) { let d = "생성 실패"; try { const j = await res.json(); d = j.detail || d; } catch (e) {} throw new Error(d); }
+      await reload();
+    } catch (e) { alert("소리 생성 실패: " + e.message); }
+    setTtsBusy(null);
   };
   const toggle = (v) => setWeekdays(w => w.includes(v) ? w.filter(x=>x!==v) : [...w, v]);
 
@@ -1814,21 +1830,27 @@ function BookDetail({ book, group, list, reload, onBack }) {
 
           {audioAsg === a.id && (
             <div style={{ marginTop:10, borderTop:"1px solid var(--line)", paddingTop:10 }}>
-              <div className="muted" style={{ marginBottom:8 }}>각 항목에 선생님 발음·음가 음원을 올려요 (mp3·m4a 등). 카드암기·녹음 화면에서 학생이 이 소리를 들어요.</div>
+              <div className="muted" style={{ marginBottom:8 }}>읽을 영어 텍스트를 적고 <b>🔊 소리 생성</b>을 누르면 음원이 자동으로 만들어져요. (직접 녹음 파일 업로드도 가능) 학생은 카드암기·녹음 화면에서 이 소리를 들어요.</div>
               {a.items.map((it, i) => {
                 const url = (a.exampleAudio || [])[i];
                 const key = a.id + ":" + i;
-                return <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
-                  <div style={{ flex:1, minWidth:0, fontWeight:700, fontSize:14, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                    {url ? "🔊 " : "⬜ "}{it}
+                return <div key={i} style={{ padding:"8px 0", borderBottom:"1px solid var(--line)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                    <div style={{ flex:1, minWidth:0, fontWeight:700, fontSize:14 }}>{url ? "🔊 " : "⬜ "}{it}</div>
+                    {url && <button onClick={()=>playModel(url)} className="btn-ghost" style={{ padding:"4px 9px", fontSize:12 }}>▶ 듣기</button>}
+                    {url && <button onClick={()=>clearEx(a.id, i)} style={{ background:"none", color:"var(--danger)", fontSize:14 }}>✕</button>}
                   </div>
-                  {url && <button onClick={()=>playModel(url)} className="btn-ghost" style={{ padding:"4px 9px", fontSize:12 }}>▶</button>}
-                  <label className="btn-ghost" style={{ padding:"4px 9px", fontSize:12, whiteSpace:"nowrap", opacity: audioBusy===key ? 0.5 : 1 }}>
-                    {audioBusy===key ? "올리는 중..." : (url ? "교체" : "음원 올리기")}
-                    <input type="file" accept="audio/*" style={{ display:"none" }}
-                      onChange={e=>{ const f=e.target.files[0]; if(f) uploadEx(a.id, i, f); e.target.value=""; }} />
-                  </label>
-                  {url && <button onClick={()=>clearEx(a.id, i)} style={{ background:"none", color:"var(--danger)", fontSize:14 }}>✕</button>}
+                  <div style={{ display:"flex", gap:6 }}>
+                    <input className="field" style={{ flex:1, padding:"6px 8px", fontSize:12 }} placeholder="읽을 영어 텍스트 (예: apple)"
+                      value={ttsText[key] || ""} onChange={e=>setTtsText(m => ({ ...m, [key]: e.target.value }))} />
+                    <button className="btn" style={{ padding:"6px 10px", fontSize:12, whiteSpace:"nowrap" }} disabled={ttsBusy===key}
+                      onClick={()=>genTts(a.id, i, ttsText[key])}>{ttsBusy===key ? "생성 중..." : "🔊 소리 생성"}</button>
+                    <label className="btn-ghost" style={{ padding:"6px 8px", fontSize:12, whiteSpace:"nowrap", opacity: audioBusy===key ? 0.5 : 1 }}>
+                      {audioBusy===key ? "..." : "파일"}
+                      <input type="file" accept="audio/*" style={{ display:"none" }}
+                        onChange={e=>{ const f=e.target.files[0]; if(f) uploadEx(a.id, i, f); e.target.value=""; }} />
+                    </label>
+                  </div>
                 </div>;
               })}
             </div>
