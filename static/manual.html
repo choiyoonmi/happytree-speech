@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>해피트리 학습앱 · 선생님 사용 설명서</title>
+<style>
+  :root{
+    --navy:#1B2E4C; --navy-soft:#42597e; --gold:#B8901F; --gold-soft:#D9B24a;
+    --paper:#FBF8F2; --card:#ffffff; --ink:#23252b; --muted:#6a6f7a;
+    --line:#E9E2D2; --tint:#F3EEE1; --good:#2E7D5B; --danger:#B3432F;
+    --shadow:0 1px 2px rgba(27,46,76,.06),0 8px 24px rgba(27,46,76,.06);
+    --maxw:820px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --navy:#dfe7f4; --navy-soft:#a9b6cd; --gold:#E7C25C; --gold-soft:#caa53f;
+      --paper:#12151b; --card:#1a1e26; --ink:#e7e9ee; --muted:#9aa1af;
+      --line:#2b313c; --tint:#20252f; --good:#69c79b; --danger:#e2836f;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --navy:#dfe7f4; --navy-soft:#a9b6cd; --gold:#E7C25C; --gold-soft:#caa53f;
+    --paper:#12151b; --card:#1a1e26; --ink:#e7e9ee; --muted:#9aa1af;
+    --line:#2b313c; --tint:#20252f; --good:#69c79b; --danger:#e2836f;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"]{
+    --navy:#1B2E4C; --navy-soft:#42597e; --gold:#B8901F; --gold-soft:#D9B24a;
+    --paper:#FBF8F2; --card:#ffffff; --ink:#23252b; --muted:#6a6f7a;
+    --line:#E9E2D2; --tint:#F3EEE1; --good:#2E7D5B; --danger:#B3432F;
+    --shadow:0 1px 2px rgba(27,46,76,.06),0 8px 24px rgba(27,46,76,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,-apple-system,sans-serif;
+    line-height:1.7;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 20px}
+
+  /* header */
+  header{background:var(--navy);color:#fff;padding:46px 0 40px;
+    background-image:radial-gradient(1200px 200px at 100% -30%, rgba(216,178,74,.18), transparent);}
+  :root[data-theme="dark"] header, @media (prefers-color-scheme:dark){}
+  header .wrap{display:flex;flex-direction:column;gap:6px}
+  .eyebrow{color:var(--gold-soft);font-weight:700;letter-spacing:.14em;font-size:12.5px}
+  header h1{margin:2px 0 0;font-size:30px;font-weight:800;letter-spacing:-.02em;color:#fff;text-wrap:balance}
+  header p{margin:6px 0 0;color:#cdd6e6;font-size:15px;max-width:60ch}
+  .pill{align-self:flex-start;margin-top:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);
+    color:#fff;font-size:12.5px;font-weight:700;padding:5px 12px;border-radius:999px}
+
+  /* toc */
+  .toc{margin:26px 0 8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+  .toc a{display:flex;gap:10px;align-items:center;text-decoration:none;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:11px 13px;color:var(--ink);box-shadow:var(--shadow);transition:transform .12s,border-color .12s}
+  .toc a:hover{transform:translateY(-2px);border-color:var(--gold)}
+  .toc .n{flex:none;width:26px;height:26px;border-radius:8px;background:var(--tint);color:var(--navy);
+    font-weight:800;font-size:13px;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+  .toc .t{font-weight:700;font-size:14px;line-height:1.3}
+
+  /* sections */
+  section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px 22px;margin:16px 0;box-shadow:var(--shadow)}
+  section>h2{margin:0 0 4px;font-size:20px;font-weight:800;color:var(--navy);letter-spacing:-.01em;
+    display:flex;align-items:center;gap:10px;text-wrap:balance}
+  section>h2 .n{flex:none;width:30px;height:30px;border-radius:9px;background:var(--navy);color:#fff;
+    font-size:15px;font-weight:800;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+  .lead{color:var(--muted);margin:2px 0 14px;font-size:14.5px}
+  h3{font-size:15.5px;font-weight:800;color:var(--navy);margin:20px 0 6px}
+  p{margin:8px 0}
+  b{color:var(--navy)}
+  .path{background:var(--tint);border-radius:6px;padding:1px 7px;font-weight:700;color:var(--navy);white-space:nowrap;font-size:13.5px}
+
+  ol.steps{margin:6px 0;padding:0;counter-reset:s;list-style:none;display:flex;flex-direction:column;gap:9px}
+  ol.steps>li{position:relative;padding-left:34px;counter-increment:s}
+  ol.steps>li::before{content:counter(s);position:absolute;left:0;top:1px;width:23px;height:23px;border-radius:50%;
+    background:var(--gold);color:#fff;font-weight:800;font-size:12.5px;display:grid;place-items:center;font-variant-numeric:tabular-nums}
+  ul.plain{margin:8px 0;padding-left:18px}
+  ul.plain li{margin:5px 0}
+
+  .callout{border-radius:12px;padding:13px 15px;margin:14px 0;font-size:14px;border:1px solid var(--line);background:var(--tint)}
+  .callout.tip{border-color:color-mix(in srgb,var(--good) 40%,var(--line));background:color-mix(in srgb,var(--good) 9%,var(--card))}
+  .callout.warn{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));background:color-mix(in srgb,var(--danger) 9%,var(--card))}
+  .callout b{display:block;margin-bottom:2px}
+  .callout.tip b{color:var(--good)} .callout.warn b{color:var(--danger)}
+
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  .tablescroll{overflow-x:auto}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--navy-soft);font-weight:700;font-size:12.5px;background:var(--tint)}
+  td b{color:var(--navy)}
+
+  .chip{display:inline-block;background:var(--tint);border:1px solid var(--line);border-radius:999px;
+    padding:2px 10px;font-size:12.5px;font-weight:700;color:var(--navy);margin:2px 3px 2px 0}
+
+  footer{color:var(--muted);text-align:center;font-size:13px;padding:30px 20px 50px}
+  a.link{color:var(--gold);font-weight:700;text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--gold) 40%,transparent)}
+
+  @media print{
+    header{background:#fff;color:#000;padding:16px 0}
+    header h1,header .eyebrow{color:#000} header p{color:#333}
+    .pill,.toc a:hover{}
+    section{break-inside:avoid;box-shadow:none;border-color:#ccc}
+    body{background:#fff}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="eyebrow">해피트리 학습앱</div>
+    <h1>선생님 사용 설명서</h1>
+    <p>학생 등록부터 교재 업로드 · 과제 배정 · 녹음 채점 · 단어 자습 · 실시간 현황 · 배틀 · 성적표까지, 한 앱에서 끝냅니다.</p>
+    <span class="pill">1차 배포판 · happytree-speech.onrender.com</span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <nav class="toc" aria-label="목차">
+    <a href="#s1"><span class="n">1</span><span class="t">로그인</span></a>
+    <a href="#s2"><span class="n">2</span><span class="t">학생 등록 · 반 관리</span></a>
+    <a href="#s3"><span class="n">3</span><span class="t">교재 올리기 · 보관함</span></a>
+    <a href="#s4"><span class="n">4</span><span class="t">과제 내기(배정)</span></a>
+    <a href="#s5"><span class="n">5</span><span class="t">발음 · 음가 음원</span></a>
+    <a href="#s6"><span class="n">6</span><span class="t">단어시험지 PDF</span></a>
+    <a href="#s7"><span class="n">7</span><span class="t">실시간 학습현황</span></a>
+    <a href="#s8"><span class="n">8</span><span class="t">제출 확인 · 채점</span></a>
+    <a href="#s9"><span class="n">9</span><span class="t">단어 배틀</span></a>
+    <a href="#s10"><span class="n">10</span><span class="t">성적표</span></a>
+    <a href="#s11"><span class="n">11</span><span class="t">학생 화면</span></a>
+    <a href="#s12"><span class="n">?</span><span class="t">자주 묻는 것</span></a>
+  </nav>
+
+  <section id="s1">
+    <h2><span class="n">1</span>로그인</h2>
+    <p class="lead">주소는 <b>happytree-speech.onrender.com</b> 하나입니다. 선생님·학생 모두 같은 주소로 들어가요.</p>
+    <h3>선생님(관리자)</h3>
+    <ol class="steps">
+      <li>주소 접속 → 상단에서 <span class="path">선생님</span> 선택</li>
+      <li>관리자 비밀번호 입력 → 로그인</li>
+    </ol>
+    <h3>학생</h3>
+    <ul class="plain">
+      <li><b>숙제·자습</b>: <span class="path">학생</span> 선택 → 아이디 / 비밀번호(선생님이 발급) 로그인</li>
+      <li><b>배틀만 참가</b>: 로그인 화면의 <span class="path">🎮 단어 배틀 참가하기</span> → 코드 + 이름 입력 (로그인 불필요)</li>
+    </ul>
+    <div class="callout tip"><b>💡 항상 최신 화면</b>업데이트하면 자동으로 최신 화면이 떠요. 혹시 옛 화면이 보이면 <b>Ctrl+F5</b> 한 번이면 됩니다.</div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="n">2</span>학생 등록 · 반 관리</h2>
+    <p class="lead"><span class="path">학생관리</span> 탭에서 학생을 만들고 반으로 묶어 관리합니다.</p>
+    <ol class="steps">
+      <li>이름 입력, <b>반</b>(예: 초등5반) 입력</li>
+      <li>아이디·비밀번호는 비워두면 <b>자동 발급</b>, 기존 걸 쓰려면 직접 입력</li>
+      <li><span class="path">아이디 발급</span> → 목록에 추가됨</li>
+    </ol>
+    <p>등록된 학생은 <b>반별로 묶여</b> 표시되고, 반 이름 옆에 인원수가 나옵니다. 반이 없는 학생은 “반 미지정”으로 모여요.</p>
+    <div class="callout tip"><b>💡 반을 먼저</b>반을 지정해두면, 나중에 과제·배틀을 <b>반별로 한 번에</b> 배정할 수 있어 편합니다.</div>
+  </section>
+
+  <section id="s3">
+    <h2><span class="n">3</span>교재 올리기 · 보관함</h2>
+    <p class="lead">학원에서 쓰는 단어책을 미리 다 올려두고(<b>보관함</b>), 필요할 때 꺼내 씁니다. <span class="path">과제관리 → 교재 통째로 등록</span></p>
+    <h3>업로드 방법 두 가지</h3>
+    <div class="tablescroll"><table>
+      <tr><th>버튼</th><th>언제 쓰나</th></tr>
+      <tr><td><b>📗 엑셀·PDF 올리기 (빠름)</b></td><td>한 줄에 단어 하나인 단순한 엑셀/표. 즉시 읽음.</td></tr>
+      <tr><td><b>🤖 AI로 정확히 읽기</b></td><td>한 줄에 여러 단(Unit이 옆으로 나란히) 등 <b>복잡한 표·PDF</b>. 수십 초 걸리지만 정확.</td></tr>
+    </table></div>
+    <ul class="plain">
+      <li><b>영어만 자동 추출</b> — 번호·머리글·품사(n. v.)·한글전용 줄은 알아서 걸러요. 영어=단어, 한글=뜻.</li>
+      <li><b>단위 자동 인식</b> — Day / Unit / Lesson / 과 / 주차를 인식해 그 번호대로 나눔. 필요하면 <b>단위 표기</b> 버튼으로 바꿔요.</li>
+      <li><b>Day별 단어 수 표시</b> — 읽자마자 “Unit 1 · 9개” 처럼 개수가 칩으로 떠서, PDF를 다시 안 열어도 됩니다.</li>
+    </ul>
+    <h3>보관함에 저장하기</h3>
+    <p>배정 대상에서 <span class="path">보관</span>을 고르면 학생에게 안 보이고 <b>📦 보관함</b>에만 저장돼요. 요일·마감 없이 그냥 쌓아두면 됩니다.</p>
+    <div class="callout warn"><b>⚠️ 스캔 PDF 주의</b>사진처럼 스캔된 이미지 PDF는 글자 추출이 안 돼요. 엑셀로 올리거나, 텍스트형 PDF를 사용하세요.</div>
+  </section>
+
+  <section id="s4">
+    <h2><span class="n">4</span>과제 내기(배정)</h2>
+    <p class="lead">보관함 교재를 학생에게 내주는 방법. <b>원본은 보관함에 그대로 남아</b> 계속 재사용할 수 있어요.</p>
+    <h3>교재 전체를 한 번에</h3>
+    <ol class="steps">
+      <li><span class="path">과제관리 → 📦 보관함</span> → 교재 선택</li>
+      <li><span class="path">📤 이 교재로 과제 내기</span> 클릭</li>
+      <li>배정 대상(<span class="chip">전체</span><span class="chip">반별</span><span class="chip">개별</span>) 선택 + 마감일 자동 배치(시작일·요일)</li>
+      <li><span class="path">배정하기</span> → 사본이 학생에게 나감 (원본은 보관함 유지)</li>
+    </ol>
+    <h3>과제 하나씩 손보기 — 카드의 ✏️</h3>
+    <p>과제 카드의 <span class="path">마감 … ✏️</span>를 누르면 한 자리에서:</p>
+    <ul class="plain">
+      <li><b>마감일 · 녹음 횟수(1/2/3회)</b> 변경</li>
+      <li><b>배정 대상</b> 전체/반별/개별/보관 변경</li>
+      <li><b>단어 목록 수정</b> — 오타 고치기, 빠진 단어 추가 (한 줄에 <span class="path">단어 / 뜻</span>)</li>
+    </ul>
+    <h3>교재 상세의 일괄 도구</h3>
+    <div class="tablescroll"><table>
+      <tr><th>도구</th><th>기능</th></tr>
+      <tr><td><b>⏭ 뒤로 미루기</b></td><td>특정 날짜부터 마감일을 한꺼번에 뒤로</td></tr>
+      <tr><td><b>🗓 일정 다시 짜기</b></td><td>시작일·요일로 교재 전체 마감일 재계산</td></tr>
+      <tr><td><b>🔁 녹음 회차 한꺼번에</b></td><td>특정 Day부터 끝까지 회차를 한 번에 변경</td></tr>
+      <tr><td><b>🧹 중복 정리</b></td><td>실수로 두 번 올린 중복 과제 정리(제출 있는 건 보존)</td></tr>
+      <tr><td><b>교재 전체 삭제</b></td><td>이 교재의 모든 Day 삭제</td></tr>
+    </table></div>
+    <div class="callout tip"><b>💡 자료는 안 사라져요</b>배정은 상태만 바꾸는 것이라, 🗑나 “교재 전체 삭제”를 직접 누르지 않는 한 과제·교재는 계속 남아 재사용됩니다.</div>
+  </section>
+
+  <section id="s5">
+    <h2><span class="n">5</span>발음 · 음가 음원 <span style="font-size:15px">🎵</span></h2>
+    <p class="lead">파닉스 음가나 발음 견본을 항목마다 붙여, 학생이 카드암기·녹음 화면에서 듣게 합니다. 과제 카드의 <span class="path">🎵</span> 클릭.</p>
+    <ul class="plain">
+      <li><b>파일 업로드</b> — 직접 녹음한 mp3·m4a를 항목마다 올리기</li>
+      <li><b>🔊 소리 생성</b> — 읽을 영어 텍스트를 적으면 <b>자동으로 음원 생성</b> (녹음 없이도)</li>
+    </ul>
+    <p>음원이 있으면 학생 화면에서 브라우저 기계음 대신 <b>이 소리</b>가 재생돼요. ▶로 미리듣기, 교체·삭제 가능.</p>
+  </section>
+
+  <section id="s6">
+    <h2><span class="n">6</span>단어시험지 PDF <span style="font-size:15px">📝</span></h2>
+    <p class="lead">교재의 단어로 종이 시험지를 만듭니다. 교재 상세의 <span class="path">📝 이 교재 단어시험지 만들기 (책 전체)</span>.</p>
+    <ul class="plain">
+      <li>Day(Unit)마다 <b>A4 한 장</b>씩, 단어 수에 맞춰 글자 크기가 자동 조절돼요.</li>
+      <li>이미 등록된 과제의 단어를 그대로 쓰므로 <b>따로 파일 안 올려도</b> 됩니다.</li>
+      <li>PDF로 다운로드 → 인쇄해서 사용.</li>
+    </ul>
+  </section>
+
+  <section id="s7">
+    <h2><span class="n">7</span>실시간 학습현황</h2>
+    <p class="lead"><span class="path">학습현황</span> 탭 — 지금 누가 무엇을 하고 있는지 한눈에. 7초마다 자동 갱신.</p>
+    <ul class="plain">
+      <li><b>가로</b>: 녹음 · 카드암기 · 뜻고르기 · 스펠링 · 미니테스트</li>
+      <li><b>세로</b>: 학생 명단. 각 칸에 <b>몇 시에 했는지</b> 표시</li>
+      <li>최근 5분 이내면 <b>🟢 학습중</b>으로 초록 강조 → 숙제반 때 진행 상황 파악</li>
+      <li>학생 이름을 누르면 <b>단어 자습 점수 상세</b>를 볼 수 있어요</li>
+    </ul>
+  </section>
+
+  <section id="s8">
+    <h2><span class="n">8</span>제출 확인 · 채점</h2>
+    <p class="lead"><span class="path">제출확인</span> 탭 — 학생 녹음을 듣고 코멘트를 남깁니다.</p>
+    <ol class="steps">
+      <li>반/학생 선택 → 과제 목록(Day 1부터 순서대로)</li>
+      <li>과제 열기 → 항목별 <b>녹음 재생 · 점수(정확도/유창성/완성도)</b> 확인</li>
+      <li>선생님 코멘트 작성 (<b>✨ AI 코멘트</b>로 초안 자동 생성 가능)</li>
+      <li><span class="path">확인 완료로 표시</span> → 학생에게 코멘트가 보이고 “확인완료”로 바뀜</li>
+    </ol>
+  </section>
+
+  <section id="s9">
+    <h2><span class="n">9</span>단어 배틀 <span style="font-size:15px">🎮</span></h2>
+    <p class="lead"><span class="path">배틀</span> 탭 — 실시간 4지선다 대결. 정답 맞힌 학생마다 선생님 화면에 풍선이 떠올라요.</p>
+    <ol class="steps">
+      <li>문제 만들기: <b>단어 과제로</b>(보관함 교재 여러 개 합치기) 또는 <b>직접 만들기</b>(문제 / 정답 입력 — 한국사 등 과목 무관)</li>
+      <li>배틀 시간(기본 1분 30초)·문제당 시간 선택 → 배틀 열기</li>
+      <li>화면의 <b>숫자 4자리 코드</b>를 학생에게 알려주기</li>
+      <li>학생: 로그인 화면 <span class="path">🎮 단어 배틀 참가하기</span> → 코드 + 이름</li>
+      <li>모두 모이면 <span class="path">배틀 시작</span> → 중간·최종 순위 공개</li>
+    </ol>
+    <div class="callout tip"><b>💡 찍기 방지</b>정답 위치가 1·2·3·4번에 골고루 섞여서, 한 번호만 찍어서는 유리할 수 없어요.</div>
+  </section>
+
+  <section id="s10">
+    <h2><span class="n">10</span>성적표</h2>
+    <p class="lead"><span class="path">성적표</span> 탭 — 기간을 정하면 학생별 학습 리포트를 이미지로 만듭니다.</p>
+    <ul class="plain">
+      <li><b>녹음 발음</b>(종합 점수·정확도·유창성·완성도) + <b>단어 자습</b>(평균·모드별 점수)까지 함께 반영</li>
+      <li>일자별 추이 그래프, 과제별 기록, 더 연습할 단어, 선생님 총평</li>
+      <li>이미지(PNG)로 저장 → 학부모에게 공유</li>
+    </ul>
+  </section>
+
+  <section id="s11">
+    <h2><span class="n">11</span>학생 화면은 이렇게 보여요</h2>
+    <p class="lead">학생이 로그인하면 <b>달력</b>이 뜨고, 위에 두 개의 탭이 있어요.</p>
+    <div class="tablescroll"><table>
+      <tr><th>탭</th><th>내용</th></tr>
+      <tr><td><b>📅 녹음 숙제</b></td><td>날짜를 누르면 그날 숙제 → 단어/문장을 회차만큼 녹음 제출</td></tr>
+      <tr><td><b>📚 단어 자습</b></td><td>배정된 단어장으로 <b>카드암기 · 뜻고르기 · 스펠링 · 미니테스트</b></td></tr>
+    </table></div>
+    <p>카드 암기는 넘길 때마다 발음이 자동 재생되고(선생님 음원이 있으면 그 소리), 자습 점수는 자동 저장돼 <b>학습현황·성적표</b>에 반영됩니다.</p>
+  </section>
+
+  <section id="s12">
+    <h2><span class="n">?</span>자주 묻는 것</h2>
+    <h3>올린 교재가 안 보여요</h3>
+    <p>보관으로 올렸다면 <b>📦 보관함</b> 그룹에 있어요(“전체”가 아니라). 삭제된 게 아니라 위치만 다른 거예요.</p>
+    <h3>과제를 냈는데 학생 화면에 안 떠요</h3>
+    <p>과제 카드 ✏️에서 <b>배정 대상</b>이 그 학생의 반/개인으로 되어 있는지, <b>보관</b> 상태가 아닌지 확인하세요. 마감일이 달력의 그 날짜에 있어야 그 날에 보입니다.</p>
+    <h3>동시 접속은 몇 명까지?</h3>
+    <p>숙제반 15명 정도는 무난해요. 여러 명이 동시에 녹음 채점을 누르면 채점이 잠깐 줄서서 느려질 수 있는데, 보통은 시차가 생겨 괜찮습니다.</p>
+    <h3>처음 접속이 느려요</h3>
+    <p>한동안 아무도 안 쓰면 서버가 잠들었다 깨어나느라 <b>첫 접속만</b> 수십 초 걸릴 수 있어요. 그 뒤론 빠릅니다.</p>
+  </section>
+
+</main>
+
+<footer>
+  해피트리학원 · 남천동 국영수 문해력센터 &nbsp;·&nbsp; 선생님 사용 설명서 (1차)
+</footer>
+</body>
+</html>
