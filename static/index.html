@@ -2976,9 +2976,9 @@ function BattlePlayer({ initialCode, onExit }) {
           <div className="muted" style={{ marginTop:6 }}>코드와 이름을 입력하고 참가해요</div>
         </div>
         <div className="card">
-          <label className="label">접속 코드 (숫자 8자리)</label>
-          <input className="field" value={code} onChange={e=>setCode(e.target.value.replace(/[^0-9]/g,"").slice(0,8))}
-            inputMode="numeric" placeholder="예: 12345678" style={{ letterSpacing:3, fontWeight:700 }} />
+          <label className="label">접속 코드 (숫자 4자리)</label>
+          <input className="field" value={code} onChange={e=>setCode(e.target.value.replace(/[^0-9]/g,"").slice(0,4))}
+            inputMode="numeric" placeholder="예: 1234" style={{ letterSpacing:6, fontWeight:800, fontSize:20, textAlign:"center" }} />
           <div style={{ height:10 }} />
           <label className="label">내 이름</label>
           <input className="field" value={name} onChange={e=>setName(e.target.value)}

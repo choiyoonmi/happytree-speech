@@ -1267,12 +1267,12 @@ battle_rooms = {}   # code -> room dict (메모리, 배틀 진행 중에만 유�
 
 
 def _gen_code() -> str:
-    """숫자 8자리 랜덤 코드."""
-    for _ in range(80):
-        c = "".join(_rnd.choice("0123456789") for _ in range(8))
-        if c not in battle_rooms:
-            return c
-    return "".join(_rnd.choice("0123456789") for _ in range(8))
+    """숫자 4자리 랜덤 코드 (안 겹치게)."""
+    import random as _r
+    candidates = [f"{n:04d}" for n in range(10000) if f"{n:04d}" not in battle_rooms]
+    if candidates:
+        return _r.choice(candidates)
+    return "".join(_rnd.choice("0123456789") for _ in range(4))
 
 
 def _pairs_from_assignment(a: dict):
