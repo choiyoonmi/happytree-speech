@@ -846,6 +846,7 @@ function BulkUpload({ students, reload, onClose }) {
   const dayNumber = (value) => {
     const text = String(value ?? "").trim();
     const match = text.match(/(?:^|[^a-z])(?:day|unit|lesson|lec|chapter)\s*0*(\d+)(?:\D|$)/i)
+      || text.match(/(?:유닛|레슨|단원|챕터)\s*0*(\d+)/)
       || text.match(/(?:^|\D)0*(\d+)\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)(?:\D|$)/);
     return match ? Number(match[1]) : null;
   };
