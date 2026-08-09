@@ -836,6 +836,7 @@ function BulkUpload({ students, reload, onClose }) {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [trBusy, setTrBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
   const DAYNAMES = ["일","월","화","수","목","금","토"];
@@ -942,6 +943,35 @@ function BulkUpload({ students, reload, onClose }) {
       if (e) out.push({ day: curDay, text: e.text, meaning: e.meaning });
     });
     return { parsed: out, label };
+  };
+
+  // 복잡한 레이아웃(여러 단·표)은 AI 파서(단어시험지 생성기)로 정확히 읽는다.
+  const aiRead = async (file) => {
+    if (!file) return;
+    setErr(""); setRows(null); setAiBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/parse-book", { method:"POST", body: fd });
+      if (!res.ok) { let d = "AI 분석 실패"; try { const j = await res.json(); d = j.detail || d; } catch (_) {} throw new Error(d); }
+      const data = await res.json();
+      const units = data.units || [];
+      const parsed = [];
+      let label = null;
+      units.forEach(u => {
+        const dn = dayNumber(u.unit_title);
+        label = label || detectLabel(u.unit_title);
+        (u.words || []).forEach(w => { if (w.word) parsed.push({ day: dn, text: w.word, meaning: w.kor || "" }); });
+      });
+      if (!parsed.length) { setErr("AI가 단어를 찾지 못했어요."); setAiBusy(false); return; }
+      setHasDayCol(parsed.some(r => r.day != null));
+      setRows(parsed);
+      if (label) setUnitLabel(label);
+      const dd = parsed.map(r=>r.day).filter(d=>d != null);
+      setStartDay(dd.length ? Math.min(...dd) : 1);
+      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+    } catch (e) { setErr("AI 분석 실패: " + e.message + " (생성기 서버가 자는 중이면 잠시 후 다시)"); }
+    setAiBusy(false);
   };
 
   const readFile = async (file) => {
@@ -1072,9 +1102,14 @@ function BulkUpload({ students, reload, onClose }) {
       </div>
 
       <label className="btn full" style={{ display:"block", textAlign:"center", cursor:"pointer" }}>
-        📗 교재 엑셀·PDF 올리기
+        📗 교재 엑셀·PDF 올리기 (빠름)
         <input type="file" accept=".xlsx,.xls,.csv,.pdf,application/pdf" style={{display:"none"}}
           onChange={e=>{ const f=e.target.files[0]; if(f) readFile(f); e.target.value=""; }} />
+      </label>
+      <label className="btn-ghost full" style={{ display:"block", textAlign:"center", cursor:"pointer", marginTop:8, opacity: aiBusy?0.6:1 }}>
+        {aiBusy ? "🤖 AI가 읽는 중... (수십 초)" : "🤖 AI로 정확히 읽기 (여러 단·복잡한 표)"}
+        <input type="file" accept=".xlsx,.xls,.pdf,application/pdf" style={{display:"none"}} disabled={aiBusy}
+          onChange={e=>{ const f=e.target.files[0]; if(f) aiRead(f); e.target.value=""; }} />
       </label>
       <div className="muted" style={{ marginTop:8, fontSize:11, lineHeight:1.6 }}>
         형식 1 — A열: Day1 / B열: 영어 / C열: 한글뜻<br/>

@@ -1258,6 +1258,30 @@ async def translate(payload: dict = Body(...)):
 
 
 VOCAB_TEST_URL = "https://vocab-test-generator.onrender.com/api/generate-all"
+VOCAB_PARSE_URL = "https://vocab-test-generator.onrender.com/api/parse"
+
+
+@app.post("/api/parse-book")
+async def parse_book(file: UploadFile = File(...)):
+    """교재 파일(PDF/엑셀)을 AI 파서(단어시험지 생성기)로 보내 유닛/단어를 구조화해 받는다.
+    여러 단(열) 레이아웃 등 복잡한 표도 정확히 읽힘."""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "빈 파일이에요.")
+    files = {"file": (file.filename or "book.pdf", raw, file.content_type or "application/octet-stream")}
+    try:
+        async with httpx.AsyncClient(timeout=180) as client:
+            r = await client.post(VOCAB_PARSE_URL, files=files)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"분석 서버 연결 실패: {e}")
+    if r.status_code != 200:
+        detail = ""
+        try:
+            detail = r.json().get("detail", "")
+        except Exception:
+            pass
+        raise HTTPException(502, f"AI 분석 실패 ({r.status_code}) {detail}"[:300])
+    return r.json()
 
 
 @app.post("/api/vocab-test")
