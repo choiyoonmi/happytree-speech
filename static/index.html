@@ -1594,6 +1594,10 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [fromDate, setFromDate] = useState("");
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
   const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
+  const [assignMode, setAssignMode] = useState("all");   // 사본 배정 대상
+  const [assignClasses, setAssignClasses] = useState([]);
+  const [assignIds, setAssignIds] = useState([]);
+  const [assignDue, setAssignDue] = useState(true);      // 마감일 자동 배치 여부
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
   const [editRounds, setEditRounds] = useState(3);
@@ -1833,6 +1837,45 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     setBusy(false);
   };
 
+  // 보관 원본은 그대로 두고, 이 교재 전체를 '사본'으로 만들어 학생에게 배정한다.
+  const doAssignCopy = async () => {
+    if (!list.length) return setErr("과제가 없어요.");
+    let assignedIds = [], assignedClasses = [];
+    if (assignMode === "class") {
+      if (!assignClasses.length) return setErr("반을 선택해주세요.");
+      assignedClasses = assignClasses;
+      assignedIds = (students || []).filter(s => assignClasses.includes(s.className)).map(s => s.id);
+    } else if (assignMode === "individual") {
+      if (!assignIds.length) return setErr("학생을 선택해주세요.");
+      assignedIds = assignIds;
+    }
+    // 마감일: 시작일부터 선택 요일에 하루씩 배치
+    const dues = [];
+    if (assignDue && weekdays.length) {
+      const [y,m,d] = startDate.split("-").map(Number);
+      let cur = new Date(y, m-1, d), guard = 0;
+      while (dues.length < list.length && guard < 800) {
+        if (weekdays.includes(cur.getDay()))
+          dues.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
+        cur.setDate(cur.getDate()+1); guard++;
+      }
+    }
+    const payload = list.map((a, i) => ({
+      title: a.title, book: a.book || book, type: a.type || "word",
+      items: a.items || [], meanings: a.meanings || [],
+      rounds: a.rounds || 3,
+      dueDate: assignDue ? (dues[i] || null) : null,
+      assignedIds, assignedClasses, published: true,
+    }));
+    setBusy(true); setErr("");
+    try {
+      const r = await apiPost("/assignments/bulk", { assignments: payload });
+      await reload(); setPanel(null);
+      alert(`${r.created}개 과제를 배정했어요! (보관함 원본은 그대로 있어요)`);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
   return (
     <>
       <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
@@ -1858,13 +1901,67 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
         <button className={panel==="rounds" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setErr(""); }}>🔁 녹음 회차 한꺼번에 바꾸기</button>
       </div>
-      <div className="row" style={{ gap:6, marginBottom:12 }}>
+      <div className="row" style={{ gap:6, marginBottom:8 }}>
         <button className="btn" style={{ flex:1, fontSize:13 }}
           onClick={makeVocabTest} disabled={testBusy}>
           {testBusy ? "시험지 만드는 중... (조금 걸려요)" : "📝 이 교재 단어시험지 만들기 (책 전체)"}
         </button>
       </div>
+      <div className="row" style={{ gap:6, marginBottom:12 }}>
+        <button className={panel==="assign" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setErr(""); }}>📤 이 교재로 과제 내기 (원본 보관 유지)</button>
+      </div>
       {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
+
+      {panel === "assign" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            보관함 원본은 그대로 두고, 이 교재 전체({list.length}개)를 사본으로 만들어 학생에게 배정해요.
+          </div>
+          <label className="label">배정 대상</label>
+          <div className="seg" style={{ marginTop:0 }}>
+            {[["all","전체"],["class","반별"],["individual","개별"]].map(([m,l]) => (
+              <button key={m} className={assignMode===m?"on":""} onClick={()=>setAssignMode(m)}>{l}</button>
+            ))}
+          </div>
+          {assignMode==="class" && (
+            <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
+              {classNames.length ? classNames.map(c => (
+                <button key={c} onClick={()=>toggleIn(assignClasses, setAssignClasses, c)}
+                  style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: assignClasses.includes(c)?"var(--navy)":"#fff", color: assignClasses.includes(c)?"var(--cream)":"var(--navy)" }}>{c}</button>
+              )) : <span className="muted" style={{ fontSize:12 }}>반이 없어요</span>}
+            </div>
+          )}
+          {assignMode==="individual" && (
+            <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
+              {(students||[]).map(s => (
+                <button key={s.id} onClick={()=>toggleIn(assignIds, setAssignIds, s.id)}
+                  style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: assignIds.includes(s.id)?"var(--navy)":"#fff", color: assignIds.includes(s.id)?"var(--cream)":"var(--navy)" }}>{s.name}</button>
+              ))}
+            </div>
+          )}
+          <label className="label" style={{ marginTop:10 }}>
+            <input type="checkbox" checked={assignDue} onChange={e=>setAssignDue(e.target.checked)} /> 마감일 자동 배치 (시작일부터 요일에 하루씩)
+          </label>
+          {assignDue && <>
+            <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+            <div className="row" style={{ gap:5, marginTop:8 }}>
+              {DAYNAMES.map((n,i) => (
+                <button key={i} onClick={()=>toggle(i)}
+                  style={{ width:38, height:38, borderRadius:"50%", fontSize:13, fontWeight:700, border:"1px solid var(--navy)",
+                    background: weekdays.includes(i) ? "var(--navy)" : "#fff", color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
+              ))}
+            </div>
+          </>}
+          {err && <div className="err">{err}</div>}
+          <div style={{height:12}} />
+          <button className="btn full" onClick={doAssignCopy} disabled={busy}>
+            {busy ? "배정 중..." : `${list.length}개 과제로 배정하기`}
+          </button>
+        </div>
+      )}
 
       {panel === "rounds" && (
         <div className="card" style={{ background:"var(--cream)" }}>
