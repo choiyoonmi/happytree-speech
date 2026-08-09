@@ -40,8 +40,8 @@
   .full { width: 100%; }
   .field { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 11px 12px; font-size: 15px; outline: none; background: #fff; }
   .label { font-size: 12px; font-weight: 600; color: var(--navy-soft); margin-bottom: 5px; display: block; }
-  .tabs { display: flex; gap: 4px; padding: 8px; background: var(--cream); position: sticky; top: 0; z-index: 5; }
-  .tab { flex: 1; padding: 10px 4px; border-radius: 9px; font-size: 12px; font-weight: 600; background: transparent; color: var(--navy-soft); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; background: var(--cream); position: sticky; top: 0; z-index: 5; }
+  .tab { flex: 1 1 auto; min-width: 66px; padding: 11px 8px; border-radius: 9px; font-size: 15px; font-weight: 700; background: transparent; color: var(--navy-soft); }
   .tab.on { background: #fff; color: var(--navy); }
   .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
   .b-gray { background: #E7E3D8; color: #6B6552; }
@@ -2254,7 +2254,11 @@ function StudentReview({ student, assignments, onBack }) {
     a.published !== false &&
     ((!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id)));
   const list = mine.filter(a => (a.type || "word") === tab)
-    .sort((x,y) => (y.dueDate||"").localeCompare(x.dueDate||""));
+    .sort((x,y) => {
+      const dx = dayNum(x.title), dy = dayNum(y.title);
+      if (dx != null && dy != null && dx !== dy) return dx - dy;   // Day 1 → 마지막
+      return (x.dueDate||"").localeCompare(y.dueDate||"");
+    });
 
   if (openA) {
     return <SubmissionDetail student={student} assignment={openA}
@@ -2448,7 +2452,14 @@ function SubmissionDetail({ student, assignment, onBack }) {
               placeholder="예) 발음이 좋아요! r 발음만 한번 더 연습해볼까요?" />
           </div>
 
-          {msg && <div style={{ textAlign:"center", fontSize:12, fontWeight:700, color:"var(--navy)", marginBottom:8 }}>{msg}</div>}
+          {msg && (
+            <div style={{ position:"fixed", inset:0, display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, background:"rgba(0,0,0,.25)" }}>
+              <div style={{ background:"#fff", borderRadius:18, padding:"32px 40px", textAlign:"center", boxShadow:"0 10px 34px rgba(0,0,0,.25)" }}>
+                <div style={{ fontSize:52 }}>{msg.includes("실패") ? "⚠️" : "✅"}</div>
+                <div style={{ fontSize:24, fontWeight:800, color:"var(--navy)", marginTop:10 }}>{msg}</div>
+              </div>
+            </div>
+          )}
           <button className="btn full" onClick={markDone}>확인 완료로 표시</button>
         </>
       )}
