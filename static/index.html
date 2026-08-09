@@ -106,14 +106,17 @@ function formatDue(d) {
   const [y, m, day] = d.split("-").map(Number);
   return `${m}/${day}`;
 }
-// 교재 이름이 따로 없을 때, 제목 끝의 "Day N"을 떼어내 같은 시리즈로 묶어준다.
-// 예) "대치동1800 2권 단어 Day 14" -> "대치동1800 2권 단어"
+// 교재 이름이 따로 없을 때, 제목 끝의 "Day/Unit/Lesson N"을 떼어 같은 시리즈로 묶는다.
 function seriesOf(title) {
-  return (title || "").replace(/\s*Day\s*\d+\s*$/i, "").trim() || (title || "");
+  return (title || "").replace(/\s*(?:day|unit|lesson|lec|chapter)\s*\d+\s*$/i, "")
+    .replace(/\s*\d+\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)\s*$/, "").trim() || (title || "");
 }
-// 제목 끝의 "Day N"에서 숫자만 뽑는다. 없으면 null.
+// 제목의 "Day/Unit/Lesson/과 N"에서 숫자만 뽑는다(정렬용). 없으면 null.
 function dayNum(title) {
-  const m = /Day\s*(\d+)\s*$/i.exec(title || "");
+  const t = title || "";
+  const m = /(?:day|unit|lesson|lec|chapter)\s*(\d+)/i.exec(t)
+    || /(?:유닛|레슨|단원|챕터)\s*(\d+)/.exec(t)
+    || /(\d+)\s*(?:일차|과|강|주차)/.exec(t);
   return m ? parseInt(m[1], 10) : null;
 }
 function dueStatus(d) {
@@ -1502,6 +1505,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
 
   const groupsOf = (a) => {
+    if (a.published === false) return ["📦 보관함 (미배정)"];
     if (a.assignedClasses?.length) return a.assignedClasses;
     if (a.assignedIds?.length) {
       const names = students.filter(s=>a.assignedIds.includes(s.id)).map(s=>s.className || s.name);
