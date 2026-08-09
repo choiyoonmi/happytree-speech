@@ -2912,7 +2912,7 @@ function AdminSettings({ students, assignments, reload }) {
 
 // ---------- Admin shell ----------
 function AdminView({ onLogout }) {
-  const [tab, setTab] = useState("students");
+  const [tab, setTab] = useState("vocab");
   const [students, setStudents] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2933,7 +2933,7 @@ function AdminView({ onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="tabs">
-        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["vocab","학습현황"],["battle","배틀"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
+        {[["vocab","학습현황"],["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["battle","배틀"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
           <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
         ))}
       </div>
