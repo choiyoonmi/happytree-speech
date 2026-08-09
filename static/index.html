@@ -3025,9 +3025,10 @@ function BattlePlayer({ initialCode, onExit }) {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:24 }}>
         {q.options.map((opt, i) => (
           <button key={i} onClick={()=>answer(i)} disabled={picked != null}
-            style={{ background: BATTLE_OPT[i].c, color:"#fff", borderRadius:14, padding:"20px 10px", fontSize:16, fontWeight:700,
-              opacity: picked != null && picked !== i ? 0.5 : 1, minHeight:80 }}>
-            <div style={{ fontSize:20, marginBottom:4 }}>{BATTLE_OPT[i].s}</div>{opt}
+            style={{ background: BATTLE_OPT[i].c, color:"#fff", borderRadius:14, padding:"18px 10px", fontWeight:800,
+              opacity: picked != null && picked !== i ? 0.5 : 1, minHeight:96, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6 }}>
+            <div style={{ fontSize:18, opacity:.85 }}>{BATTLE_OPT[i].s}</div>
+            <div style={{ fontSize:24, lineHeight:1.25 }}>{opt}</div>
           </button>
         ))}
       </div>
@@ -3279,7 +3280,7 @@ function BattleHost({ assignments }) {
         <div style={{ fontSize:20, fontWeight:800, color:"var(--navy)", textAlign:"center", minHeight:56 }}>{st.q.prompt}</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:14 }}>
           {st.q.options.map((opt, i) => (
-            <div key={i} style={{ background: BATTLE_OPT[i].c, color:"#fff", borderRadius:12, padding:"14px 10px", fontWeight:700, textAlign:"center" }}>
+            <div key={i} style={{ background: BATTLE_OPT[i].c, color:"#fff", borderRadius:12, padding:"16px 10px", fontWeight:800, fontSize:18, textAlign:"center" }}>
               {BATTLE_OPT[i].s} {opt}
             </div>
           ))}
