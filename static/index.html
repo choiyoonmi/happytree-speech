@@ -1121,19 +1121,30 @@ function BulkUpload({ students, reload, onClose }) {
       {rows && (
         <>
           <div style={{ marginTop:14, padding:10, background:"var(--cream)", borderRadius:8 }}>
-            <b style={{ color:"var(--navy)" }}>{rows.length}개</b> 항목을 읽었어요 ·
-            {hasDayCol ? " 파일의 Day 구분 사용" : ` ${perDay}개씩 나눔`} →
+            <b style={{ color:"var(--navy)" }}>{rows.length}개</b> 단어를 읽었어요 ·
+            {hasDayCol ? " 파일의 구분 사용" : ` ${perDay}개씩 나눔`} →
             <b style={{ color:"var(--navy)" }}> {groups.length}개 과제</b>
             <button className="btn-ghost" style={{ fontSize:11, padding:"4px 8px", marginLeft:8 }}
               onClick={autoTranslate} disabled={trBusy}>
               {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
             </button>
+            <div style={{ fontSize:11, color:"var(--navy-soft)", margin:"8px 0 4px", fontWeight:700 }}>{unitLabel}별 단어 수</div>
+            <div className="row" style={{ flexWrap:"wrap", gap:5 }}>
+              {groups.map(g => {
+                const few = g.rows.length < 5;
+                return <span key={g.day} title={few ? "단어가 적어요" : ""}
+                  style={{ fontSize:11, fontWeight:700, padding:"3px 8px", borderRadius:999,
+                    background: few ? "#F6E1DC" : "#fff", color: few ? "var(--danger)" : "var(--navy)", border:"1px solid var(--line)" }}>
+                  {unitLabel} {g.day} · {g.rows.length}개
+                </span>;
+              })}
+            </div>
           </div>
 
           <div style={{height:14}} />
           <label className="label">교재 이름 (과제 제목에 들어가요)</label>
           <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: 초등 필수 영단어" />
-          <div className="muted" style={{ marginTop:4 }}>→ "{title || "교재명"} Day 1", "{title || "교재명"} Day 2" ...</div>
+          <div className="muted" style={{ marginTop:4 }}>→ "{title || "교재명"} {unitLabel} 1", "{title || "교재명"} {unitLabel} 2" ...</div>
 
           {!hasDayCol && (
             <>
