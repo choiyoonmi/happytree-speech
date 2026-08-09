@@ -1687,4 +1687,12 @@ def restore(payload: dict = Body(...)):
 
 # ---------- static frontend (must be last) ----------
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/")
+def index_html():
+    # index.html은 항상 최신 확인(no-cache) → 배포 후 옛 화면이 캐시되지 않게
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
