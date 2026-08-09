@@ -3365,7 +3365,7 @@ function AdminDashboard({ students, assignments }) {
             return (
               <tr key={s.id} style={{ borderBottom:"1px solid var(--line)", cursor:"pointer" }} onClick={()=>setSid(s.id)}>
                 <td style={{ padding:"8px 8px", fontWeight:700, whiteSpace:"nowrap", position:"sticky", left:0, background:"#fff" }}>
-                  {s.name}{s.className ? <span className="muted" style={{ fontWeight:400 }}> · {s.className}</span> : ""}
+                  {s.name}
                 </td>
                 {ACT_COLS.map(([k]) => {
                   const c = a[k];
