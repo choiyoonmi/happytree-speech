@@ -3091,6 +3091,7 @@ function BattleHost({ assignments }) {
   const [duration, setDuration] = useState(15);
   const [totalSec, setTotalSec] = useState(90);
   const [selected, setSelected] = useState([]);
+  const [openBook, setOpenBook] = useState(null);
   const [customText, setCustomText] = useState("");
   const [info, setInfo] = useState(null);
   const [st, setSt] = useState({ phase:"lobby", players:[], q:null, reveal:null, board:[] });
@@ -3164,19 +3165,53 @@ function BattleHost({ assignments }) {
 
       {mode === "sets" ? (
         <>
-          <div className="muted" style={{ marginBottom:8 }}>배틀에 넣을 단어장을 여러 개 고를 수 있어요. (합쳐서 랜덤 출제 · 과목 무관)</div>
-          {!wordSets.length && <div className="card" style={{ textAlign:"center", padding:24 }}><span className="muted">단어장이 없어요.</span></div>}
-          {wordSets.map(s => {
-            const on = selected.includes(s.id);
-            return <button key={s.id} onClick={()=>toggleSel(s.id)} className="card"
-              style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10,
-                border: on ? "2px solid var(--navy)" : undefined, background: on ? "var(--cream)" : undefined }}>
-              <div><div style={{ fontWeight:700, fontSize:15 }}>{on ? "✅ " : "⬜ "}{s.title}</div>
-                <div className="muted" style={{ marginTop:3 }}>{validCount(s)}단어</div></div>
-            </button>;
-          })}
-          <button className="btn full" style={{ marginTop:12 }} onClick={startSets} disabled={!selected.length}>
-            {selected.length ? `${selected.length}개 단어장으로 배틀 열기 🚀` : "단어장을 골라주세요"}
+          {!wordSets.length ? (
+            <div className="card" style={{ textAlign:"center", padding:24 }}><span className="muted">단어장이 없어요.</span></div>
+          ) : !openBook ? (
+            <>
+              <div className="muted" style={{ marginBottom:8 }}>교재를 골라 들어가서 Day를 선택해요. (여러 교재·Day를 합쳐 출제 가능)</div>
+              {(() => {
+                const byBook = {};
+                wordSets.forEach(a => { const b = a.book || seriesOf(a.title); (byBook[b] = byBook[b] || []).push(a); });
+                return Object.keys(byBook).sort().map(b => {
+                  const days = byBook[b];
+                  const selN = days.filter(a => selected.includes(a.id)).length;
+                  return <button key={b} onClick={()=>setOpenBook(b)} className="card"
+                    style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:15 }}>📗 {b}</div>
+                      <div className="muted" style={{ marginTop:3 }}>{days.length}일{selN ? ` · ${selN}개 선택됨` : ""}</div>
+                    </div>
+                    <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+                  </button>;
+                });
+              })()}
+            </>
+          ) : (() => {
+            const days = wordSets.filter(a => (a.book || seriesOf(a.title)) === openBook);
+            const allOn = days.every(a => selected.includes(a.id));
+            return <>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, gap:8 }}>
+                <button onClick={()=>setOpenBook(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700 }}>‹ 교재 목록</button>
+                <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px" }}
+                  onClick={()=>setSelected(s => allOn ? s.filter(id => !days.some(a=>a.id===id)) : [...new Set([...s, ...days.map(a=>a.id)])])}>
+                  {allOn ? "전체 해제" : "이 교재 전체 선택"}
+                </button>
+              </div>
+              <div style={{ fontWeight:800, fontSize:15, marginBottom:8 }}>📗 {openBook}</div>
+              {days.map(s => {
+                const on = selected.includes(s.id);
+                return <button key={s.id} onClick={()=>toggleSel(s.id)} className="card"
+                  style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10,
+                    border: on ? "2px solid var(--navy)" : undefined, background: on ? "var(--cream)" : undefined }}>
+                  <div><div style={{ fontWeight:700, fontSize:15 }}>{on ? "✅ " : "⬜ "}{s.title}</div>
+                    <div className="muted" style={{ marginTop:3 }}>{validCount(s)}단어</div></div>
+                </button>;
+              })}
+            </>;
+          })()}
+          <button className="btn full" style={{ marginTop:12, position:"sticky", bottom:12 }} onClick={startSets} disabled={!selected.length}>
+            {selected.length ? `선택한 ${selected.length}개로 배틀 열기 🚀` : "Day를 골라주세요"}
           </button>
         </>
       ) : (
@@ -3270,7 +3305,7 @@ function BattleHost({ assignments }) {
           </div>
         ))}
         {!st.board.length && <div className="muted">참가 기록이 없어요.</div>}
-        <button className="btn" style={{ marginTop:16 }} onClick={()=>{ if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} } setStep("pick"); setInfo(null); setSelected([]); setCustomText(""); setSt({ phase:"lobby", players:[], q:null, reveal:null, board:[] }); }}>새 배틀 열기</button>
+        <button className="btn" style={{ marginTop:16 }} onClick={()=>{ if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} } setStep("pick"); setInfo(null); setSelected([]); setOpenBook(null); setCustomText(""); setSt({ phase:"lobby", players:[], q:null, reveal:null, board:[] }); }}>새 배틀 열기</button>
       </div>
     )}
   </div>;
