@@ -59,6 +59,14 @@
   .spin { display:inline-block; width:18px; height:18px; border:2px solid var(--line); border-top-color: var(--navy); border-radius:50%; animation: sp .8s linear infinite; }
   @keyframes sp { to { transform: rotate(360deg); } }
   .center { display: flex; align-items: center; justify-content: center; min-height: 60vh; }
+  @keyframes balloonUp {
+    0%   { transform: translateY(0) translateX(0) rotate(-4deg); opacity: 0; }
+    12%  { opacity: 1; }
+    50%  { transform: translateY(-46vh) translateX(14px) rotate(4deg); }
+    100% { transform: translateY(-94vh) translateX(-10px) rotate(-3deg); opacity: 0; }
+  }
+  .balloon { position: absolute; bottom: -40px; will-change: transform, opacity; animation: balloonUp 6s ease-in forwards; pointer-events: none; }
+  @keyframes popIn { 0% { transform: scale(.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 </style>
 </head>
 <body>
@@ -164,7 +172,7 @@ function Badge({ tone, children }) {
 }
 
 // ---------- Login ----------
-function Login({ onStudent, onAdmin }) {
+function Login({ onStudent, onAdmin, onBattle }) {
   const [mode, setMode] = useState("student");
   const [sid, setSid] = useState(""); const [spw, setSpw] = useState("");
   const [apw, setApw] = useState(""); const [err, setErr] = useState("");
@@ -221,6 +229,11 @@ function Login({ onStudent, onAdmin }) {
           <div style={{height:14}} />
           <button className="btn full" onClick={go} disabled={busy}>{busy ? "확인 중..." : "로그인"}</button>
         </div>
+        <button onClick={onBattle}
+          style={{ width:"100%", marginTop:12, padding:"12px", borderRadius:12, fontWeight:800, fontSize:15,
+            color:"#fff", background:"linear-gradient(135deg,#9B5DE5,#F15BB5,#F4A259)" }}>
+          🎮 단어 배틀 참가하기
+        </button>
       </div>
     </div>
   );
@@ -2550,7 +2563,7 @@ function AdminView({ onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="tabs">
-        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["vocab","학습현황"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
+        {[["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["vocab","학습현황"],["battle","배틀"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
           <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
         ))}
       </div>
@@ -2558,6 +2571,7 @@ function AdminView({ onLogout }) {
       {tab==="assignments" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
       {tab==="review" && <AdminReview students={students} assignments={assignments} />}
       {tab==="vocab" && <AdminDashboard students={students} assignments={assignments} />}
+      {tab==="battle" && <BattleHost assignments={assignments} />}
       {tab==="report" && <AdminReport students={students} />}
       {tab==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
     </div>
@@ -2852,12 +2866,372 @@ function AdminDashboard({ students, assignments }) {
   </div>;
 }
 
+// ---------- 단어 배틀 (실시간) ----------
+const BATTLE_OPT = [
+  { c: "#D94A3D", s: "▲" }, { c: "#2E6FB0", s: "●" },
+  { c: "#C9A227", s: "■" }, { c: "#3E8E63", s: "◆" },
+];
+const BALLOON_COLORS = ["#E4572E","#F4A259","#4C9F70","#2E6FB0","#9B5DE5","#F15BB5","#00BBF9","#FF66C4"];
+
+function wsUrl(code, qs) {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${location.host}/ws/battle/${code}?${qs}`;
+}
+
+function makeBattleMusic() {
+  let ctx = null, timer = null, muted = false, step = 0;
+  const seq = [0,7,12,7,4,7,12,16,14,12,7,4,5,9,12,7];
+  const base = 261.63;
+  const freq = (n) => base * Math.pow(2, n / 12);
+  const tick = () => {
+    if (!ctx || muted) { step++; return; }
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "triangle"; o.frequency.value = freq(seq[step % seq.length]);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.13, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.19);
+    o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.2);
+    if (step % 4 === 0) {
+      const b = ctx.createOscillator(), bg = ctx.createGain();
+      b.type = "sine"; b.frequency.value = freq(seq[step % seq.length] - 24);
+      bg.gain.setValueAtTime(0.0001, t);
+      bg.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+      bg.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+      b.connect(bg).connect(ctx.destination); b.start(t); b.stop(t + 0.36);
+    }
+    step++;
+  };
+  return {
+    start() { if (ctx) return; try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; } step = 0; timer = setInterval(tick, 175); },
+    stop() { if (timer) clearInterval(timer); timer = null; if (ctx) { try { ctx.close(); } catch (e) {} ctx = null; } },
+    toggle() { muted = !muted; return muted; },
+  };
+}
+
+function BattlePlayer({ initialCode, onExit }) {
+  const [code, setCode] = useState((initialCode || "").toUpperCase());
+  const [name, setName] = useState("");
+  const [phase, setPhase] = useState("join");   // join|connecting|lobby|question|answered|reveal|end|closed
+  const [err, setErr] = useState("");
+  const [q, setQ] = useState(null);
+  const [picked, setPicked] = useState(null);
+  const [result, setResult] = useState(null);
+  const [reveal, setReveal] = useState(null);
+  const [board, setBoard] = useState([]);
+  const [score, setScore] = useState(0);
+  const [tleft, setTleft] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const wsRef = useRef(null);
+  const musicRef = useRef(null);
+
+  useEffect(() => () => {
+    if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} }
+    if (musicRef.current) musicRef.current.stop();
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "question" || tleft <= 0) return;
+    const t = setTimeout(() => setTleft(x => x - 1), 1000);
+    return () => clearTimeout(t);
+  }, [phase, tleft]);
+
+  const handle = (m) => {
+    if (m.type === "error") { setErr(m.msg); setPhase("join"); }
+    else if (m.type === "joined") { setPhase("lobby"); if (musicRef.current) musicRef.current.start(); }
+    else if (m.type === "starting") { setPhase("lobby"); }
+    else if (m.type === "question") { setQ(m); setPicked(null); setResult(null); setTleft(m.duration); setPhase("question"); }
+    else if (m.type === "answered") { setResult(m); setScore(m.score); setPhase("answered"); }
+    else if (m.type === "reveal") { setReveal(m); setBoard(m.board || []); setPhase("reveal"); }
+    else if (m.type === "end") { setBoard(m.board || []); setPhase("end"); if (musicRef.current) musicRef.current.stop(); }
+  };
+
+  const join = () => {
+    const c = code.trim().toUpperCase(), nm = name.trim();
+    if (c.length < 4 || !nm) { setErr("코드와 이름을 모두 입력해주세요."); return; }
+    setErr(""); setPhase("connecting");
+    if (!musicRef.current) musicRef.current = makeBattleMusic();
+    let ws;
+    try { ws = new WebSocket(wsUrl(c, "role=player&name=" + encodeURIComponent(nm))); }
+    catch (e) { setErr("연결 실패"); setPhase("join"); return; }
+    wsRef.current = ws;
+    ws.onmessage = (ev) => { try { handle(JSON.parse(ev.data)); } catch (e) {} };
+    ws.onerror = () => { setErr("연결에 실패했어요. 코드를 확인해주세요."); setPhase("join"); };
+    ws.onclose = () => { setPhase(p => (p === "end" || p === "join") ? p : "closed"); };
+  };
+
+  const answer = (i) => {
+    if (picked != null || phase !== "question") return;
+    setPicked(i);
+    try { wsRef.current.send(JSON.stringify({ type: "answer", choice: i })); } catch (e) {}
+  };
+  const toggleMute = () => { if (musicRef.current) setMuted(musicRef.current.toggle()); };
+
+  if (phase === "join") {
+    return <div className="wrap" style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div style={{ width:"100%", maxWidth:360 }}>
+        <div style={{ textAlign:"center", marginBottom:24 }}>
+          <div style={{ fontSize:30, fontWeight:800, color:"var(--navy)" }}>🎮 단어 배틀</div>
+          <div className="muted" style={{ marginTop:6 }}>코드와 이름을 입력하고 참가해요</div>
+        </div>
+        <div className="card">
+          <label className="label">접속 코드</label>
+          <input className="field" value={code} onChange={e=>setCode(e.target.value.toUpperCase())}
+            placeholder="예: ABCD" style={{ textTransform:"uppercase", letterSpacing:2, fontWeight:700 }} />
+          <div style={{ height:10 }} />
+          <label className="label">내 이름</label>
+          <input className="field" value={name} onChange={e=>setName(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&join()} placeholder="이름" />
+          {err && <div className="err">{err}</div>}
+          <div style={{ height:14 }} />
+          <button className="btn full" onClick={join}>참가하기</button>
+        </div>
+        <button onClick={onExit} style={{ width:"100%", marginTop:12, background:"none", color:"var(--navy-soft)", fontSize:13 }}>‹ 처음으로</button>
+      </div>
+    </div>;
+  }
+  if (phase === "connecting") return <div className="center"><div className="spin" /></div>;
+  if (phase === "closed") {
+    return <div className="wrap"><div className="body" style={{ textAlign:"center", paddingTop:60 }}>
+      <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>배틀이 종료됐어요</div>
+      <div className="muted" style={{ marginBottom:20 }}>연결이 끊겼거나 배틀이 끝났어요.</div>
+      <button className="btn" onClick={onExit}>처음으로</button>
+    </div></div>;
+  }
+
+  const myRank = board.findIndex(b => b.name === name);
+  const musicBtn = <button onClick={toggleMute} style={{ position:"absolute", top:14, right:14, background:"rgba(255,255,255,.25)", color:"#fff", borderRadius:20, padding:"6px 12px", fontSize:13, fontWeight:700 }}>{muted ? "🔇" : "🔊"}</button>;
+  const wrapStyle = { minHeight:"100vh", background:"linear-gradient(160deg,#1B2E4C,#3C5075)", color:"#fff", padding:20, position:"relative" };
+
+  if (phase === "lobby") {
+    return <div style={wrapStyle}>{musicBtn}
+      <div style={{ textAlign:"center", paddingTop:80 }}>
+        <div style={{ fontSize:20, fontWeight:700, marginBottom:10 }}>🎈 {name}님, 준비 완료!</div>
+        <div style={{ opacity:.85 }}>선생님이 시작하면 바로 문제가 나와요.</div>
+        <div className="spin" style={{ marginTop:24, borderTopColor:"#fff" }} />
+      </div>
+    </div>;
+  }
+  if (phase === "question") {
+    return <div style={wrapStyle}>{musicBtn}
+      <div style={{ textAlign:"center", marginTop:36 }}>
+        <div style={{ opacity:.8, fontSize:13 }}>{q.index + 1} / {q.total} · 남은 시간 {tleft}s</div>
+        <div style={{ height:6, background:"rgba(255,255,255,.2)", borderRadius:4, margin:"8px 0 20px" }}>
+          <div style={{ height:"100%", width:`${Math.max(0, tleft / q.duration * 100)}%`, background:"#F4A259", borderRadius:4, transition:"width 1s linear" }} />
+        </div>
+        <div style={{ fontSize:22, fontWeight:800, lineHeight:1.4, minHeight:70, padding:"0 6px" }}>{q.prompt}</div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:24 }}>
+        {q.options.map((opt, i) => (
+          <button key={i} onClick={()=>answer(i)} disabled={picked != null}
+            style={{ background: BATTLE_OPT[i].c, color:"#fff", borderRadius:14, padding:"20px 10px", fontSize:16, fontWeight:700,
+              opacity: picked != null && picked !== i ? 0.5 : 1, minHeight:80 }}>
+            <div style={{ fontSize:20, marginBottom:4 }}>{BATTLE_OPT[i].s}</div>{opt}
+          </button>
+        ))}
+      </div>
+      {picked != null && <div style={{ textAlign:"center", marginTop:18, fontSize:15, opacity:.9 }}>답을 제출했어요! 결과를 기다려요…</div>}
+    </div>;
+  }
+  if (phase === "answered") {
+    return <div style={{ ...wrapStyle, display:"flex", alignItems:"center", justifyContent:"center", textAlign:"center" }}>{musicBtn}
+      <div>
+        <div style={{ fontSize:64 }}>{result.correct ? "🎉" : "😅"}</div>
+        <div style={{ fontSize:26, fontWeight:800, marginTop:8 }}>{result.correct ? "정답!" : "아쉬워요"}</div>
+        <div style={{ marginTop:8, opacity:.9 }}>내 점수 {result.score}점</div>
+        <div style={{ marginTop:16, opacity:.7, fontSize:13 }}>다음 문제를 기다려요…</div>
+      </div>
+    </div>;
+  }
+  if (phase === "reveal") {
+    return <div style={wrapStyle}>{musicBtn}
+      <div style={{ textAlign:"center", marginTop:40 }}>
+        <div style={{ opacity:.8, fontSize:13, marginBottom:6 }}>정답</div>
+        <div style={{ fontSize:26, fontWeight:800, color:"#F4D06F" }}>{reveal.answer}</div>
+      </div>
+      <div style={{ marginTop:26, maxWidth:360, margin:"26px auto 0" }}>
+        <div style={{ fontWeight:700, marginBottom:8, opacity:.9 }}>현재 순위</div>
+        {board.slice(0, 8).map((b, i) => (
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"9px 12px", borderRadius:10,
+            background: b.name === name ? "rgba(244,162,89,.35)" : "rgba(255,255,255,.1)", marginBottom:6, fontWeight: b.name === name ? 800 : 500 }}>
+            <span>{i + 1}. {b.name}</span><span>{b.score}점</span>
+          </div>
+        ))}
+      </div>
+    </div>;
+  }
+  // end
+  return <div style={{ ...wrapStyle, textAlign:"center" }}>{musicBtn}
+    <div style={{ fontSize:30, fontWeight:800, marginTop:40 }}>🏆 배틀 종료!</div>
+    {myRank >= 0 && <div style={{ marginTop:8, fontSize:17 }}>{name}님 최종 {myRank + 1}등 · {board[myRank].score}점</div>}
+    <div style={{ maxWidth:360, margin:"24px auto 0" }}>
+      {board.slice(0, 10).map((b, i) => (
+        <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", borderRadius:10,
+          background: i === 0 ? "rgba(244,208,111,.4)" : b.name === name ? "rgba(244,162,89,.3)" : "rgba(255,255,255,.1)", marginBottom:6, fontWeight: i < 3 ? 800 : 500 }}>
+          <span>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1) + "."} {b.name}</span><span>{b.score}점</span>
+        </div>
+      ))}
+    </div>
+    <button className="btn" style={{ marginTop:24, background:"#fff", color:"var(--navy)" }} onClick={onExit}>나가기</button>
+  </div>;
+}
+
+function BattleHost({ assignments }) {
+  const wordSets = assignments.filter(a =>
+    (a.type || "word") === "word" &&
+    (a.items || []).filter((w, i) => w && ((a.meanings || [])[i] || "").trim()).length >= 4);
+  const [step, setStep] = useState("pick");   // pick | live
+  const [duration, setDuration] = useState(15);
+  const [info, setInfo] = useState(null);
+  const [st, setSt] = useState({ phase:"lobby", players:[], q:null, reveal:null, board:[] });
+  const [balloons, setBalloons] = useState([]);
+  const [err, setErr] = useState("");
+  const wsRef = useRef(null);
+  const balId = useRef(0);
+
+  useEffect(() => () => { if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} } }, []);
+
+  const popBalloon = (nm) => {
+    const id = ++balId.current;
+    const x = 5 + Math.random() * 82;
+    const color = BALLOON_COLORS[id % BALLOON_COLORS.length];
+    setBalloons(b => [...b, { id, name: nm, x, color }]);
+    setTimeout(() => setBalloons(b => b.filter(z => z.id !== id)), 6000);
+  };
+  const handle = (m) => {
+    if (m.type === "lobby") setSt(s => ({ ...s, phase: m.phase, players: m.players || [] }));
+    else if (m.type === "players") setSt(s => ({ ...s, players: m.players || [] }));
+    else if (m.type === "starting") setSt(s => ({ ...s, phase: "starting" }));
+    else if (m.type === "question") setSt(s => ({ ...s, phase: "question", q: m, reveal: null }));
+    else if (m.type === "reveal") setSt(s => ({ ...s, phase: "reveal", reveal: m, board: m.board || [] }));
+    else if (m.type === "end") setSt(s => ({ ...s, phase: "end", board: m.board || [] }));
+    else if (m.type === "balloon") popBalloon(m.name);
+  };
+
+  const startBattle = async (set) => {
+    setErr("");
+    try {
+      const r = await apiPost("/battle/create", { assignmentId: set.id, duration });
+      setInfo(r); setStep("live");
+      const ws = new WebSocket(wsUrl(r.code, "role=host"));
+      wsRef.current = ws;
+      ws.onmessage = (ev) => { try { handle(JSON.parse(ev.data)); } catch (e) {} };
+    } catch (e) { setErr(e.message); }
+  };
+  const send = (o) => { try { wsRef.current.send(JSON.stringify(o)); } catch (e) {} };
+
+  if (step === "pick") {
+    return <div className="body">
+      <div className="muted" style={{ marginBottom:10 }}>단어 과제를 골라 실시간 배틀을 열어요. (설명 있는 단어 4개 이상)</div>
+      <label className="label">문제당 제한시간</label>
+      <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
+        {[10,15,20].map(n => <button key={n} className={duration===n?"on":""} onClick={()=>setDuration(n)}>{n}초</button>)}
+      </div>
+      {err && <div className="err">{err}</div>}
+      {!wordSets.length && <div className="card" style={{ textAlign:"center", padding:24 }}><span className="muted">배틀 가능한 단어 과제가 없어요. (설명이 채워진 단어 4개 이상 필요)</span></div>}
+      {wordSets.map(s => (
+        <button key={s.id} className="card" onClick={()=>startBattle(s)}
+          style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+          <div><div style={{ fontWeight:700, fontSize:15 }}>{s.title}</div>
+            <div className="muted" style={{ marginTop:3 }}>{s.items.length}단어</div></div>
+          <span style={{ color:"var(--navy-soft)", fontWeight:700 }}>배틀 열기 ›</span>
+        </button>
+      ))}
+    </div>;
+  }
+
+  const joinLink = `${location.origin}/?battle=${info ? info.code : ""}`;
+  const balloonLayer = (
+    <div style={{ position:"fixed", inset:0, overflow:"hidden", pointerEvents:"none", zIndex:50 }}>
+      {balloons.map(b => (
+        <div key={b.id} className="balloon" style={{ left: b.x + "%" }}>
+          <svg width="52" height="66" viewBox="0 0 52 66">
+            <ellipse cx="26" cy="25" rx="21" ry="25" fill={b.color} />
+            <ellipse cx="18" cy="15" rx="5.5" ry="8" fill="rgba(255,255,255,.45)" />
+            <path d={"M26 49 l-4 6 h8 z"} fill={b.color} />
+            <path d={"M26 55 q6 7 0 11"} stroke="#cbb" strokeWidth="1.2" fill="none" />
+          </svg>
+          <div style={{ textAlign:"center", fontWeight:800, fontSize:12, color:"var(--navy)", marginTop:-8,
+            background:"#fff", borderRadius:8, padding:"1px 7px", boxShadow:"0 1px 5px rgba(0,0,0,.18)", display:"inline-block" }}>{b.name}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return <div className="body">
+    {balloonLayer}
+    <div className="card" style={{ textAlign:"center", padding:16, marginBottom:12 }}>
+      <div className="muted">참가 코드</div>
+      <div style={{ fontSize:38, fontWeight:800, letterSpacing:4, color:"var(--navy)" }}>{info && info.code}</div>
+      <div className="muted" style={{ marginTop:6, wordBreak:"break-all" }}>참가 링크: {joinLink}</div>
+      <div className="muted" style={{ marginTop:2 }}>학생: 로그인 화면 → "🎮 단어 배틀 참가하기" → 코드 입력</div>
+    </div>
+
+    {(st.phase === "lobby" || st.phase === "starting") && (
+      <>
+        <div style={{ fontWeight:700, color:"var(--navy)", margin:"4px 4px 8px" }}>참가한 학생 {st.players.length}명</div>
+        <div className="row" style={{ flexWrap:"wrap", gap:8, marginBottom:14 }}>
+          {st.players.map((n, i) => <span key={i} style={{ padding:"6px 12px", borderRadius:999, background:"var(--cream-deep)", color:"var(--navy)", fontWeight:700, fontSize:13, animation:"popIn .3s ease" }}>{n}</span>)}
+          {!st.players.length && <span className="muted">아직 없어요. 학생들이 코드로 들어오면 여기 떠요.</span>}
+        </div>
+        <button className="btn full" onClick={()=>send({ type:"start" })} disabled={st.phase === "starting"}>
+          {st.phase === "starting" ? "시작 중..." : "🚀 배틀 시작하기"}
+        </button>
+      </>
+    )}
+
+    {st.phase === "question" && st.q && (
+      <div className="card" style={{ padding:18 }}>
+        <div className="muted" style={{ textAlign:"center", marginBottom:8 }}>{st.q.index + 1} / {st.q.total}</div>
+        <div style={{ fontSize:20, fontWeight:800, color:"var(--navy)", textAlign:"center", minHeight:56 }}>{st.q.prompt}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:14 }}>
+          {st.q.options.map((opt, i) => (
+            <div key={i} style={{ background: BATTLE_OPT[i].c, color:"#fff", borderRadius:12, padding:"14px 10px", fontWeight:700, textAlign:"center" }}>
+              {BATTLE_OPT[i].s} {opt}
+            </div>
+          ))}
+        </div>
+        <div className="muted" style={{ textAlign:"center", marginTop:12 }}>정답을 맞히면 풍선이 떠올라요 🎈</div>
+      </div>
+    )}
+
+    {st.phase === "reveal" && st.reveal && (
+      <div className="card" style={{ padding:18 }}>
+        <div className="muted" style={{ textAlign:"center" }}>정답</div>
+        <div style={{ fontSize:24, fontWeight:800, color:"#2E7D5B", textAlign:"center", marginBottom:12 }}>{st.reveal.answer}</div>
+        {st.board.slice(0, 8).map((b, i) => (
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"8px 12px", borderBottom:"1px solid var(--line)" }}>
+            <span style={{ fontWeight:700 }}>{i + 1}. {b.name}</span><span style={{ fontWeight:700, color:"var(--navy)" }}>{b.score}점</span>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {st.phase === "end" && (
+      <div className="card" style={{ padding:20, textAlign:"center" }}>
+        <div style={{ fontSize:26, fontWeight:800, color:"var(--navy)", marginBottom:14 }}>🏆 최종 순위</div>
+        {st.board.slice(0, 15).map((b, i) => (
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", borderRadius:10,
+            background: i === 0 ? "#F7EAC0" : "transparent", marginBottom:4 }}>
+            <span style={{ fontWeight: i < 3 ? 800 : 600 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1) + "."} {b.name}</span>
+            <span style={{ fontWeight:700, color:"var(--navy)" }}>{b.score}점</span>
+          </div>
+        ))}
+        {!st.board.length && <div className="muted">참가 기록이 없어요.</div>}
+        <button className="btn" style={{ marginTop:16 }} onClick={()=>{ if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} } setStep("pick"); setInfo(null); setSt({ phase:"lobby", players:[], q:null, reveal:null, board:[] }); }}>새 배틀 열기</button>
+      </div>
+    )}
+  </div>;
+}
+
 // ---------- Root ----------
 function App() {
-  const [role, setRole] = useState(null);
+  const battleParam = new URLSearchParams(location.search).get("battle") || "";
+  const [role, setRole] = useState(battleParam ? "battle" : null);
   const [student, setStudent] = useState(null);
 
-  if (!role) return <Login onStudent={s=>{setStudent(s); setRole("student");}} onAdmin={()=>setRole("admin")} />;
+  if (role === "battle") return <BattlePlayer initialCode={battleParam} onExit={()=>setRole(null)} />;
+  if (!role) return <Login onStudent={s=>{setStudent(s); setRole("student");}} onAdmin={()=>setRole("admin")} onBattle={()=>setRole("battle")} />;
   if (role === "student") return <StudentView student={student} onLogout={()=>{setRole(null); setStudent(null);}} />;
   return <AdminView onLogout={()=>setRole(null)} />;
 }

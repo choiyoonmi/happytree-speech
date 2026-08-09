@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, UploadFile, Form, HTTPException, File, Body
+from fastapi import FastAPI, UploadFile, Form, HTTPException, File, Body, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydub import AudioSegment
@@ -1257,6 +1257,210 @@ def ping_activity(student_id: str, payload: dict = Body(...)):
 def get_activity_all():
     """선생님 실시간 현황판용: {student_id: {kind: {at, ts, title}}}."""
     return {sid: load_activity(sid) for sid in all_activity_student_ids()}
+
+
+# ---------- 실시간 단어 배틀 (WebSocket, 메모리 방) ----------
+import random as _rnd
+import time as _time
+
+battle_rooms = {}   # code -> room dict (메모리, 배틀 진행 중에만 유지)
+
+
+def _gen_code() -> str:
+    for _ in range(50):
+        c = "".join(_rnd.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(4))
+        if c not in battle_rooms:
+            return c
+    return "".join(_rnd.choice("23456789") for _ in range(6))
+
+
+def _make_battle_questions(a: dict):
+    """단어 과제(items=용어, meanings=설명)로 4지선다 문제 생성. 설명→용어 맞히기."""
+    items = a.get("items") or []
+    meanings = a.get("meanings") or []
+    pairs = []
+    for i, w in enumerate(items):
+        m = meanings[i] if i < len(meanings) else ""
+        w = (w or "").strip()
+        m = (m or "").strip()
+        if w and m:
+            pairs.append((w, m))
+    words = [w for w, _ in pairs]
+    if len(set(words)) < 4:
+        return []
+    qs = []
+    for w, m in pairs:
+        others = [x for x in words if x != w]
+        _rnd.shuffle(others)
+        opts = [w] + others[:3]
+        _rnd.shuffle(opts)
+        qs.append({"prompt": m, "options": opts, "correct": opts.index(w)})
+    _rnd.shuffle(qs)
+    return qs
+
+
+def _prune_battle_rooms():
+    now = _time.time()
+    for code in list(battle_rooms.keys()):
+        if now - battle_rooms[code].get("createdAt", now) > 3 * 3600:
+            battle_rooms.pop(code, None)
+
+
+def _battle_scoreboard(room):
+    ps = sorted(room["players"].values(), key=lambda p: -p["score"])
+    return [{"name": p["name"], "score": p["score"]} for p in ps[:20]]
+
+
+async def _bsend(ws, obj):
+    if ws is None:
+        return
+    try:
+        await ws.send_json(obj)
+    except Exception:
+        pass
+
+
+async def _battle_broadcast(room, obj, to_host=True, to_players=True):
+    if to_host:
+        await _bsend(room.get("host"), obj)
+    if to_players:
+        for p in list(room["players"].values()):
+            await _bsend(p.get("ws"), obj)
+
+
+@app.post("/api/battle/create")
+def battle_create(payload: dict = Body(...)):
+    """선생님이 단어 과제로 배틀 방 생성. body: {assignmentId, duration?}"""
+    aid = payload.get("assignmentId")
+    db = load_db()
+    a = next((x for x in db["assignments"] if x["id"] == aid), None)
+    if not a:
+        raise HTTPException(404, "과제를 찾을 수 없어요.")
+    qs = _make_battle_questions(a)
+    if len(qs) < 4:
+        raise HTTPException(400, "설명이 있는 단어가 4개 이상이어야 배틀을 만들 수 있어요.")
+    _prune_battle_rooms()
+    code = _gen_code()
+    duration = max(5, min(60, int(payload.get("duration") or 15)))
+    battle_rooms[code] = {
+        "code": code,
+        "title": a.get("title", "배틀"),
+        "questions": qs,
+        "players": {},        # pid -> {name, ws, score, answered, lastCorrect}
+        "host": None,
+        "phase": "lobby",     # lobby | starting | question | reveal | end
+        "qIndex": -1,
+        "duration": duration,
+        "qStart": 0,
+        "skip": False,
+        "started": False,
+        "createdAt": _time.time(),
+    }
+    return {"code": code, "title": a.get("title"), "count": len(qs), "duration": duration}
+
+
+async def _run_battle(room):
+    room["started"] = True
+    room["phase"] = "starting"
+    await _battle_broadcast(room, {"type": "starting", "count": len(room["questions"])})
+    await asyncio.sleep(2)
+    for qi, q in enumerate(room["questions"]):
+        room["qIndex"] = qi
+        room["phase"] = "question"
+        room["qStart"] = _time.time()
+        room["skip"] = False
+        for p in room["players"].values():
+            p["answered"] = False
+            p["lastCorrect"] = False
+        await _bsend(room.get("host"), {
+            "type": "question", "index": qi, "total": len(room["questions"]),
+            "prompt": q["prompt"], "options": q["options"], "correct": q["correct"],
+            "duration": room["duration"],
+        })
+        for p in room["players"].values():
+            await _bsend(p.get("ws"), {
+                "type": "question", "index": qi, "total": len(room["questions"]),
+                "prompt": q["prompt"], "options": q["options"], "duration": room["duration"],
+            })
+        t0 = _time.time()
+        while _time.time() - t0 < room["duration"]:
+            await asyncio.sleep(0.4)
+            if room.get("skip"):
+                break
+            players = list(room["players"].values())
+            if players and all(p["answered"] for p in players):
+                await asyncio.sleep(0.3)
+                break
+        room["phase"] = "reveal"
+        board = _battle_scoreboard(room)
+        await _battle_broadcast(room, {
+            "type": "reveal", "correct": q["correct"],
+            "answer": q["options"][q["correct"]], "board": board,
+        })
+        await asyncio.sleep(4)
+    room["phase"] = "end"
+    await _battle_broadcast(room, {"type": "end", "board": _battle_scoreboard(room)})
+
+
+@app.websocket("/ws/battle/{code}")
+async def battle_ws(ws: WebSocket, code: str):
+    await ws.accept()
+    room = battle_rooms.get(code)
+    if not room:
+        await _bsend(ws, {"type": "error", "msg": "방을 찾을 수 없어요. 코드를 확인해주세요."})
+        await ws.close()
+        return
+    role = ws.query_params.get("role", "player")
+
+    if role == "host":
+        room["host"] = ws
+        await _bsend(ws, {"type": "lobby", "code": code, "title": room["title"],
+                          "count": len(room["questions"]),
+                          "players": [p["name"] for p in room["players"].values()],
+                          "phase": room["phase"]})
+        try:
+            while True:
+                msg = await ws.receive_json()
+                t = msg.get("type")
+                if t == "start" and not room["started"]:
+                    asyncio.create_task(_run_battle(room))
+                elif t == "next":
+                    room["skip"] = True
+        except WebSocketDisconnect:
+            room["host"] = None
+        except Exception:
+            room["host"] = None
+        return
+
+    # player
+    name = (ws.query_params.get("name") or "학생").strip()[:20] or "학생"
+    pid = uuid.uuid4().hex
+    room["players"][pid] = {"name": name, "ws": ws, "score": 0, "answered": False, "lastCorrect": False}
+    await _bsend(ws, {"type": "joined", "name": name, "title": room["title"], "phase": room["phase"]})
+    await _bsend(room.get("host"), {"type": "players",
+                                    "players": [p["name"] for p in room["players"].values()]})
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("type") == "answer" and room["phase"] == "question":
+                p = room["players"].get(pid)
+                if p and not p["answered"]:
+                    p["answered"] = True
+                    q = room["questions"][room["qIndex"]]
+                    correct = int(msg.get("choice", -1)) == q["correct"]
+                    if correct:
+                        remaining = max(0.0, room["duration"] - (_time.time() - room["qStart"]))
+                        pts = 500 + round(500 * remaining / room["duration"])
+                        p["score"] += pts
+                        p["lastCorrect"] = True
+                        await _bsend(room.get("host"), {"type": "balloon", "name": p["name"], "score": p["score"]})
+                    await _bsend(ws, {"type": "answered", "correct": correct, "score": p["score"]})
+    except WebSocketDisconnect:
+        room["players"].pop(pid, None)
+        await _bsend(room.get("host"), {"type": "players",
+                                        "players": [p["name"] for p in room["players"].values()]})
+    except Exception:
+        room["players"].pop(pid, None)
 
 
 # ---------- backup ----------
