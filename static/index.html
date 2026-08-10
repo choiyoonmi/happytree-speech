@@ -1697,10 +1697,10 @@ function AssignmentBrowser({ students, assignments, reload }) {
   if (!book) {
     return (
       <>
-        <button onClick={()=>setGroup(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+        <button onClick={()=>setGroup(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, fontSize:16, marginBottom:10 }}>
           ‹ 반 목록으로
         </button>
-        <div style={{ fontWeight:800, fontSize:16, marginBottom:10 }}>{group}</div>
+        <div style={{ fontWeight:800, fontSize:22, marginBottom:12 }}>{group}</div>
         {bookKeys.map(b => {
           const list = byBook[b];
           const dues = list.map(a=>a.dueDate).filter(Boolean).sort();
@@ -1708,8 +1708,8 @@ function AssignmentBrowser({ students, assignments, reload }) {
             <button key={b} className="card" onClick={()=>setBook(b)}
               style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
               <div style={{ minWidth:0 }}>
-                <div style={{ fontWeight:700, fontSize:15 }}>📗 {b}</div>
-                <div className="muted" style={{ marginTop:3 }}>
+                <div style={{ fontWeight:700, fontSize:18 }}>📗 {b}</div>
+                <div className="muted" style={{ marginTop:4, fontSize:15 }}>
                   과제 {list.length}개
                   {dues.length ? ` · ${formatDue(dues[0])} ~ ${formatDue(dues[dues.length-1])}` : ""}
                 </div>
