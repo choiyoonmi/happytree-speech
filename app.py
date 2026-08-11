@@ -1381,17 +1381,20 @@ VOCAB_TEST_URL = VOCAB_BASE_URL + "/api/generate-all"
 VOCAB_PARSE_URL = VOCAB_BASE_URL + "/api/parse"
 
 
-async def _post_to_generator(url, attempts=3, **kw):
-    """생성기(word) 서버로 POST. Render 무료 서버가 자고 있을 때 첫 연결이 끊기는 경우가
-    있어, 실패하면 서버를 깨우고(GET) 잠시 뒤 자동 재시도한다."""
+async def _post_to_generator(url, attempts=3, read_timeout=220.0, **kw):
+    """생성기(word) 서버로 POST.
+    Render 무료 서버가 자고 있으면 '연결' 단계가 실패하는데, 이때만 서버를 깨우고 재시도한다.
+    일단 연결된 뒤의 '처리 지연(read)'은 재시도하지 않고 한 번만 넉넉히 기다린다
+    (재시도하면 무거운 AI 파싱이 매번 처음부터 다시 돌아 끝나지 않기 때문)."""
+    timeout = httpx.Timeout(connect=15.0, read=read_timeout, write=60.0, pool=15.0)
     last = None
     for i in range(attempts):
         try:
-            async with httpx.AsyncClient(timeout=180) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 return await client.post(url, **kw)
-        except httpx.HTTPError as e:
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError, httpx.ReadError) as e:
+            # 연결 단계 실패(서버가 자는 중) → 깨우고 재시도
             last = e
-            # 서버 깨우기용 가벼운 요청
             try:
                 async with httpx.AsyncClient(timeout=60) as w:
                     await w.get(VOCAB_BASE_URL + "/")
@@ -1399,6 +1402,7 @@ async def _post_to_generator(url, attempts=3, **kw):
                 pass
             if i < attempts - 1:
                 await asyncio.sleep(3)
+        # ReadTimeout 등 처리 지연은 재시도하지 않고 그대로 올려서 명확히 안내
     raise last if last else httpx.HTTPError("연결 실패")
 
 
@@ -1412,6 +1416,8 @@ async def parse_book(file: UploadFile = File(...)):
     files = {"file": (file.filename or "book.pdf", raw, file.content_type or "application/octet-stream")}
     try:
         r = await _post_to_generator(VOCAB_PARSE_URL, files=files)
+    except httpx.TimeoutException:
+        raise HTTPException(504, "AI 분석이 시간 안에 끝나지 않았어요. 유닛이 많은 파일이면 나눠서 올리거나, '엑셀·PDF 올리기(빠름)'를 이용해보세요.")
     except httpx.HTTPError as e:
         raise HTTPException(502, f"분석 서버 연결 실패: {e}")
     if r.status_code != 200:
@@ -1441,6 +1447,8 @@ async def vocab_test(payload: dict = Body(...)):
     try:
         # 생성기가 자고 있으면 깨어나는 데 시간이 걸려, 깨우고 자동 재시도
         r = await _post_to_generator(VOCAB_TEST_URL, json=body)
+    except httpx.TimeoutException:
+        raise HTTPException(504, "시험지 생성이 시간 안에 끝나지 않았어요. 잠시 후 다시 시도해주세요.")
     except httpx.HTTPError as e:
         raise HTTPException(502, f"시험지 생성기 연결 실패: {e}")
     if r.status_code != 200:
