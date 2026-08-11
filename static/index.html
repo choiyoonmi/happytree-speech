@@ -2523,7 +2523,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
 }
 
 // ---------- Admin: review ----------
-function AdminReview({ students, assignments }) {
+function AdminReview({ students, assignments, reload }) {
   const [view, setView] = useState("class");   // class | all
   const [cls, setCls] = useState(null);
   const [sid, setSid] = useState(null);
@@ -2533,7 +2533,7 @@ function AdminReview({ students, assignments }) {
 
   if (sid) {
     const student = students.find(s => s.id === sid);
-    return <StudentReview student={student} assignments={assignments}
+    return <StudentReview student={student} assignments={assignments} reload={reload}
       onBack={() => setSid(null)} />;
   }
 
@@ -2605,11 +2605,21 @@ function AdminReview({ students, assignments }) {
 }
 
 // ---------- 학생 한 명의 제출 현황 ----------
-function StudentReview({ student, assignments, onBack }) {
+function StudentReview({ student, assignments, reload, onBack }) {
   const [tab, setTab] = useState("word");
   const [subs, setSubs] = useState({});
   const [loading, setLoading] = useState(true);
   const [openA, setOpenA] = useState(null);
+  const [delBusy, setDelBusy] = useState(null);
+
+  const delAssignment = async (a) => {
+    const shared = (a.assignedIds && a.assignedIds.length) ? `개별 ${a.assignedIds.length}명` : "이 반/전체 학생";
+    if (!confirm(`"${a.title}" 과제를 삭제할까요?\n\n이 과제는 배정된 모든 학생(${shared})에게서 사라지고, 제출된 녹음도 함께 지워져요. 되돌릴 수 없어요.`)) return;
+    setDelBusy(a.id);
+    try { await apiDelete(`/assignments/${a.id}`); if (reload) await reload(); }
+    catch (e) { alert("삭제 실패: " + e.message); }
+    setDelBusy(null);
+  };
 
   useEffect(() => {
     apiGet(`/student-submissions/${student.id}`)
@@ -2665,8 +2675,8 @@ function StudentReview({ student, assignments, onBack }) {
         const s = subs[a.id] || {};
         const st = s.status || "none";
         return (
-          <button key={a.id} className="card" onClick={()=>setOpenA(a)}
-            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left", gap:10 }}>
+          <div key={a.id} className="card" onClick={()=>setOpenA(a)}
+            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left", gap:10, cursor:"pointer", opacity: delBusy===a.id ? 0.5 : 1 }}>
             <div style={{ minWidth:0 }}>
               <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
               <div className="muted" style={{ marginTop:3 }}>
@@ -2674,18 +2684,23 @@ function StudentReview({ student, assignments, onBack }) {
                 {a.dueDate ? ` · 마감 ${formatDue(a.dueDate)}` : ""}
               </div>
             </div>
-            <div style={{ textAlign:"right", flexShrink:0 }}>
-              {s.average != null && (
-                <div style={{ fontSize:19, fontWeight:800, marginBottom:2,
-                  color: s.average>=85 ? "#2E7D5B" : s.average>=60 ? "#8A6D0F" : "var(--danger)" }}>
-                  {s.average}
-                </div>
-              )}
-              <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
-                {st==="none"?"미제출":st==="submitted"?"확인 대기":"확인완료"}
-              </Badge>
+            <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
+              <div style={{ textAlign:"right" }}>
+                {s.average != null && (
+                  <div style={{ fontSize:19, fontWeight:800, marginBottom:2,
+                    color: s.average>=85 ? "#2E7D5B" : s.average>=60 ? "#8A6D0F" : "var(--danger)" }}>
+                    {s.average}
+                  </div>
+                )}
+                <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+                  {st==="none"?"미제출":st==="submitted"?"확인 대기":"확인완료"}
+                </Badge>
+              </div>
+              <button onClick={(e)=>{ e.stopPropagation(); delAssignment(a); }} disabled={delBusy===a.id}
+                title="이 과제 삭제 (배정된 모든 학생)"
+                style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
             </div>
-          </button>
+          </div>
         );
       })}
     </div>
@@ -3375,7 +3390,7 @@ function AdminView({ onLogout }) {
       </div>
       {tab==="students" && <AdminStudents students={students} reload={reload} />}
       {tab==="assignments" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
-      {tab==="review" && <AdminReview students={students} assignments={assignments} />}
+      {tab==="review" && <AdminReview students={students} assignments={assignments} reload={reload} />}
       {tab==="vocab" && <AdminDashboard students={students} assignments={assignments} />}
       {tab==="battle" && <BattleHost assignments={assignments} />}
       {tab==="report" && <AdminReport students={students} />}
