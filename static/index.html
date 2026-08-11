@@ -1020,9 +1020,11 @@ function BulkUpload({ students, reload, onClose }) {
     const idx = s.search(/[가-힣]/);
     let eng = idx >= 0 ? s.slice(0, idx) : s;
     let kor = idx >= 0 ? s.slice(idx) : "";
-    eng = eng.replace(/\b(n|v|adj|adv|prep|conj|pron|int|pl)\.\s*$/i, "").trim();  // 끝 품사 제거
-    eng = eng.replace(/\s{2,}/g, " ").trim();
+    eng = eng.replace(/\b(n|v|adj|adv|prep|conj|pron|int|pl)\.\s*$/i, "").trim();  // 끝 영어 품사(n. v.) 제거
+    eng = eng.replace(/[\s.\-–]+$/, "").replace(/\s{2,}/g, " ").trim();             // 끝의 … / 공백 정리
     if (!/[a-zA-Z]/.test(eng)) return null;   // 영어가 없으면 버림
+    // 뜻 앞에 붙은 한글 품사 열(동/명/형/전/부…) 제거
+    kor = kor.replace(/^(?:[동명형부대전접감관수조]|명사|동사|형용사|부사|대명사|전치사|접속사|감탄사|관사|수사|조동사)\s+/, "");
     return { text: eng, meaning: kor.replace(/\s{2,}/g, " ").trim() };
   };
 
@@ -1077,20 +1079,30 @@ function BulkUpload({ students, reload, onClose }) {
     const out = [];
     let curDay = null;
     let label = null;
+    let seenWord = false;   // 이번 Day에서 단어 행을 하나라도 봤는지 (머리글 오인 방지)
+    const isHeaderish = (t) =>
+      /단어|품사|어휘\s*리스트|능률|voca|class|name|date/i.test(t) ||
+      /^(?:no\.?|번호|english\s*word|영어\s*단어|뜻|meaning|단어|의미|page|\d+)$/i.test(t);
     lines.forEach(line => {
       const d = dayNumber(line);
       if (d !== null) {
         curDay = d;
+        seenWord = false;
         label = label || detectLabel(line);
         const rest = line.replace(/.*(?:day|unit|lesson|lec|chapter)\s*0*\d+/i, "")
           .replace(/.*\d+\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)/, "").trim();
         const e = extractEng(rest);
-        if (e) out.push({ day: curDay, text: e.text, meaning: e.meaning });
+        if (e) { out.push({ day: curDay, text: e.text, meaning: e.meaning }); seenWord = true; }
         return;
       }
-      if (/^(?:no\.?|번호|english\s*word|영어\s*단어|뜻|meaning|단어|의미|page|\d+)$/i.test(line)) return;
+      if (isHeaderish(line)) return;
       const e = extractEng(line);
-      if (e) out.push({ day: curDay, text: e.text, meaning: e.meaning });
+      if (e) { out.push({ day: curDay, text: e.text, meaning: e.meaning }); seenWord = true; }
+      else if (/[가-힣]/.test(line) && !/[a-zA-Z]/.test(line) && !/^\s*\d/.test(line) && out.length && seenWord) {
+        // 영어 없이 한글만 있는 줄 = 앞 단어 뜻이 다음 줄로 이어진 것 → 이어붙임
+        const last = out[out.length - 1];
+        last.meaning = (last.meaning + " " + line).replace(/\s{2,}/g, " ").trim();
+      }
     });
     return { parsed: out, label };
   };
