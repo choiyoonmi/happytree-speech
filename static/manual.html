@@ -173,16 +173,18 @@
     <h3>업로드 방법 두 가지</h3>
     <div class="tablescroll"><table>
       <tr><th>버튼</th><th>언제 쓰나</th></tr>
-      <tr><td><b>📗 엑셀·PDF 올리기 (빠름)</b></td><td>한 줄에 단어 하나인 단순한 엑셀/표. 즉시 읽음.</td></tr>
-      <tr><td><b>🤖 AI로 정확히 읽기</b></td><td>한 줄에 여러 단(Unit이 옆으로 나란히) 등 <b>복잡한 표·PDF</b>. 수십 초 걸리지만 정확.</td></tr>
+      <tr><td><b>📗 엑셀·PDF 올리기 (빠름)</b></td><td><b>거의 이걸 쓰세요.</b> 번호·단어·품사·뜻이 세로로 정리된 보통 단어장(능률VOCA류 포함)은 <b>즉시</b> 읽혀요.</td></tr>
+      <tr><td><b>🤖 AI로 정확히 읽기</b></td><td>한 줄에 여러 단(Unit이 옆으로 나란히) 등 <b>정말 복잡한 표</b>일 때만. 유닛이 많으면 <b>1~5분</b>까지 걸려요(“읽는 중 ○○초” 표시가 올라가면 정상, 화면 닫지 마세요).</td></tr>
     </table></div>
     <ul class="plain">
-      <li><b>영어만 자동 추출</b> — 번호·머리글·품사(n. v.)·한글전용 줄은 알아서 걸러요. 영어=단어, 한글=뜻.</li>
+      <li><b>영어·한글뜻만 자동 추출</b> — 번호·머리글·<b>품사(동/명/형, n. v.)</b>는 알아서 걸러요. 뜻이 여러 줄로 이어지면 자동으로 이어붙입니다.</li>
       <li><b>단위 자동 인식</b> — Day / Unit / Lesson / 과 / 주차를 인식해 그 번호대로 나눔. 필요하면 <b>단위 표기</b> 버튼으로 바꿔요.</li>
       <li><b>Day별 단어 수 표시</b> — 읽자마자 “Unit 1 · 9개” 처럼 개수가 칩으로 떠서, PDF를 다시 안 열어도 됩니다.</li>
     </ul>
     <h3>보관함에 저장하기</h3>
     <p>배정 대상에서 <span class="path">보관</span>을 고르면 학생에게 안 보이고 <b>📦 보관함</b>에만 저장돼요. 요일·마감 없이 그냥 쌓아두면 됩니다.</p>
+    <h3>교재 이름 바꾸기</h3>
+    <p>교재 상세 화면 맨 위 <span class="path">📗 교재명 ✏️</span>을 누르면 <b>교재 이름을 바로 변경</b>할 수 있어요. Day 번호·단어는 그대로 두고 이름만 바뀝니다.</p>
     <div class="callout warn"><b>⚠️ 스캔 PDF 주의</b>사진처럼 스캔된 이미지 PDF는 글자 추출이 안 돼요. 엑셀로 올리거나, 텍스트형 PDF를 사용하세요.</div>
   </section>
 
@@ -192,10 +194,17 @@
     <h3>교재 전체를 한 번에</h3>
     <ol class="steps">
       <li><span class="path">과제관리 → 📦 보관함</span> → 교재 선택</li>
-      <li><span class="path">📤 이 교재로 과제 내기</span> 클릭</li>
+      <li><span class="path">📤 과제 내기</span> 클릭</li>
+      <li><b>배정할 Day 범위</b>(시작 ~ 끝) 선택 — <b>중간 Day부터도</b> 낼 수 있어요(학생이 중간부터 시작할 때)</li>
       <li>배정 대상(<span class="chip">전체</span><span class="chip">반별</span><span class="chip">개별</span>) 선택 + 마감일 자동 배치(시작일·요일)</li>
       <li><span class="path">배정하기</span> → 사본이 학생에게 나감 (원본은 보관함 유지)</li>
     </ol>
+    <h3>단어가 많은 Day를 둘로 나누기 ✂️</h3>
+    <ul class="plain">
+      <li><b>한 Day만</b>: 과제 카드의 <span class="path">✂️</span> → 슬라이더로 앞쪽 개수 정하고 나누면 <b>(1/2)·(2/2)</b> 두 과제가 돼요.</li>
+      <li><b>교재 전체</b>: 교재 상세의 <span class="path">✂️ 교재 전체 나누기</span> → 모든 Day를 한 번에 둘로. <b>“하루에 하나씩 다시 배치”</b>를 켜면 조각마다 다른 날에 놓여 학생이 하루 하나씩 하게 돼요. <b>시작일에 놓을 Day</b>도 고를 수 있어 오늘이 Day1이 아니어도 됩니다.</li>
+    </ul>
+    <div class="callout warn"><b>⚠️ 나누기는 녹음 전에</b>이미 제출된 녹음이 있으면 뒤쪽(2/2)으로 옮겨가는 단어의 녹음은 새 과제로 옮겨지지 않아요.</div>
     <h3>과제 하나씩 손보기 — 카드의 ✏️</h3>
     <p>과제 카드의 <span class="path">마감 … ✏️</span>를 누르면 한 자리에서:</p>
     <ul class="plain">
@@ -208,7 +217,8 @@
       <tr><th>도구</th><th>기능</th></tr>
       <tr><td><b>⏭ 뒤로 미루기</b></td><td>특정 날짜부터 마감일을 한꺼번에 뒤로</td></tr>
       <tr><td><b>🗓 일정 다시 짜기</b></td><td>시작일·요일로 교재 전체 마감일 재계산</td></tr>
-      <tr><td><b>🔁 녹음 회차 한꺼번에</b></td><td>특정 Day부터 끝까지 회차를 한 번에 변경</td></tr>
+      <tr><td><b>🔁 녹음 회차 바꾸기</b></td><td>특정 Day부터 끝까지 회차를 한 번에 변경</td></tr>
+      <tr><td><b>✂️ 교재 전체 나누기</b></td><td>모든 Day를 둘로. 원하면 하루에 하나씩 다시 배치</td></tr>
       <tr><td><b>🧹 중복 정리</b></td><td>실수로 두 번 올린 중복 과제 정리(제출 있는 건 보존)</td></tr>
       <tr><td><b>교재 전체 삭제</b></td><td>이 교재의 모든 Day 삭제</td></tr>
     </table></div>
@@ -255,6 +265,14 @@
       <li>선생님 코멘트 작성 (<b>✨ AI 코멘트</b>로 초안 자동 생성 가능)</li>
       <li><span class="path">확인 완료로 표시</span> → 학생에게 코멘트가 보이고 “확인완료”로 바뀜</li>
     </ol>
+    <h3>삭제하기</h3>
+    <div class="tablescroll"><table>
+      <tr><th>지우려는 것</th><th>어디서</th></tr>
+      <tr><td><b>한 학생의 한 과제 제출</b>(녹음·점수)</td><td>과제 열기 → <span class="path">🗑 이 제출 삭제</span> → 그 학생이 다시 녹음 가능</td></tr>
+      <tr><td><b>과제 자체</b>(배정된 모든 학생 대상)</td><td>학생 과제 목록에서 각 줄의 <span class="path">🗑</span></td></tr>
+      <tr><td><b>과제를 무더기로</b> 정리</td><td><span class="path">설정 → ⚠️ 과제 전체 삭제</span> (배포된 것만 / 보관함 포함 전부)</td></tr>
+    </table></div>
+    <div class="callout warn"><b>⚠️ 삭제는 되돌릴 수 없어요</b>많이 지우기 전엔 <span class="path">설정 → 백업 파일 내려받기</span>로 먼저 백업받아 두세요.</div>
   </section>
 
   <section id="s9">
