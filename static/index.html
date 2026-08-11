@@ -1749,6 +1749,8 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [assignToIdx, setAssignToIdx] = useState(null);        // 배정 끝 Day(null=마지막)
   const [splitting, setSplitting] = useState(null);           // 둘로 나누는 과제 id
   const [splitAt, setSplitAt] = useState(1);                  // 앞쪽에 넣을 단어 개수
+  const [splitAllMode, setSplitAllMode] = useState("half");   // 교재 전체 나누기 기준: half | fixed
+  const [splitAllN, setSplitAllN] = useState(10);             // fixed일 때 앞쪽 개수
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
   const [editRounds, setEditRounds] = useState(3);
@@ -2000,6 +2002,38 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     setBusy(false);
   };
 
+  // 교재 전체를 한 번에 둘로 나누기. 이미 나뉜 Day(1/2·2/2)는 건너뜀.
+  const isSplitTitle = (t) => /\((?:\d+\s*\/\s*\d+|앞|뒤)\)\s*$/.test(t || "");
+  const splitAllTargets = list.filter(a =>
+    (a.items || []).length >= 2 && !isSplitTitle(a.title) &&
+    (splitAllMode === "half" || (a.items || []).length > splitAllN));
+  const doSplitAll = async () => {
+    if (!splitAllTargets.length) return setErr("나눌 수 있는 Day가 없어요. (단어 2개 이상, 아직 안 나뉜 Day만 대상)");
+    if (!confirm(`이 교재의 ${splitAllTargets.length}개 Day를 각각 앞·뒤 둘로 나눌까요?\n각 Day가 "(1/2)"와 "(2/2)"로 바뀌어요.\n\n※ 이미 제출된 녹음이 있으면, 뒤쪽으로 옮겨가는 단어의 녹음은 새 과제로 옮겨지지 않아요. 되도록 녹음 전에 나눠 주세요.`)) return;
+    setBusy(true); setErr("");
+    try {
+      for (const a of splitAllTargets) {
+        const items = a.items || [], meanings = a.meanings || [], ea = a.exampleAudio || [];
+        const n = items.length;
+        const at = splitAllMode === "half" ? Math.ceil(n / 2) : Math.max(1, Math.min(splitAllN, n - 1));
+        const base = baseTitle(a.title) || a.title;
+        await fetch("/api/assignments/" + a.id, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: base + " (1/2)", items: items.slice(0, at), meanings: meanings.slice(0, at), exampleAudio: ea.slice(0, at) })
+        });
+        await apiPost("/assignments", {
+          title: base + " (2/2)", book: a.book || book, type: a.type || "word",
+          items: items.slice(at), meanings: meanings.slice(at), exampleAudio: ea.slice(at),
+          rounds: a.rounds || 3, dueDate: a.dueDate || null,
+          assignedIds: a.assignedIds || [], assignedClasses: a.assignedClasses || [], published: a.published !== false,
+        });
+      }
+      await reload(); setPanel(null);
+      alert(`${splitAllTargets.length}개 Day를 각각 둘로 나눴어요!`);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
   // 회차 일괄변경 대상: 선택한 과제부터 끝까지 (list는 마감일 순 정렬됨), 비우면 전체
   const roundsStartIdx = roundsFrom ? list.findIndex(a => a.id === roundsFrom) : 0;
   const roundsTargets = roundsStartIdx >= 0 ? list.slice(roundsStartIdx) : list;
@@ -2090,6 +2124,10 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
           onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setErr(""); }}>🔁 녹음 회차 한꺼번에 바꾸기</button>
       </div>
       <div className="row" style={{ gap:6, marginBottom:8 }}>
+        <button className={panel==="splitall" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="splitall"?null:"splitall"); setErr(""); }}>✂️ 교재 전체 나누기 (모든 Day 둘로)</button>
+      </div>
+      <div className="row" style={{ gap:6, marginBottom:8 }}>
         <button className="btn" style={{ flex:1, fontSize:13 }}
           onClick={makeVocabTest} disabled={testBusy}>
           {testBusy ? "시험지 만드는 중... (조금 걸려요)" : "📝 이 교재 단어시험지 만들기 (책 전체)"}
@@ -2100,6 +2138,37 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
           onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setAssignFromIdx(0); setAssignToIdx(null); setErr(""); }}>📤 이 교재로 과제 내기 (원본 보관 유지)</button>
       </div>
       {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
+
+      {panel === "splitall" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            이 교재의 <b style={{ color:"var(--navy)" }}>모든 Day</b>를 앞·뒤 둘로 나눠요. 각 Day가 <b>(1/2)</b>와 <b>(2/2)</b>로 바뀌고, 마감·회차·배정·음원은 그대로 복사돼요. 이미 나뉜 Day는 건너뜁니다.
+          </div>
+          <label className="label">나누는 기준</label>
+          <div className="seg" style={{ marginTop:0 }}>
+            {[["half","각 Day 절반씩"],["fixed","앞쪽 개수 지정"]].map(([m,l]) => (
+              <button key={m} className={splitAllMode===m?"on":""} onClick={()=>setSplitAllMode(m)}>{l}</button>
+            ))}
+          </div>
+          {splitAllMode==="fixed" && (
+            <label className="label" style={{ marginTop:10 }}>
+              앞쪽에 넣을 단어 개수
+              <input className="field" type="number" min={1} value={splitAllN}
+                onChange={e=>setSplitAllN(Math.max(1, Number(e.target.value)||1))} style={{ marginTop:4 }} />
+              <span className="muted" style={{ fontSize:12 }}>단어가 이 개수보다 적은 Day는 그대로 둬요.</span>
+            </label>
+          )}
+          <div className="muted" style={{ fontSize:13, margin:"10px 0" }}>
+            나눌 대상: <b style={{ color:"var(--navy)" }}>{splitAllTargets.length}개 Day</b> → 나누면 총 {splitAllTargets.length*2}개가 돼요.
+          </div>
+          <div className="row" style={{ gap:6 }}>
+            <button className="btn" style={{ flex:1 }} disabled={busy || !splitAllTargets.length}
+              onClick={doSplitAll}>{busy ? "나누는 중... (조금 걸려요)" : "✂️ 전체 둘로 나누기"}</button>
+            <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setPanel(null)}>취소</button>
+          </div>
+          {err && <div className="err" style={{ marginTop:8 }}>{err}</div>}
+        </div>
+      )}
 
       {panel === "assign" && (
         <div className="card" style={{ background:"var(--cream)" }}>
