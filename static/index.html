@@ -2734,6 +2734,15 @@ function SubmissionDetail({ student, assignment, onBack }) {
     } catch (e) { setMsg("저장 실패: " + e.message); }
   };
 
+  const deleteSub = async () => {
+    if (!confirm(`${student.name} 학생의 "${a.title}" 제출(녹음·점수·코멘트)을 삭제할까요?\n\n삭제하면 '미제출' 상태로 돌아가고, 학생이 다시 녹음할 수 있어요. 되돌릴 수 없어요.`)) return;
+    try {
+      await apiDelete(`/submission/${a.id}/${student.id}`);
+      setMsg("제출을 삭제했어요.");
+      setTimeout(()=>{ setMsg(""); onBack(); }, 1200);
+    } catch (e) { setMsg("삭제 실패: " + e.message); }
+  };
+
   if (loading) return <div className="body"><div className="center"><div className="spin" /></div></div>;
 
   return (
@@ -2827,6 +2836,10 @@ function SubmissionDetail({ student, assignment, onBack }) {
             </div>
           )}
           <button className="btn full" onClick={markDone}>확인 완료로 표시</button>
+          <button className="btn-ghost full" onClick={deleteSub}
+            style={{ marginTop:8, color:"var(--danger)", borderColor:"#E8C4BC" }}>
+            🗑 이 제출 삭제 (다시 녹음하게)
+          </button>
         </>
       )}
     </div>

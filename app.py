@@ -625,6 +625,18 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     return existing
 
 
+@app.delete("/api/submission/{assignment_id}/{student_id}")
+def delete_submission(assignment_id: str, student_id: str):
+    """한 학생의 특정 과제 제출(녹음·점수·코멘트)을 삭제 → '미제출' 상태로 되돌림."""
+    with _sub_lock(student_id):
+        subs = load_student_subs(student_id)
+        had = assignment_id in subs
+        if had:
+            del subs[assignment_id]
+            save_student_subs(student_id, subs)
+    return {"ok": True, "deleted": had}
+
+
 @app.post("/api/audio")
 async def upload_audio(audio: UploadFile = File(...)):
     raw = await audio.read()
