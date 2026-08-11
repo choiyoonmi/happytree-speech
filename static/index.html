@@ -3497,6 +3497,8 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const cur = assignment;
   const [mode, setMode] = useState(null);
   const [rec, setRec] = useState(null);
+  const [savedMsg, setSavedMsg] = useState("");
+  const [doneMsg, setDoneMsg] = useState(false);   // 4단계 완료 축하 메시지
 
   const reloadProgress = () => apiGet(`/vocab/${student.id}`).then(d => setRec(d[cur.id] || null)).catch(()=>{});
   useEffect(() => { reloadProgress(); }, []);
@@ -3504,17 +3506,26 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const pairs = cur.items.map((w, i) => ({ word: w, kor: (cur.meanings && cur.meanings[i]) || "", audio: (cur.exampleAudio && cur.exampleAudio[i]) || null }));
 
   const backToModes = () => { setMode(null); };
-  const saveResult = async (correct, total) => {
-    try { await apiPost(`/vocab/${cur.id}/${student.id}`, { mode, correct, total }); } catch (e) {}
-    reloadProgress();
+  // 결과 저장 후, 이번 저장으로 4단계가 처음 완성되면 완료 메시지
+  const persist = async (body) => {
+    const wasComplete = !!(rec && rec.complete);
+    try {
+      const r = await apiPost(`/vocab/${cur.id}/${student.id}`, body);
+      setRec(r);
+      setSavedMsg("저장됐어요 ✓"); setTimeout(()=>setSavedMsg(""), 1800);
+      if (r.complete && !wasComplete) setDoneMsg(true);
+    } catch (e) { reloadProgress(); }
   };
+  const saveResult = (correct, total) => persist({ mode, correct, total });
+  const saveFlash = () => persist({ mode: "flash" });
 
-  if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} voice={voice} onBack={backToModes} />;
+  if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} voice={voice} onBack={backToModes} onDone={saveFlash} />;
   if (mode === "choice") return <ChoiceQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} />;
   if (mode === "spell") return <SpellQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} />;
   if (mode === "test") return <ChoiceQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} limit={Math.min(20, pairs.length)} />;
 
   const bm = (rec && rec.byMode) || {};
+  const doneCount = ["flash","choice","spell","test"].filter(k => bm[k]).length;
   const modes = [
     ["flash", "🃏 카드 암기", "단어와 뜻을 넘기며 외워요 (발음 자동재생)"],
     ["choice", "✅ 뜻 고르기", "4개 중 맞는 뜻 고르기"],
@@ -3522,24 +3533,46 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
     ["test", "📝 미니 테스트", "섞어서 시험 · 점수 기록"],
   ];
   return <>
-    <div className="muted" style={{ marginBottom:12 }}>{pairs.length}단어{rec ? ` · 최고 ${rec.best}점 · ${rec.attempts}회` : ""}</div>
+    <div className="muted" style={{ marginBottom:6 }}>{pairs.length}단어{rec ? ` · 최고 ${rec.best}점 · ${rec.attempts}회` : ""}</div>
+    <div style={{ marginBottom:12, fontSize:13, fontWeight:700, color: doneCount===4 ? "var(--good)" : "var(--navy-soft)" }}>
+      진행 {doneCount}/4 단계 {doneCount===4 ? "· 완료 ✅" : ""}
+    </div>
     {modes.map(([id, label, desc]) => (
       <button key={id} className="card" onClick={()=>{ pingActivity(student.id, id, cur.title); setMode(id); }}
         style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
-        <div><div style={{ fontWeight:700, fontSize:15 }}>{label}</div>
-          <div className="muted" style={{ marginTop:2 }}>{desc}{bm[id] ? ` · 최고 ${bm[id].best}점` : ""}</div></div>
+        <div><div style={{ fontWeight:700, fontSize:15 }}>{bm[id] ? "✅ " : ""}{label}</div>
+          <div className="muted" style={{ marginTop:2 }}>{desc}{bm[id] && bm[id].best!=null ? ` · 최고 ${bm[id].best}점` : (bm[id] ? " · 완료" : "")}</div></div>
         <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
       </button>
     ))}
+    {savedMsg && !doneMsg && (
+      <div style={{ position:"fixed", left:0, right:0, bottom:24, display:"flex", justifyContent:"center", pointerEvents:"none", zIndex:90 }}>
+        <div style={{ background:"var(--navy)", color:"#fff", padding:"8px 16px", borderRadius:999, fontSize:13, fontWeight:700, boxShadow:"0 6px 20px rgba(0,0,0,.2)" }}>{savedMsg}</div>
+      </div>
+    )}
+    {doneMsg && (
+      <div onClick={()=>setDoneMsg(false)} style={{ position:"fixed", inset:0, display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, background:"rgba(0,0,0,.3)" }}>
+        <div style={{ background:"#fff", borderRadius:20, padding:"34px 30px", textAlign:"center", maxWidth:320, boxShadow:"0 12px 40px rgba(0,0,0,.3)" }}>
+          <div style={{ fontSize:56 }}>🎉</div>
+          <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginTop:8 }}>자습 4단계 완료!</div>
+          <div className="muted" style={{ marginTop:8, fontSize:14 }}>카드암기·뜻고르기·스펠링·미니테스트를 모두 마쳤어요. 기록이 저장됐어요. 정말 잘했어요! 👏</div>
+          <button className="btn full" style={{ marginTop:16 }} onClick={()=>setDoneMsg(false)}>확인</button>
+        </div>
+      </div>
+    )}
   </>;
 }
 
-function Flashcards({ pairs, title, voice, onBack }) {
+function Flashcards({ pairs, title, voice, onBack, onDone }) {
   const [order] = useState(() => shuffleArr(pairs));
   const [i, setI] = useState(0);
   const [flip, setFlip] = useState(false);
+  const doneRef = useRef(false);
   const p = order[i];
-  useEffect(() => { if (p) playModel(p.audio, p.word, voice); }, [i]);   // 카드가 바뀌면 발음 자동재생(선생님 음원 우선)
+  useEffect(() => {
+    if (p) playModel(p.audio, p.word, voice);   // 카드가 바뀌면 발음 자동재생(선생님 음원 우선)
+    if (i === order.length - 1 && !doneRef.current) { doneRef.current = true; onDone && onDone(); }  // 마지막 카드까지 보면 '완료' 기록
+  }, [i]);
   const move = (d) => { setFlip(false); setI(x => Math.max(0, Math.min(order.length - 1, x + d))); };
   return <>
     <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
@@ -3688,6 +3721,15 @@ function AdminDashboard({ students, assignments }) {
   const titleOf = (aid) => { const a = assignments.find(x => x.id === aid); return a ? a.title : aid; };
   const nameOf = (id) => { const s = students.find(x => x.id === id); return s ? s.name : id; };
   const isLive = (ts) => ts && (nowTs - ts) < 300;   // 5분 이내면 '학습중'
+  // 학생의 단어 자습 완료 요약: 완료 세트 수·최근 완료시간·진행중 최대 단계
+  const vocabInfo = (id) => {
+    const vals = Object.values(vocab[id] || {});
+    const comps = vals.filter(r => r.completedAt).map(r => r.completedAt).sort();
+    const completeCount = vals.filter(r => r.complete).length;
+    const stages = vals.filter(r => !r.complete)
+      .map(r => ["flash","choice","spell","test"].filter(k => (r.byMode||{})[k]).length);
+    return { latest: comps[comps.length-1], completeCount, maxStage: stages.length ? Math.max(...stages) : 0 };
+  };
 
   if (sid) {
     const recs = vocab[sid] || {};
@@ -3700,14 +3742,20 @@ function AdminDashboard({ students, assignments }) {
       {entries.map(([aid, rec]) => {
         const by = rec.byMode || {};
         return <div key={aid} className="card" style={{ padding:12 }}>
-          <div style={{ fontWeight:700, fontSize:14 }}>{titleOf(aid)}</div>
+          <div style={{ fontWeight:700, fontSize:14 }}>
+            {rec.complete ? "✅ " : ""}{titleOf(aid)}
+            {rec.complete && <span style={{ color:"var(--good)", fontSize:11, marginLeft:6 }}>4단계 완료</span>}
+          </div>
           <div className="muted" style={{ marginTop:4 }}>
             최고 <b style={{ color:"var(--navy)" }}>{rec.best}점</b> · {rec.attempts}회
-            {rec.last ? ` · 최근 ${rec.last.score}점 (${rec.last.at})` : ""}
+            {rec.last && rec.last.score!=null ? ` · 최근 ${rec.last.score}점` : ""}
+          </div>
+          <div className="muted" style={{ marginTop:3, fontSize:11 }}>
+            {rec.startedAt ? `시작 ${rec.startedAt}` : ""}{rec.completedAt ? ` · 완료 ${rec.completedAt}` : ""}
           </div>
           <div className="row" style={{ gap:8, marginTop:6, flexWrap:"wrap" }}>
-            {[["choice","뜻고르기"],["spell","스펠링"],["test","미니테스트"]].map(([k,l]) =>
-              by[k] ? <span key={k} className="muted" style={{ fontSize:11 }}>{l} {by[k].best}점</span> : null
+            {[["flash","카드암기"],["choice","뜻고르기"],["spell","스펠링"],["test","미니테스트"]].map(([k,l]) =>
+              by[k] ? <span key={k} className="muted" style={{ fontSize:11 }}>{l}{by[k].best!=null ? ` ${by[k].best}점` : " ✓"}</span> : null
             )}
           </div>
         </div>;
@@ -3735,6 +3783,7 @@ function AdminDashboard({ students, assignments }) {
             {ACT_COLS.map(([k,l]) => (
               <th key={k} style={{ padding:"8px 6px", textAlign:"center", color:"var(--navy-soft)", fontWeight:700, whiteSpace:"nowrap" }}>{l}</th>
             ))}
+            <th style={{ padding:"8px 6px", textAlign:"center", color:"var(--navy-soft)", fontWeight:700, whiteSpace:"nowrap" }}>자습완료</th>
           </tr>
         </thead>
         <tbody>
@@ -3754,16 +3803,33 @@ function AdminDashboard({ students, assignments }) {
                       {c
                         ? <div>
                             <div style={{ fontWeight:700, color: live ? "#2E7D5B" : "var(--navy)", fontSize:11 }}>{live ? "🟢 학습중" : c.at}</div>
-                            {live && <div className="muted" style={{ fontSize:10 }}>{c.at}</div>}
+                            {k==="record" && c.total
+                              ? <div className="muted" style={{ fontSize:10, fontWeight:700, color: (c.done>=c.total) ? "var(--good)" : "var(--navy-soft)" }}>{c.done||0}/{c.total}회차{c.done>=c.total ? " ✅" : ""}</div>
+                              : (live && <div className="muted" style={{ fontSize:10 }}>{c.at}</div>)}
                           </div>
                         : <span style={{ color:"var(--line)" }}>–</span>}
                     </td>
                   );
                 })}
+                {(() => {
+                  const vi = vocabInfo(s.id);
+                  return (
+                    <td style={{ padding:"6px 4px", textAlign:"center" }}>
+                      {vi.completeCount
+                        ? <div>
+                            <div style={{ fontWeight:800, color:"var(--good)", fontSize:11 }}>✅ {vi.completeCount}개</div>
+                            {vi.latest && <div className="muted" style={{ fontSize:10 }}>{vi.latest}</div>}
+                          </div>
+                        : vi.maxStage
+                          ? <div className="muted" style={{ fontSize:11, fontWeight:700 }}>{vi.maxStage}/4단계</div>
+                          : <span style={{ color:"var(--line)" }}>–</span>}
+                    </td>
+                  );
+                })()}
               </tr>
             );
           })}
-          {!students.length && <tr><td colSpan={ACT_COLS.length+1} style={{ padding:16, textAlign:"center", color:"var(--navy-soft)" }}>학생이 없어요.</td></tr>}
+          {!students.length && <tr><td colSpan={ACT_COLS.length+2} style={{ padding:16, textAlign:"center", color:"var(--navy-soft)" }}>학생이 없어요.</td></tr>}
         </tbody>
       </table>
     </div>

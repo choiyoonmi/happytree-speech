@@ -625,16 +625,61 @@ def _notify_reading_submission(student_id, assignment_id, sub):
     send_telegram("\n".join(lines))
 
 
+def _rounds_done(items, item_count, rounds_total):
+    """모든 항목이 녹음된 회차 수(완료 회차)를 센다."""
+    done = 0
+    for r in range(rounds_total):
+        ok = item_count > 0
+        for i in range(item_count):
+            row = items[i] if (items and i < len(items)) else []
+            take = row[r] if (row and r < len(row)) else None
+            if not take:
+                ok = False
+                break
+        if ok:
+            done += 1
+    return done
+
+
 @app.post("/api/submission/{assignment_id}/{student_id}")
 def save_submission(assignment_id: str, student_id: str, payload: dict = Body(...)):
+    import time
+    now = _now_kr()
+    # 과제 정보(회차·항목 수)
+    db = load_db()
+    assignment = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
+    rounds_total = int((assignment or {}).get("rounds", 3) or 3)
+    item_count = len((assignment or {}).get("items", []))
+    a_title = (assignment or {}).get("title", "")
     # 학생별 잠금 — 다른 학생의 저장을 막지 않음
     with _sub_lock(student_id):
         subs = load_student_subs(student_id)
         existing = subs.get(assignment_id, {})
         prev_status = existing.get("status")
         existing.update(payload)
+        if not existing.get("startedAt"):
+            existing["startedAt"] = now
+        # 회차 진행 계산
+        rounds_done = _rounds_done(existing.get("items") or [], item_count, rounds_total)
+        existing["roundsDone"] = rounds_done
+        existing["roundsTotal"] = rounds_total
+        newly_submitted = payload.get("status") == "submitted" and prev_status != "submitted"
+        if (existing.get("status") == "submitted" or rounds_done >= rounds_total) and not existing.get("completedAt"):
+            existing["completedAt"] = existing.get("submittedAt") or now
         subs[assignment_id] = existing
         save_student_subs(student_id, subs)
+
+        # 실시간 현황판(activity)에도 진행상황 반영 — 같은 학생 락 안이라 안전
+        act = load_activity(student_id)
+        ra = act.get("record") or {}
+        if not ra.get("startedAt"):
+            ra["startedAt"] = existing["startedAt"]
+        ra.update({"at": now, "ts": int(time.time()), "title": a_title,
+                   "done": rounds_done, "total": rounds_total})
+        if existing.get("completedAt"):
+            ra["completedAt"] = existing["completedAt"]
+        act["record"] = ra
+        save_activity(student_id, act)
 
     # 이번 저장으로 '제출됨' 상태가 새로 된 경우에만 알림 (중간 저장·재저장 시엔 안 보냄)
     if payload.get("status") == "submitted" and prev_status != "submitted":
@@ -1489,30 +1534,51 @@ def _now_kr() -> str:
     return f"{d.month}/{d.day} {d.hour:02d}:{d.minute:02d}"
 
 
+VOCAB_STAGES = {"flash", "choice", "spell", "test"}   # 자습 4단계
+
+
 @app.post("/api/vocab/{assignment_id}/{student_id}")
 def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(...)):
-    """단어 자습 한 판 결과 저장. body: {mode, correct, total}"""
+    """단어 자습 한 판 결과 저장. body: {mode, correct, total}
+    mode='flash'(카드암기)는 점수 없이 '했음'만 기록. 4단계 모두 하면 completedAt 기록."""
     mode = str(payload.get("mode") or "test")[:20]
+    is_flash = (mode == "flash")
     correct = max(0, int(payload.get("correct") or 0))
     total = int(payload.get("total") or 0)
-    if total <= 0:
-        raise HTTPException(400, "문항 수가 없어요.")
-    correct = min(correct, total)
-    score = round(correct * 100 / total)
+    score = 0
+    if not is_flash:
+        if total <= 0:
+            raise HTTPException(400, "문항 수가 없어요.")
+        correct = min(correct, total)
+        score = round(correct * 100 / total)
     now = _now_kr()
     with _sub_lock(student_id):
         data = load_vocab(student_id)
         rec = data.get(assignment_id) or {"attempts": 0, "best": 0, "byMode": {}}
+        if not rec.get("startedAt"):
+            rec["startedAt"] = now
         rec["attempts"] = rec.get("attempts", 0) + 1
-        rec["best"] = max(rec.get("best", 0), score)
-        rec["last"] = {"mode": mode, "correct": correct, "total": total, "score": score, "at": now}
         by = rec.get("byMode") or {}
-        bm = by.get(mode) or {"attempts": 0, "best": 0}
-        bm["attempts"] = bm.get("attempts", 0) + 1
-        bm["best"] = max(bm.get("best", 0), score)
-        bm["last"] = {"correct": correct, "total": total, "score": score, "at": now}
-        by[mode] = bm
+        if is_flash:
+            bm = by.get("flash") or {"attempts": 0}
+            bm["attempts"] = bm.get("attempts", 0) + 1
+            bm["done"] = True
+            bm["last"] = {"at": now}
+            by["flash"] = bm
+            rec["last"] = {"mode": "flash", "at": now}
+        else:
+            rec["best"] = max(rec.get("best", 0), score)
+            rec["last"] = {"mode": mode, "correct": correct, "total": total, "score": score, "at": now}
+            bm = by.get(mode) or {"attempts": 0, "best": 0}
+            bm["attempts"] = bm.get("attempts", 0) + 1
+            bm["best"] = max(bm.get("best", 0), score)
+            bm["last"] = {"correct": correct, "total": total, "score": score, "at": now}
+            by[mode] = bm
         rec["byMode"] = by
+        complete = VOCAB_STAGES.issubset(set(by.keys()))
+        rec["complete"] = complete
+        if complete and not rec.get("completedAt"):
+            rec["completedAt"] = now
         data[assignment_id] = rec
         save_vocab(student_id, data)
     return rec
