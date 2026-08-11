@@ -2152,29 +2152,25 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
         </div>
       </div>
 
-      <div className="row" style={{ gap:6, marginBottom:8 }}>
+      <div className="row" style={{ gap:6, marginBottom:6 }}>
         <button className={panel==="shift" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="shift"?null:"shift"); setErr(""); }}>⏭ 뒤로 미루기</button>
         <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="respread"?null:"respread"); setErr(""); }}>🗓 일정 다시 짜기</button>
       </div>
-      <div className="row" style={{ gap:6, marginBottom:8 }}>
+      <div className="row" style={{ gap:6, marginBottom:6 }}>
         <button className={panel==="rounds" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setErr(""); }}>🔁 녹음 회차 한꺼번에 바꾸기</button>
-      </div>
-      <div className="row" style={{ gap:6, marginBottom:8 }}>
+          onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setErr(""); }}>🔁 녹음 회차 바꾸기</button>
         <button className={panel==="splitall" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="splitall"?null:"splitall"); setSplitAllStartIdx(0); setErr(""); }}>✂️ 교재 전체 나누기 (모든 Day 둘로)</button>
-      </div>
-      <div className="row" style={{ gap:6, marginBottom:8 }}>
-        <button className="btn" style={{ flex:1, fontSize:13 }}
-          onClick={makeVocabTest} disabled={testBusy}>
-          {testBusy ? "시험지 만드는 중... (조금 걸려요)" : "📝 이 교재 단어시험지 만들기 (책 전체)"}
-        </button>
+          onClick={()=>{ setPanel(panel==="splitall"?null:"splitall"); setSplitAllStartIdx(0); setErr(""); }}>✂️ 교재 전체 나누기</button>
       </div>
       <div className="row" style={{ gap:6, marginBottom:12 }}>
         <button className={panel==="assign" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setAssignFromIdx(0); setAssignToIdx(null); setErr(""); }}>📤 이 교재로 과제 내기 (원본 보관 유지)</button>
+          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setAssignFromIdx(0); setAssignToIdx(null); setErr(""); }}>📤 과제 내기</button>
+        <button className="btn-ghost" style={{ flex:1, fontSize:13 }}
+          onClick={makeVocabTest} disabled={testBusy}>
+          {testBusy ? "시험지 만드는 중..." : "📝 단어시험지 만들기"}
+        </button>
       </div>
       {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
 
