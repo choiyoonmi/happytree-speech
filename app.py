@@ -1376,8 +1376,30 @@ async def translate(payload: dict = Body(...)):
     return {"translations": out}
 
 
-VOCAB_TEST_URL = "https://vocab-test-generator.onrender.com/api/generate-all"
-VOCAB_PARSE_URL = "https://vocab-test-generator.onrender.com/api/parse"
+VOCAB_BASE_URL = "https://vocab-test-generator.onrender.com"
+VOCAB_TEST_URL = VOCAB_BASE_URL + "/api/generate-all"
+VOCAB_PARSE_URL = VOCAB_BASE_URL + "/api/parse"
+
+
+async def _post_to_generator(url, attempts=3, **kw):
+    """생성기(word) 서버로 POST. Render 무료 서버가 자고 있을 때 첫 연결이 끊기는 경우가
+    있어, 실패하면 서버를 깨우고(GET) 잠시 뒤 자동 재시도한다."""
+    last = None
+    for i in range(attempts):
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:
+                return await client.post(url, **kw)
+        except httpx.HTTPError as e:
+            last = e
+            # 서버 깨우기용 가벼운 요청
+            try:
+                async with httpx.AsyncClient(timeout=60) as w:
+                    await w.get(VOCAB_BASE_URL + "/")
+            except Exception:
+                pass
+            if i < attempts - 1:
+                await asyncio.sleep(3)
+    raise last if last else httpx.HTTPError("연결 실패")
 
 
 @app.post("/api/parse-book")
@@ -1389,8 +1411,7 @@ async def parse_book(file: UploadFile = File(...)):
         raise HTTPException(400, "빈 파일이에요.")
     files = {"file": (file.filename or "book.pdf", raw, file.content_type or "application/octet-stream")}
     try:
-        async with httpx.AsyncClient(timeout=180) as client:
-            r = await client.post(VOCAB_PARSE_URL, files=files)
+        r = await _post_to_generator(VOCAB_PARSE_URL, files=files)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"분석 서버 연결 실패: {e}")
     if r.status_code != 200:
@@ -1418,9 +1439,8 @@ async def vocab_test(payload: dict = Body(...)):
         "direction": payload.get("direction") or "kor_to_eng",
     }
     try:
-        # 생성기가 자고 있으면 깨어나는 데 시간이 걸려 넉넉히 대기
-        async with httpx.AsyncClient(timeout=180) as client:
-            r = await client.post(VOCAB_TEST_URL, json=body)
+        # 생성기가 자고 있으면 깨어나는 데 시간이 걸려, 깨우고 자동 재시도
+        r = await _post_to_generator(VOCAB_TEST_URL, json=body)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"시험지 생성기 연결 실패: {e}")
     if r.status_code != 200:
