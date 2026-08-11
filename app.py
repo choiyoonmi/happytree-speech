@@ -375,6 +375,26 @@ def add_assignments_bulk(payload: dict = Body(...)):
     return {"created": len(created), "assignments": created}
 
 
+@app.post("/api/assignments/delete-all")
+def delete_all_assignments(payload: dict = Body(...)):
+    """과제 일괄 삭제. scope='published'(배포된 것만) | 'archived'(보관함만) | 'all'(전부)."""
+    scope = str(payload.get("scope") or "published")
+    with _lock:
+        db = load_db()
+        before = len(db["assignments"])
+        if scope == "all":
+            db["assignments"] = []
+        elif scope == "published":
+            db["assignments"] = [a for a in db["assignments"] if not a.get("published", True)]
+        elif scope == "archived":
+            db["assignments"] = [a for a in db["assignments"] if a.get("published", True)]
+        else:
+            raise HTTPException(400, "알 수 없는 삭제 범위예요.")
+        save_db(db)
+        deleted = before - len(db["assignments"])
+    return {"deleted": deleted}
+
+
 @app.post("/api/assignments/fill-meanings")
 async def fill_assignment_meanings():
     """기존 과제에서 비어 있는 한글 뜻만 자동 번역해 채운다."""

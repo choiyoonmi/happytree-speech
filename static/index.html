@@ -3181,6 +3181,23 @@ function AdminSettings({ students, assignments, reload }) {
     } catch (e) { setMsg("복원 실패: " + e.message); }
   };
 
+  const [delBusy, setDelBusy] = useState(false);
+  const pubCount = assignments.filter(a => a.published !== false).length;
+  const arcCount = assignments.filter(a => a.published === false).length;
+  const deleteAll = async (scope) => {
+    const label = scope === "published" ? `배포된 과제 ${pubCount}개`
+      : scope === "all" ? `모든 과제 ${assignments.length}개 (📦보관함 포함)` : "";
+    if (!confirm(`${label}를 삭제할까요?\n\n※ 되돌릴 수 없어요. 학생 녹음·점수 기록도 함께 끊깁니다.\n먼저 위의 '백업 파일 내려받기'로 백업을 받아두시길 권해요.`)) return;
+    if (scope === "all" && !confirm("정말 보관함 교재 원본까지 전부 삭제할까요?\n이 작업은 되돌릴 수 없어요.")) return;
+    setDelBusy(true); setMsg("");
+    try {
+      const r = await apiPost("/assignments/delete-all", { scope });
+      await reload();
+      setMsg(`${r.deleted}개 과제를 삭제했어요.`);
+    } catch (e) { setMsg("삭제 실패: " + e.message); }
+    setDelBusy(false);
+  };
+
   return (
     <div className="body">
       <a href="/manual.html" target="_blank" rel="noopener" className="card"
@@ -3284,6 +3301,26 @@ function AdminSettings({ students, assignments, reload }) {
         </div>
         <div className="muted" style={{ marginTop:10 }}>현재 학생 {students.length}명 · 과제 {assignments.length}개</div>
         {msg && <div style={{ marginTop:8, fontSize:12, fontWeight:700, color:"var(--navy)" }}>{msg}</div>}
+      </div>
+      <div className="card" style={{ borderColor:"#E8C4BC" }}>
+        <div style={{ fontWeight:700, color:"var(--danger)", marginBottom:6 }}>⚠️ 과제 전체 삭제</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          과제를 한 번에 정리해요. <b>되돌릴 수 없으니</b> 먼저 위에서 <b>백업</b>을 받아두세요.
+          현재 배포된 과제 <b style={{ color:"var(--navy)" }}>{pubCount}개</b> · 📦보관함 <b style={{ color:"var(--navy)" }}>{arcCount}개</b>.
+        </div>
+        <div className="row" style={{ flexWrap:"wrap", gap:8 }}>
+          <button className="btn-ghost" style={{ color:"var(--danger)", borderColor:"#E8C4BC" }}
+            disabled={delBusy || !pubCount} onClick={()=>deleteAll("published")}>
+            {delBusy ? "삭제 중..." : `배포된 과제만 삭제 (${pubCount})`}
+          </button>
+          <button className="btn-ghost" style={{ color:"var(--danger)", borderColor:"#E8C4BC" }}
+            disabled={delBusy || !assignments.length} onClick={()=>deleteAll("all")}>
+            {delBusy ? "삭제 중..." : `보관함 포함 전부 삭제 (${assignments.length})`}
+          </button>
+        </div>
+        <div className="muted" style={{ fontSize:12, marginTop:10 }}>
+          특정 교재 하나만 지우려면 <b>과제관리 → 교재 → 교재 전체 삭제</b>를 쓰세요.
+        </div>
       </div>
       <div className="card">
         <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>학생 접속 주소</div>
