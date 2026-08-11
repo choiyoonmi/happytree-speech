@@ -1757,6 +1757,8 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [panel, setPanel] = useState(null);   // 'shift' | 'respread' | null
   const [days, setDays] = useState(7);
   const [fromDate, setFromDate] = useState("");
+  const [shiftKeep, setShiftKeep] = useState(true);   // 요일 패턴 유지하며 미루기
+  const [sessions, setSessions] = useState(1);        // 요일 유지 시 몇 회분
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
   const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
   const [assignMode, setAssignMode] = useState("all");   // 사본 배정 대상
@@ -1951,13 +1953,24 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     ? list.filter(a => a.dueDate && a.dueDate >= fromDate)
     : list;
 
+  // 대상들이 현재 놓인 요일 패턴 (예: 화·목·금)
+  const shiftPatternDays = [...new Set(shiftTargets.filter(a=>a.dueDate)
+    .map(a => new Date(a.dueDate + "T00:00:00").getDay()))].sort();
+  const shiftPatternLabel = shiftPatternDays.map(d => DAYNAMES[d]).join("·");
+
   const doShift = async () => {
-    if (!days) return setErr("미룰 일수를 입력해주세요.");
     if (!shiftTargets.length) return setErr("해당하는 과제가 없어요.");
     setBusy(true); setErr("");
     try {
-      await apiPost("/assignments/reschedule",
-        { mode:"shift", ids: shiftTargets.map(a=>a.id), days: Number(days) });
+      if (shiftKeep) {
+        if (!Number(sessions)) { setBusy(false); return setErr("미룰 횟수를 입력해주세요."); }
+        await apiPost("/assignments/reschedule",
+          { mode:"shift_sessions", ids: shiftTargets.map(a=>a.id), sessions: Number(sessions) });
+      } else {
+        if (!Number(days)) { setBusy(false); return setErr("미룰 일수를 입력해주세요."); }
+        await apiPost("/assignments/reschedule",
+          { mode:"shift", ids: shiftTargets.map(a=>a.id), days: Number(days) });
+      }
       await reload(); setPanel(null);
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -2383,25 +2396,54 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
           </div>
           <label className="label">이 날짜부터 (비우면 교재 전체)</label>
           <input className="field" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} />
-          <div style={{height:10}} />
-          <label className="label">며칠 미룰까요</label>
-          <div className="row" style={{ gap:6, marginBottom:8 }}>
-            {[1,2,3,7,14].map(n => (
-              <button key={n} onClick={()=>setDays(n)}
-                style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
-                  background: days===n ? "var(--navy)" : "#fff", color: days===n ? "var(--cream)" : "var(--navy)" }}>
-                {n}일
-              </button>
-            ))}
+          <div style={{height:12}} />
+          <label className="label">미루는 방식</label>
+          <div className="seg" style={{ marginTop:0 }}>
+            <button className={shiftKeep ? "on" : ""} onClick={()=>setShiftKeep(true)}>요일 유지 (추천)</button>
+            <button className={!shiftKeep ? "on" : ""} onClick={()=>setShiftKeep(false)}>날짜로 미루기</button>
           </div>
-          <input className="field" type="number" value={days} onChange={e=>setDays(e.target.value)} />
+
+          {shiftKeep ? <>
+            <label className="label" style={{ marginTop:12 }}>
+              몇 회분 미룰까요 {shiftPatternLabel && <span className="muted" style={{ fontWeight:400 }}>· 지금 {shiftPatternLabel} 요일 유지</span>}
+            </label>
+            <div className="row" style={{ gap:6, marginBottom:8 }}>
+              {[1,2,3,4].map(n => (
+                <button key={n} onClick={()=>setSessions(n)}
+                  style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: Number(sessions)===n ? "var(--navy)" : "#fff", color: Number(sessions)===n ? "var(--cream)" : "var(--navy)" }}>
+                  {n}회분
+                </button>
+              ))}
+            </div>
+            <input className="field" type="number" min={1} value={sessions} onChange={e=>setSessions(e.target.value)} />
+            <div className="muted" style={{ fontSize:12, marginTop:6 }}>
+              각 과제를 {shiftPatternLabel || "수업"} 다음 수업일로 {sessions}칸씩 미뤄, 요일은 그대로 유지돼요.
+            </div>
+          </> : <>
+            <label className="label" style={{ marginTop:12 }}>며칠 미룰까요</label>
+            <div className="row" style={{ gap:6, marginBottom:8 }}>
+              {[1,2,3,7,14].map(n => (
+                <button key={n} onClick={()=>setDays(n)}
+                  style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: Number(days)===n ? "var(--navy)" : "#fff", color: Number(days)===n ? "var(--cream)" : "var(--navy)" }}>
+                  {n}일
+                </button>
+              ))}
+            </div>
+            <input className="field" type="number" value={days} onChange={e=>setDays(e.target.value)} />
+            <div className="muted" style={{ fontSize:12, marginTop:6 }}>날짜를 그대로 더해요(요일이 바뀔 수 있어요).</div>
+          </>}
+
           <div className="muted" style={{ marginTop:8 }}>
             대상 <b style={{color:"var(--navy)"}}>{shiftTargets.length}개</b> 과제
           </div>
           {err && <div className="err">{err}</div>}
           <div style={{height:12}} />
           <button className="btn full" onClick={doShift} disabled={busy}>
-            {busy ? "적용 중..." : `${shiftTargets.length}개 과제를 ${days}일 미루기`}
+            {busy ? "적용 중..." : (shiftKeep
+              ? `${shiftTargets.length}개 과제를 ${sessions}회분 미루기 (${shiftPatternLabel || "요일"} 유지)`
+              : `${shiftTargets.length}개 과제를 ${days}일 미루기`)}
           </button>
         </div>
       )}

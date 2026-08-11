@@ -490,6 +490,7 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
 def reschedule(payload: dict = Body(...)):
     """일정 일괄 조정.
     mode='shift'  : ids 목록의 마감일을 days 만큼 뒤로 미룸
+    mode='shift_sessions': ids의 요일 패턴(예: 화·목·금)을 유지하며 sessions 회분만큼 뒤로 미룸
     mode='respread': ids 목록을 startDate 부터 weekdays 요일에 다시 배치
     """
     from datetime import date, timedelta
@@ -516,6 +517,26 @@ def reschedule(payload: dict = Body(...)):
             for a in targets:
                 if a.get("dueDate"):
                     a["dueDate"] = (parse(a["dueDate"]) + timedelta(days=days)).isoformat()
+
+        elif mode == "shift_sessions":
+            # 요일 패턴 유지: 대상들의 현재 요일 집합을 패턴으로 삼아, 각 과제를 그 패턴에서 N칸 뒤로.
+            n = int(payload.get("sessions") or 0)
+            if not n:
+                raise HTTPException(400, "미룰 횟수를 입력해주세요.")
+            dated = [a for a in targets if a.get("dueDate")]
+            pattern = {parse(a["dueDate"]).weekday() for a in dated}   # python 월=0..일=6
+            if not pattern:
+                pattern = set(range(7))
+            for a in dated:
+                d = parse(a["dueDate"])
+                cnt = 0
+                guard = 0
+                while cnt < n and guard < 800:
+                    d = d + timedelta(days=1)
+                    if d.weekday() in pattern:
+                        cnt += 1
+                    guard += 1
+                a["dueDate"] = d.isoformat()
 
         elif mode == "respread":
             start = payload.get("startDate")
