@@ -1743,6 +1743,8 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [assignClasses, setAssignClasses] = useState([]);
   const [assignIds, setAssignIds] = useState([]);
   const [assignDue, setAssignDue] = useState(true);      // 마감일 자동 배치 여부
+  const [assignFromIdx, setAssignFromIdx] = useState(0);       // 배정 시작 Day(목록 인덱스)
+  const [assignToIdx, setAssignToIdx] = useState(null);        // 배정 끝 Day(null=마지막)
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
   const [editRounds, setEditRounds] = useState(3);
@@ -1985,6 +1987,12 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   // 보관 원본은 그대로 두고, 이 교재 전체를 '사본'으로 만들어 학생에게 배정한다.
   const doAssignCopy = async () => {
     if (!list.length) return setErr("과제가 없어요.");
+    // 시작~끝 Day 범위만 잘라서 배정 (중간 Day부터 낼 수 있음)
+    const from = Math.max(0, Math.min(assignFromIdx, list.length - 1));
+    const to = (assignToIdx == null) ? list.length - 1 : Math.max(0, Math.min(assignToIdx, list.length - 1));
+    if (from > to) return setErr("시작 Day가 끝 Day보다 뒤예요. 범위를 다시 골라주세요.");
+    const chosen = list.slice(from, to + 1);
+    if (!chosen.length) return setErr("배정할 Day를 골라주세요.");
     let assignedIds = [], assignedClasses = [];
     if (assignMode === "class") {
       if (!assignClasses.length) return setErr("반을 선택해주세요.");
@@ -1999,13 +2007,13 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     if (assignDue && weekdays.length) {
       const [y,m,d] = startDate.split("-").map(Number);
       let cur = new Date(y, m-1, d), guard = 0;
-      while (dues.length < list.length && guard < 800) {
+      while (dues.length < chosen.length && guard < 800) {
         if (weekdays.includes(cur.getDay()))
           dues.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
         cur.setDate(cur.getDate()+1); guard++;
       }
     }
-    const payload = list.map((a, i) => ({
+    const payload = chosen.map((a, i) => ({
       title: a.title, book: a.book || book, type: a.type || "word",
       items: a.items || [], meanings: a.meanings || [],
       rounds: a.rounds || 3,
@@ -2054,14 +2062,38 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       </div>
       <div className="row" style={{ gap:6, marginBottom:12 }}>
         <button className={panel==="assign" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setErr(""); }}>📤 이 교재로 과제 내기 (원본 보관 유지)</button>
+          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setAssignFromIdx(0); setAssignToIdx(null); setErr(""); }}>📤 이 교재로 과제 내기 (원본 보관 유지)</button>
       </div>
       {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
 
       {panel === "assign" && (
         <div className="card" style={{ background:"var(--cream)" }}>
-          <div className="muted" style={{ marginBottom:10 }}>
-            보관함 원본은 그대로 두고, 이 교재 전체({list.length}개)를 사본으로 만들어 학생에게 배정해요.
+          {(() => {
+            const toVal = (assignToIdx == null) ? list.length - 1 : Math.min(assignToIdx, list.length - 1);
+            const cnt = Math.max(0, toVal - Math.min(assignFromIdx, list.length - 1) + 1);
+            return (
+              <div className="muted" style={{ marginBottom:10 }}>
+                보관함 원본은 그대로 두고, 아래에서 고른 <b style={{ color:"var(--navy)" }}>{cnt}개</b> Day를 사본으로 만들어 학생에게 배정해요. (원본 {list.length}개는 그대로)
+              </div>
+            );
+          })()}
+          <label className="label">배정할 Day 범위 <span className="muted" style={{ fontWeight:400 }}>(중간 Day부터도 가능)</span></label>
+          <div className="row" style={{ gap:8, alignItems:"center", marginBottom:4 }}>
+            <select className="field" style={{ flex:1, margin:0 }} value={assignFromIdx}
+              onChange={e=>{ const v=Number(e.target.value); setAssignFromIdx(v);
+                if (assignToIdx != null && assignToIdx < v) setAssignToIdx(v); }}>
+              {list.map((a,i)=>(<option key={i} value={i}>{a.title}</option>))}
+            </select>
+            <span style={{ fontWeight:700, color:"var(--navy)" }}>~</span>
+            <select className="field" style={{ flex:1, margin:0 }}
+              value={assignToIdx == null ? list.length - 1 : assignToIdx}
+              onChange={e=>setAssignToIdx(Number(e.target.value))}>
+              {list.map((a,i)=>(<option key={i} value={i} disabled={i < assignFromIdx}>{a.title}</option>))}
+            </select>
+          </div>
+          <div className="row" style={{ gap:6, marginBottom:10 }}>
+            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 10px" }}
+              onClick={()=>{ setAssignFromIdx(0); setAssignToIdx(null); }}>전체</button>
           </div>
           <label className="label">배정 대상</label>
           <div className="seg" style={{ marginTop:0 }}>
