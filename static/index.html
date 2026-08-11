@@ -1725,7 +1725,9 @@ function AssignmentBrowser({ students, assignments, reload }) {
   const list = [...(byBook[book] || [])].sort((x,y) => {
     const dx = dayNum(x.title), dy = dayNum(y.title);
     if (dx != null && dy != null && dx !== dy) return dx - dy;   // Day 1 → 마지막 Day
-    return (x.dueDate||"").localeCompare(y.dueDate||"");          // Day 번호 없으면 마감일 순
+    const dd = (x.dueDate||"").localeCompare(y.dueDate||"");      // Day 번호 없으면 마감일 순
+    if (dd !== 0) return dd;
+    return (x.title||"").localeCompare(y.title||"");             // (1/2) → (2/2) 순서 유지
   });
 
   return <BookDetail book={book} group={group} list={list} reload={reload} students={students}
@@ -1745,6 +1747,8 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [assignDue, setAssignDue] = useState(true);      // 마감일 자동 배치 여부
   const [assignFromIdx, setAssignFromIdx] = useState(0);       // 배정 시작 Day(목록 인덱스)
   const [assignToIdx, setAssignToIdx] = useState(null);        // 배정 끝 Day(null=마지막)
+  const [splitting, setSplitting] = useState(null);           // 둘로 나누는 과제 id
+  const [splitAt, setSplitAt] = useState(1);                  // 앞쪽에 넣을 단어 개수
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
   const [editRounds, setEditRounds] = useState(3);
@@ -1961,6 +1965,37 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
         body: JSON.stringify(body)
       });
       await reload(); setEditing(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  // 과제 하나를 앞/뒤 둘로 나누기 (단어가 많을 때). 원본=앞쪽, 새 과제=뒤쪽.
+  const baseTitle = (t) => (t || "").replace(/\s*\((?:앞|뒤|\d+\s*\/\s*\d+)\)\s*$/, "").trim();
+  const openSplit = (a) => {
+    setSplitting(a.id);
+    setSplitAt(Math.max(1, Math.ceil((a.items || []).length / 2)));
+    setErr("");
+  };
+  const doSplit = async (a) => {
+    const items = a.items || [], meanings = a.meanings || [], ea = a.exampleAudio || [];
+    const n = items.length;
+    if (n < 2) { setSplitting(null); return setErr("단어가 2개 이상일 때만 나눌 수 있어요."); }
+    const at = Math.max(1, Math.min(splitAt, n - 1));
+    const base = baseTitle(a.title) || a.title;
+    if (!confirm(`"${a.title}"을(를) 둘로 나눌까요?\n\n앞 ${at}개 → "${base} (1/2)"\n뒤 ${n - at}개 → "${base} (2/2)"\n\n※ 이미 제출된 녹음이 있으면, 뒤쪽으로 옮겨가는 단어의 녹음은 새 과제로 옮겨지지 않아요. 되도록 녹음 전에 나눠 주세요.`)) return;
+    setBusy(true); setErr("");
+    try {
+      await fetch("/api/assignments/" + a.id, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: base + " (1/2)", items: items.slice(0, at), meanings: meanings.slice(0, at), exampleAudio: ea.slice(0, at) })
+      });
+      await apiPost("/assignments", {
+        title: base + " (2/2)", book: a.book || book, type: a.type || "word",
+        items: items.slice(at), meanings: meanings.slice(at), exampleAudio: ea.slice(at),
+        rounds: a.rounds || 3, dueDate: a.dueDate || null,
+        assignedIds: a.assignedIds || [], assignedClasses: a.assignedClasses || [], published: a.published !== false,
+      });
+      await reload(); setSplitting(null);
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -2297,6 +2332,9 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
               <button onClick={()=>delOne(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
               <button onClick={()=>setAudioAsg(audioAsg===a.id ? null : a.id)} title="발음/음가 음원 관리"
                 style={{ background:"none", fontSize:16 }}>🎵</button>
+              <button onClick={()=>{ splitting===a.id ? setSplitting(null) : openSplit(a); setAudioAsg(null); }}
+                title="단어가 많으면 둘로 나누기" disabled={(a.items||[]).length < 2}
+                style={{ background:"none", fontSize:16, opacity:(a.items||[]).length<2 ? 0.35 : 1 }}>✂️</button>
             </div>
           </div>
 
@@ -2327,6 +2365,26 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
               })}
             </div>
           )}
+
+          {splitting === a.id && (() => {
+            const n = (a.items || []).length;
+            const at = Math.max(1, Math.min(splitAt, n - 1));
+            const base = baseTitle(a.title) || a.title;
+            return (
+              <div style={{ marginTop:10, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+                <div className="muted" style={{ marginBottom:8 }}>단어가 많은 Day를 <b>앞·뒤 둘</b>로 나눠요. 원본이 앞쪽(1/2), 새 과제가 뒤쪽(2/2)이 되고 마감·회차·배정은 그대로 복사돼요.</div>
+                <label className="label">앞쪽에 넣을 단어 개수: <b style={{ color:"var(--navy)" }}>{at}</b>개 <span className="muted">/ 뒤 {n-at}개</span></label>
+                <input type="range" min={1} max={n-1} value={at}
+                  onChange={e=>setSplitAt(Number(e.target.value))} style={{ width:"100%" }} />
+                <div className="muted" style={{ fontSize:12, margin:"6px 0" }}>앞: "{base} (1/2)" · 뒤: "{base} (2/2)"</div>
+                <div className="row" style={{ gap:6, marginTop:6 }}>
+                  <button className="btn" style={{ flex:1 }} disabled={busy} onClick={()=>doSplit(a)}>{busy ? "나누는 중..." : "✂️ 둘로 나누기"}</button>
+                  <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setSplitting(null)}>취소</button>
+                </div>
+                {err && <div className="err" style={{ marginTop:8 }}>{err}</div>}
+              </div>
+            );
+          })()}
         </div>
       ))}
     </>

@@ -322,6 +322,7 @@ def add_assignment(payload: dict = Body(...)):
             "rounds": max(1, min(3, int(payload.get("rounds") or 3))),
             "assignedIds": payload.get("assignedIds", []),
             "assignedClasses": payload.get("assignedClasses", []),
+            "exampleAudio": payload.get("exampleAudio", []),
             "published": bool(payload.get("published", True)),
         }
         if not a["title"] or not a["items"]:
@@ -365,6 +366,7 @@ def add_assignments_bulk(payload: dict = Body(...)):
                 "rounds": max(1, min(3, int(p.get("rounds") or 3))),
                 "assignedIds": p.get("assignedIds", []),
                 "assignedClasses": p.get("assignedClasses", []),
+                "exampleAudio": p.get("exampleAudio", []),
                 "published": bool(p.get("published", True)),
             }
             db["assignments"].insert(0, a)
@@ -441,7 +443,7 @@ def delete_assignments(payload: dict = Body(...)):
 @app.patch("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: str, payload: dict = Body(...)):
     """과제 하나 수정 (마감일, 제목, 녹음 횟수, 배정 대상 등)."""
-    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings"}
+    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio"}
     with _lock:
         db = load_db()
         for a in db["assignments"]:
@@ -455,7 +457,7 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
                         a[k] = v or None
                     elif k == "published":
                         a[k] = bool(v)
-                    elif k in ("assignedIds", "assignedClasses", "items", "meanings"):
+                    elif k in ("assignedIds", "assignedClasses", "items", "meanings", "exampleAudio"):
                         a[k] = v if isinstance(v, list) else []
                     else:
                         a[k] = str(v).strip()
