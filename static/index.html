@@ -1751,6 +1751,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [splitAt, setSplitAt] = useState(1);                  // 앞쪽에 넣을 단어 개수
   const [splitAllMode, setSplitAllMode] = useState("half");   // 교재 전체 나누기 기준: half | fixed
   const [splitAllN, setSplitAllN] = useState(10);             // fixed일 때 앞쪽 개수
+  const [splitAllReschedule, setSplitAllReschedule] = useState(true); // 나눈 뒤 하루에 하나씩 다시 배치
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
   const [editRounds, setEditRounds] = useState(3);
@@ -2009,27 +2010,60 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     (splitAllMode === "half" || (a.items || []).length > splitAllN));
   const doSplitAll = async () => {
     if (!splitAllTargets.length) return setErr("나눌 수 있는 Day가 없어요. (단어 2개 이상, 아직 안 나뉜 Day만 대상)");
-    if (!confirm(`이 교재의 ${splitAllTargets.length}개 Day를 각각 앞·뒤 둘로 나눌까요?\n각 Day가 "(1/2)"와 "(2/2)"로 바뀌어요.\n\n※ 이미 제출된 녹음이 있으면, 뒤쪽으로 옮겨가는 단어의 녹음은 새 과제로 옮겨지지 않아요. 되도록 녹음 전에 나눠 주세요.`)) return;
+    const targetSet = new Set(splitAllTargets.map(a => a.id));
+    // 하루에 하나씩 배치할 경우, 교재 전체(순서대로) 각 조각에 필요한 날짜 개수 미리 계산
+    const slots = splitAllReschedule
+      ? list.reduce((s, a) => s + (targetSet.has(a.id) ? 2 : 1), 0) : 0;
+    let dates = [];
+    if (splitAllReschedule) {
+      if (!weekdays.length) return setErr("배치할 요일을 하나 이상 선택해주세요.");
+      const [y, m, d] = startDate.split("-").map(Number);
+      let cur = new Date(y, m - 1, d), guard = 0;
+      while (dates.length < slots && guard < 2000) {
+        if (weekdays.includes(cur.getDay()))
+          dates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
+        cur.setDate(cur.getDate() + 1); guard++;
+      }
+    }
+    const msg = splitAllReschedule
+      ? `이 교재를 ${splitAllTargets.length}개 Day → 총 ${splitAllTargets.length*2}개로 나누고,\n${startDate}부터 선택한 요일에 하루에 하나씩 배치할까요?`
+      : `이 교재의 ${splitAllTargets.length}개 Day를 각각 앞·뒤 둘로 나눌까요?`;
+    if (!confirm(`${msg}\n\n※ 이미 제출된 녹음이 있으면, 뒤쪽으로 옮겨가는 단어의 녹음은 새 과제로 옮겨지지 않아요. 되도록 녹음 전에 나눠 주세요.`)) return;
     setBusy(true); setErr("");
     try {
-      for (const a of splitAllTargets) {
-        const items = a.items || [], meanings = a.meanings || [], ea = a.exampleAudio || [];
-        const n = items.length;
-        const at = splitAllMode === "half" ? Math.ceil(n / 2) : Math.max(1, Math.min(splitAllN, n - 1));
-        const base = baseTitle(a.title) || a.title;
-        await fetch("/api/assignments/" + a.id, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: base + " (1/2)", items: items.slice(0, at), meanings: meanings.slice(0, at), exampleAudio: ea.slice(0, at) })
-        });
-        await apiPost("/assignments", {
-          title: base + " (2/2)", book: a.book || book, type: a.type || "word",
-          items: items.slice(at), meanings: meanings.slice(at), exampleAudio: ea.slice(at),
-          rounds: a.rounds || 3, dueDate: a.dueDate || null,
-          assignedIds: a.assignedIds || [], assignedClasses: a.assignedClasses || [], published: a.published !== false,
-        });
+      let di = 0;
+      // list(정렬된 교재 전체) 순서대로 처리 → 날짜가 Day1(1/2)·Day1(2/2)·Day2(1/2)… 순으로 매겨짐
+      for (const a of list) {
+        if (targetSet.has(a.id)) {
+          const items = a.items || [], meanings = a.meanings || [], ea = a.exampleAudio || [];
+          const n = items.length;
+          const at = splitAllMode === "half" ? Math.ceil(n / 2) : Math.max(1, Math.min(splitAllN, n - 1));
+          const base = baseTitle(a.title) || a.title;
+          const due1 = splitAllReschedule ? (dates[di++] || null) : (a.dueDate || null);
+          const due2 = splitAllReschedule ? (dates[di++] || null) : (a.dueDate || null);
+          await fetch("/api/assignments/" + a.id, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: base + " (1/2)", items: items.slice(0, at), meanings: meanings.slice(0, at), exampleAudio: ea.slice(0, at), dueDate: due1 })
+          });
+          await apiPost("/assignments", {
+            title: base + " (2/2)", book: a.book || book, type: a.type || "word",
+            items: items.slice(at), meanings: meanings.slice(at), exampleAudio: ea.slice(at),
+            rounds: a.rounds || 3, dueDate: due2,
+            assignedIds: a.assignedIds || [], assignedClasses: a.assignedClasses || [], published: a.published !== false,
+          });
+        } else if (splitAllReschedule) {
+          // 나누지 않는 Day도 하루에 하나씩 순서에 맞춰 날짜만 재배치
+          const due = dates[di++] || a.dueDate || null;
+          await fetch("/api/assignments/" + a.id, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dueDate: due })
+          });
+        }
       }
       await reload(); setPanel(null);
-      alert(`${splitAllTargets.length}개 Day를 각각 둘로 나눴어요!`);
+      alert(splitAllReschedule
+        ? `${splitAllTargets.length}개 Day를 나누고 하루에 하나씩 배치했어요!`
+        : `${splitAllTargets.length}개 Day를 각각 둘로 나눴어요!`);
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -2161,7 +2195,23 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
           <div className="muted" style={{ fontSize:13, margin:"10px 0" }}>
             나눌 대상: <b style={{ color:"var(--navy)" }}>{splitAllTargets.length}개 Day</b> → 나누면 총 {splitAllTargets.length*2}개가 돼요.
           </div>
-          <div className="row" style={{ gap:6 }}>
+          <label className="label" style={{ marginTop:4 }}>
+            <input type="checkbox" checked={splitAllReschedule} onChange={e=>setSplitAllReschedule(e.target.checked)} /> 나눈 뒤 <b>하루에 하나씩</b> 다시 배치 (조각마다 다른 날, 학생이 하루 하나씩 학습)
+          </label>
+          {splitAllReschedule && <>
+            <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+            <div className="row" style={{ gap:5, marginTop:8 }}>
+              {DAYNAMES.map((n,i) => (
+                <button key={i} onClick={()=>toggle(i)}
+                  style={{ width:38, height:38, borderRadius:"50%", fontSize:13, fontWeight:700, border:"1px solid var(--navy)",
+                    background: weekdays.includes(i) ? "var(--navy)" : "#fff", color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
+              ))}
+            </div>
+            <div className="muted" style={{ fontSize:12, marginTop:6 }}>
+              {startDate}부터 선택 요일에 하나씩 → 총 {list.reduce((s,a)=> s + (splitAllTargets.some(t=>t.id===a.id) ? 2 : 1), 0)}개를 하루에 하나씩 배치해요.
+            </div>
+          </>}
+          <div className="row" style={{ gap:6, marginTop:12 }}>
             <button className="btn" style={{ flex:1 }} disabled={busy || !splitAllTargets.length}
               onClick={doSplitAll}>{busy ? "나누는 중... (조금 걸려요)" : "✂️ 전체 둘로 나누기"}</button>
             <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setPanel(null)}>취소</button>
