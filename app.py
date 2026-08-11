@@ -1415,7 +1415,8 @@ async def parse_book(file: UploadFile = File(...)):
         raise HTTPException(400, "빈 파일이에요.")
     files = {"file": (file.filename or "book.pdf", raw, file.content_type or "application/octet-stream")}
     try:
-        r = await _post_to_generator(VOCAB_PARSE_URL, files=files)
+        # AI 파싱은 유닛이 많으면 4~5분까지 걸려서 넉넉히 대기
+        r = await _post_to_generator(VOCAB_PARSE_URL, files=files, read_timeout=300.0)
     except httpx.TimeoutException:
         raise HTTPException(504, "AI 분석이 시간 안에 끝나지 않았어요. 유닛이 많은 파일이면 나눠서 올리거나, '엑셀·PDF 올리기(빠름)'를 이용해보세요.")
     except httpx.HTTPError as e:

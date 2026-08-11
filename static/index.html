@@ -985,6 +985,8 @@ function BulkUpload({ students, reload, onClose }) {
   const [busy, setBusy] = useState(false);
   const [trBusy, setTrBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiSecs, setAiSecs] = useState(0);
+  const aiTimer = useRef(null);
 
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
   const DAYNAMES = ["일","월","화","수","목","금","토"];
@@ -1097,6 +1099,9 @@ function BulkUpload({ students, reload, onClose }) {
   const aiRead = async (file) => {
     if (!file) return;
     setErr(""); setRows(null); setAiBusy(true);
+    setAiSecs(0);
+    if (aiTimer.current) clearInterval(aiTimer.current);
+    aiTimer.current = setInterval(() => setAiSecs(s => s + 1), 1000);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -1119,6 +1124,7 @@ function BulkUpload({ students, reload, onClose }) {
       setStartDay(dd.length ? Math.min(...dd) : 1);
       if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
     } catch (e) { setErr("AI 분석 실패: " + e.message + " (생성기 서버가 자는 중이면 잠시 후 다시)"); }
+    if (aiTimer.current) { clearInterval(aiTimer.current); aiTimer.current = null; }
     setAiBusy(false);
   };
 
@@ -1255,7 +1261,7 @@ function BulkUpload({ students, reload, onClose }) {
           onChange={e=>{ const f=e.target.files[0]; if(f) readFile(f); e.target.value=""; }} />
       </label>
       <label className="btn-ghost full" style={{ display:"block", textAlign:"center", cursor:"pointer", marginTop:8, opacity: aiBusy?0.6:1 }}>
-        {aiBusy ? "🤖 AI가 읽는 중... (수십 초)" : "🤖 AI로 정확히 읽기 (여러 단·복잡한 표)"}
+        {aiBusy ? `🤖 AI가 읽는 중... ${aiSecs}초 (유닛 많으면 최대 5분, 화면 닫지 마세요)` : "🤖 AI로 정확히 읽기 (여러 단·복잡한 표)"}
         <input type="file" accept=".xlsx,.xls,.pdf,application/pdf" style={{display:"none"}} disabled={aiBusy}
           onChange={e=>{ const f=e.target.files[0]; if(f) aiRead(f); e.target.value=""; }} />
       </label>
