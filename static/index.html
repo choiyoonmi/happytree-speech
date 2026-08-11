@@ -1838,6 +1838,31 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     await reload();
   };
 
+  // 교재 이름 바꾸기: book 필드와 각 Day 제목 속 교재명을 함께 교체
+  const renameBook = async () => {
+    const nv = prompt("새 교재 이름을 입력하세요.", book);
+    if (nv == null) return;
+    const nn = nv.trim();
+    if (!nn) return setErr("이름을 입력해주세요.");
+    if (nn === book) return;
+    setBusy(true); setErr("");
+    try {
+      await Promise.all(list.map(a => {
+        const body = {};
+        if (a.book) body.book = nn;                                   // book 필드 교체
+        if (a.title && a.title.includes(book)) body.title = a.title.split(book).join(nn); // 제목 속 교재명 교체
+        if (!Object.keys(body).length) return Promise.resolve();
+        return fetch("/api/assignments/" + a.id, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+      }));
+      await reload();
+      onBack();   // 바뀐 이름으로 다시 보도록 교재 목록으로
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
   // 이 교재의 과제 단어(items+meanings)로 단어시험지 PDF를 만든다.
   // 낭독 앱 백엔드(/api/vocab-test)가 시험지 생성기를 대신 호출하므로 CORS가 필요 없다.
   const makeVocabTest = async () => {
@@ -2161,7 +2186,10 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
         ‹ {group} 교재 목록으로
       </button>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8 }}>
-        <div style={{ fontWeight:800, fontSize:16, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📗 {book}</div>
+        <button onClick={renameBook} title="교재 이름 바꾸기"
+          style={{ background:"none", padding:0, fontWeight:800, fontSize:16, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"left", color:"var(--navy)" }}>
+          📗 {book} <span style={{ color:"var(--gold)", fontSize:14 }}>✏️</span>
+        </button>
         <div className="row" style={{ gap:6, flexShrink:0 }}>
           <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px" }}
             onClick={cleanDupes} disabled={dupBusy}>{dupBusy ? "검사 중..." : "🧹 중복 정리"}</button>
