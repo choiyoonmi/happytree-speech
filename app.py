@@ -1393,8 +1393,8 @@ TRANSLATOR_KEY = os.environ.get("AZURE_TRANSLATOR_KEY")
 TRANSLATOR_REGION = os.environ.get("AZURE_TRANSLATOR_REGION", AZURE_REGION)
 
 
-async def translate_text_list(texts):
-    """영어 문자열 목록을 한국어로 번역한다."""
+async def translate_text_list(texts, src="en", dst="ko"):
+    """문자열 목록을 번역한다 (기본 영어→한국어, src/dst로 방향 지정 가능)."""
     texts = [str(t).strip() for t in texts if str(t).strip()]
     if not texts:
         return []
@@ -1419,7 +1419,7 @@ async def translate_text_list(texts):
                 chunk = texts[i:i+100]
                 r = await client.post(
                     url,
-                    params={"api-version": "3.0", "from": "en", "to": "ko"},
+                    params={"api-version": "3.0", "from": src, "to": dst},
                     headers=headers,
                     json=[{"Text": t} for t in chunk],
                 )
@@ -1436,9 +1436,10 @@ async def translate_text_list(texts):
 
 @app.post("/api/translate")
 async def translate(payload: dict = Body(...)):
-    """영어 단어/문장 목록을 한국어로 번역."""
-    out = await translate_text_list(payload.get("texts") or [])
-
+    """목록 번역. 기본 영어→한국어. body에 from/to로 방향 지정(예: 한글뜻→영어는 from=ko,to=en)."""
+    src = str(payload.get("from") or "en")
+    dst = str(payload.get("to") or "ko")
+    out = await translate_text_list(payload.get("texts") or [], src, dst)
     return {"translations": out}
 
 

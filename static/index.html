@@ -987,6 +987,8 @@ function BulkUpload({ students, reload, onClose }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiSecs, setAiSecs] = useState(0);
   const aiTimer = useRef(null);
+  const [needEng, setNeedEng] = useState(false);   // 한글뜻만 있는 파일 → 영어 채워야 함
+  const [engBusy, setEngBusy] = useState(false);
 
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
   const DAYNAMES = ["일","월","화","수","목","금","토"];
@@ -1140,21 +1142,90 @@ function BulkUpload({ students, reload, onClose }) {
     setAiBusy(false);
   };
 
+  // 한글뜻만 있는 파일 → 각 줄(칸)을 '뜻'으로 잡고 영어는 비워서 반환
+  const isHeaderishKor = (t) =>
+    /단어|품사|어휘\s*리스트|능률|voca|class|name|date|번호|의미|^뜻$/i.test(t);
+  const parseKorean = async (file) => {
+    const name = (file.name || "").toLowerCase();
+    let lines = [], label = null;
+    if (name.endsWith(".pdf")) {
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+      for (let p = 1; p <= doc.numPages; p++) {
+        const content = await (await doc.getPage(p)).getTextContent();
+        const byRow = {};
+        content.items.forEach(it => { const y = Math.round(it.transform[5]); (byRow[y] = byRow[y] || []).push(it); });
+        Object.keys(byRow).map(Number).sort((a,b)=>b-a).forEach(y => {
+          const line = byRow[y].sort((a,b)=>a.transform[4]-b.transform[4]).map(i=>i.str).join(" ").replace(/\s+/g," ").trim();
+          if (line) lines.push(line);
+        });
+      }
+    } else {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      for (const sheetName of wb.SheetNames) {
+        const dn = dayNumber(sheetName);
+        if (dn != null) { lines.push("§DAY§" + dn); label = label || detectLabel(sheetName); }
+        XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1 }).forEach(r => {
+          if (!r || !r.length) return;
+          lines.push(r.map(x => String(x ?? "").trim()).filter(Boolean).join(" "));
+        });
+      }
+    }
+    const out = []; let curDay = null;
+    lines.forEach(line => {
+      if (line.startsWith("§DAY§")) { curDay = Number(line.slice(5)); return; }
+      const d = dayNumber(line);
+      if (d != null) { curDay = d; label = label || detectLabel(line); return; }
+      if (isHeaderishKor(line)) return;
+      const s = line.replace(/^\s*\d+\s*[\.\)]?\s*/, "").trim();   // 앞 번호 제거
+      if (!s || !/[가-힣]/.test(s)) return;                        // 한글이 있어야 뜻
+      out.push({ day: curDay, text: "", meaning: s });
+    });
+    return { parsed: out, label };
+  };
+
+  // rows의 빈 영어(text)를 한글 뜻으로부터 번역해 채운다
+  const fillEnglish = async (src) => {
+    const targets = src.map((r,i) => (r.meaning && !r.text) ? i : null).filter(i => i !== null);
+    if (!targets.length) return src;
+    const { translations } = await apiPost("/translate", { texts: targets.map(i => src[i].meaning), from:"ko", to:"en" });
+    const next = src.map(r => ({...r}));
+    targets.forEach((idx,k) => { next[idx].text = (translations[k] || "").trim(); });
+    return next;
+  };
+
   const readFile = async (file) => {
-    setErr(""); setRows(null);
+    setErr(""); setRows(null); setNeedEng(false);
     const name = (file.name || "").toLowerCase();
     try {
       const res = name.endsWith(".pdf") ? await parsePdf(file) : await parseExcel(file);
       // 영어만: 영문자가 들어간 항목만 남김 (머리글·번호·한글전용 줄 제거)
       const parsed = res.parsed.filter(r => /[a-zA-Z]/.test(r.text || ""));
-      if (!parsed.length) return setErr("파일에서 영어 단어를 찾지 못했어요. (엑셀은 A/B열, PDF는 텍스트형인지 확인)");
-      const dayCol = parsed.some(r => r.day != null);
-      setHasDayCol(dayCol);
-      setRows(parsed);
-      if (res.label) setUnitLabel(res.label);
-      const detectedDays = parsed.map(r=>r.day).filter(d=>d != null);
-      setStartDay(detectedDays.length ? Math.min(...detectedDays) : 1);
+      if (parsed.length) {
+        setHasDayCol(parsed.some(r => r.day != null));
+        setRows(parsed);
+        if (res.label) setUnitLabel(res.label);
+        const detectedDays = parsed.map(r=>r.day).filter(d=>d != null);
+        setStartDay(detectedDays.length ? Math.min(...detectedDays) : 1);
+        if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+        return;
+      }
+      // 영어가 하나도 없음 → 한글뜻만 있는 파일로 보고 영어를 자동 생성
+      const kres = await parseKorean(file);
+      if (!kres.parsed.length) return setErr("파일에서 단어를 찾지 못했어요. (엑셀은 A/B열, PDF는 텍스트형인지 확인)");
+      setNeedEng(true);
+      setHasDayCol(kres.parsed.some(r => r.day != null));
+      if (kres.label) setUnitLabel(kres.label);
+      const kd = kres.parsed.map(r=>r.day).filter(d=>d != null);
+      setStartDay(kd.length ? Math.min(...kd) : 1);
       if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+      setRows(kres.parsed);
+      // 영어 자동 채우기
+      setEngBusy(true);
+      try { setRows(await fillEnglish(kres.parsed)); }
+      catch (e) { setErr("영어 자동 채우기 실패: " + e.message + " (번역 키 확인)"); }
+      setEngBusy(false);
     } catch (e) { setErr("파일을 읽는 데 실패했어요. (PDF는 스캔 이미지형이면 텍스트 추출이 안 돼요)"); }
   };
 
@@ -1225,6 +1296,17 @@ function BulkUpload({ students, reload, onClose }) {
         ...g,
         rows: g.rows.map(r => ({...r})),
       }));
+      // 영어(단어)가 비어 있으면 한글 뜻에서 자동 생성
+      const missingEng = [];
+      translatedGroups.forEach((g,gi) => g.rows.forEach((r,ri) => {
+        if (!r.text && r.meaning) missingEng.push({ gi, ri, kor:r.meaning });
+      }));
+      if (missingEng.length) {
+        setEngBusy(true);
+        const te = await apiPost("/translate", { texts:missingEng.map(x=>x.kor), from:"ko", to:"en" });
+        missingEng.forEach((m,k) => { translatedGroups[m.gi].rows[m.ri].text = (te.translations[k] || "").trim(); });
+        setEngBusy(false);
+      }
       const missing = [];
       translatedGroups.forEach((g,gi) => g.rows.forEach((r,ri) => {
         if (!r.meaning) missing.push({ gi, ri, text:r.text });
@@ -1265,6 +1347,7 @@ function BulkUpload({ students, reload, onClose }) {
       <div className="muted" style={{ marginBottom:12 }}>
         엑셀·PDF를 올리면 영어만 뽑아 Day별로 여러 과제를 한 번에 만들어요.
         Day 표시가 있으면 그대로 쓰고, 없으면 정한 개수씩 자동으로 잘라요.
+        <b>한글 뜻만 있는 파일</b>이면 영어를 자동으로 채워줘요.
       </div>
 
       <label className="btn full" style={{ display:"block", textAlign:"center", cursor:"pointer" }}>
@@ -1294,6 +1377,23 @@ function BulkUpload({ students, reload, onClose }) {
               onClick={autoTranslate} disabled={trBusy}>
               {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
             </button>
+            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 8px", marginLeft:6 }}
+              onClick={async()=>{ setEngBusy(true); setErr(""); try { setRows(await fillEnglish(rows)); } catch(e){ setErr("영어 채우기 실패: "+e.message); } setEngBusy(false); }}
+              disabled={engBusy}>
+              {engBusy ? "영어 채우는 중..." : "🔤 영어 자동"}
+            </button>
+            {(needEng || rows.some(r=>!r.text)) && (
+              <div style={{ marginTop:8, padding:"8px 10px", background:"#fff", borderRadius:8, border:"1px solid var(--line)" }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"var(--navy)" }}>
+                  {engBusy ? "🔤 영어를 자동으로 채우는 중..." : "🔤 한글뜻으로 영어를 자동으로 채웠어요"}
+                </div>
+                <div className="muted" style={{ fontSize:11, marginTop:2 }}>자동 번역이라 어색한 게 있으면, 등록 후 과제 카드의 ✏️(단어 목록 수정)에서 고칠 수 있어요.</div>
+                <div style={{ marginTop:6, fontSize:12, color:"var(--navy)", lineHeight:1.7 }}>
+                  {rows.slice(0,8).map((r,i)=>(<div key={i}><b>{r.text || "?"}</b> <span className="muted">— {r.meaning}</span></div>))}
+                  {rows.length>8 && <div className="muted">… 외 {rows.length-8}개</div>}
+                </div>
+              </div>
+            )}
             <div style={{ fontSize:11, color:"var(--navy-soft)", margin:"8px 0 4px", fontWeight:700 }}>{unitLabel}별 단어 수</div>
             <div className="row" style={{ flexWrap:"wrap", gap:5 }}>
               {groups.map(g => {
