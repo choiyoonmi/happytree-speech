@@ -4397,10 +4397,23 @@ function BattleHost({ assignments }) {
 
 // ---------- Root ----------
 function App() {
-  const battleParam = new URLSearchParams(location.search).get("battle") || "";
-  const [role, setRole] = useState(battleParam ? "battle" : null);
+  const params = new URLSearchParams(location.search);
+  const battleParam = params.get("battle") || "";
+  const autoSid = (params.get("sid") || "").trim();
+  const [role, setRole] = useState(battleParam ? "battle" : (autoSid ? "autologin" : null));
   const [student, setStudent] = useState(null);
 
+  // ★ 포털에서 넘어온 학생 아이디로 자동 로그인 (?sid=아이디, 아이디=비번). 실패하면 일반 로그인 화면.
+  useEffect(() => {
+    if (autoSid && role === "autologin") {
+      const pw = params.get("spw") || autoSid;
+      apiPost("/login/student", { id: autoSid, pw })
+        .then(r => { setStudent(r.student); setRole("student"); })
+        .catch(() => setRole(null));
+    }
+  }, []);
+
+  if (role === "autologin") return <div style={{ minHeight: "70vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#7a8a92", fontSize: 15 }}>로그인 중…</div>;
   if (role === "battle") return <BattlePlayer initialCode={battleParam} onExit={()=>setRole(null)} />;
   if (!role) return <Login onStudent={s=>{setStudent(s); setRole("student");}} onAdmin={()=>setRole("admin")} onBattle={()=>setRole("battle")} />;
   if (role === "student") return <StudentView student={student} onLogout={()=>{setRole(null); setStudent(null);}} />;
