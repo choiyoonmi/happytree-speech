@@ -1915,6 +1915,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [assignClasses, setAssignClasses] = useState([]);
   const [assignIds, setAssignIds] = useState([]);
   const [assignDue, setAssignDue] = useState(true);      // 마감일 자동 배치 여부
+  const [assignRepeat, setAssignRepeat] = useState(1);   // 유닛 하나를 며칠 반복할지
   const [assignFromIdx, setAssignFromIdx] = useState(0);       // 배정 시작 Day(목록 인덱스)
   const [assignToIdx, setAssignToIdx] = useState(null);        // 배정 끝 Day(null=마지막)
   const [splitting, setSplitting] = useState(null);           // 둘로 나누는 과제 id
@@ -2321,24 +2322,35 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       if (!assignIds.length) return setErr("학생을 선택해주세요.");
       assignedIds = assignIds;
     }
-    // 마감일: 시작일부터 선택 요일에 하루씩 배치
+    // 유닛 하나를 며칠씩 반복 (예: 5 → Unit1이 5일 연속, 그다음 Unit2가 5일…)
+    const rep = Math.max(1, Number(assignRepeat) || 1);
+    const totalSlots = chosen.length * rep;
+    // 마감일: 시작일부터 선택 요일에 하루씩 배치 (반복 포함 총 개수만큼)
     const dues = [];
     if (assignDue && weekdays.length) {
       const [y,m,d] = startDate.split("-").map(Number);
       let cur = new Date(y, m-1, d), guard = 0;
-      while (dues.length < chosen.length && guard < 800) {
+      while (dues.length < totalSlots && guard < 3000) {
         if (weekdays.includes(cur.getDay()))
           dues.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
         cur.setDate(cur.getDate()+1); guard++;
       }
     }
-    const payload = chosen.map((a, i) => ({
-      title: a.title, book: a.book || book, type: a.type || "word",
-      items: a.items || [], meanings: a.meanings || [],
-      rounds: a.rounds || 3,
-      dueDate: assignDue ? (dues[i] || null) : null,
-      assignedIds, assignedClasses, published: true,
-    }));
+    const payload = [];
+    chosen.forEach((a, ui) => {
+      for (let k = 0; k < rep; k++) {
+        const slot = ui * rep + k;
+        payload.push({
+          title: rep > 1 ? `${a.title} (${k+1}일차)` : a.title,
+          book: a.book || book, type: a.type || "word",
+          items: a.items || [], meanings: a.meanings || [], exampleAudio: a.exampleAudio || [],
+          recordMode: a.recordMode === "whole" ? "whole" : "each",
+          rounds: a.rounds || 3,
+          dueDate: assignDue ? (dues[slot] || null) : null,
+          assignedIds, assignedClasses, published: true,
+        });
+      }
+    });
     setBusy(true); setErr("");
     try {
       const r = await apiPost("/assignments/bulk", { assignments: payload });
@@ -2380,7 +2392,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       </div>
       <div className="row" style={{ gap:6, marginBottom:12 }}>
         <button className={panel==="assign" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setAssignFromIdx(0); setAssignToIdx(null); setErr(""); }}>📤 과제 내기</button>
+          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setAssignFromIdx(0); setAssignToIdx(null); setAssignRepeat(1); setErr(""); }}>📤 과제 내기</button>
         <button className="btn-ghost" style={{ flex:1, fontSize:13 }}
           onClick={makeVocabTest} disabled={testBusy}>
           {testBusy ? "시험지 만드는 중..." : "📝 단어시험지 만들기"}
@@ -2507,12 +2519,32 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
                     background: weekdays.includes(i) ? "var(--navy)" : "#fff", color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
               ))}
             </div>
+            <label className="label" style={{ marginTop:12 }}>유닛 하나를 며칠씩 반복할까요 <span className="muted" style={{ fontWeight:400 }}>(같은 유닛을 연속으로)</span></label>
+            <div className="row" style={{ gap:6, marginBottom:6 }}>
+              {[1,3,5,7].map(n => (
+                <button key={n} onClick={()=>setAssignRepeat(n)}
+                  style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: Number(assignRepeat)===n ? "var(--navy)" : "#fff", color: Number(assignRepeat)===n ? "var(--cream)" : "var(--navy)" }}>
+                  {n===1 ? "반복 안 함" : `${n}일`}
+                </button>
+              ))}
+            </div>
+            <input className="field" type="number" min={1} value={assignRepeat}
+              onChange={e=>setAssignRepeat(Math.max(1, Number(e.target.value)||1))} />
+            {Number(assignRepeat) > 1 && <div className="muted" style={{ fontSize:12, marginTop:4 }}>같은 유닛이 {assignRepeat}일 연속으로 나와요 (제목에 "1일차·2일차…" 표시). 그다음 유닛으로 넘어가요.</div>}
           </>}
           {err && <div className="err">{err}</div>}
           <div style={{height:12}} />
-          <button className="btn full" onClick={doAssignCopy} disabled={busy}>
-            {busy ? "배정 중..." : `${list.length}개 과제로 배정하기`}
-          </button>
+          {(() => {
+            const rep = Math.max(1, Number(assignRepeat) || 1);
+            const toVal = assignToIdx==null ? list.length-1 : Math.min(assignToIdx, list.length-1);
+            const cnt = Math.max(0, toVal - Math.min(assignFromIdx, list.length-1) + 1) * rep;
+            return (
+              <button className="btn full" onClick={doAssignCopy} disabled={busy}>
+                {busy ? "배정 중..." : `${cnt}개 과제로 배정하기`}
+              </button>
+            );
+          })()}
         </div>
       )}
 
