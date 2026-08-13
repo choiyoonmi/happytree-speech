@@ -323,6 +323,7 @@ def add_assignment(payload: dict = Body(...)):
             "assignedIds": payload.get("assignedIds", []),
             "assignedClasses": payload.get("assignedClasses", []),
             "exampleAudio": payload.get("exampleAudio", []),
+            "recordMode": ("whole" if payload.get("recordMode") == "whole" else "each"),
             "published": bool(payload.get("published", True)),
         }
         if not a["title"] or not a["items"]:
@@ -367,6 +368,7 @@ def add_assignments_bulk(payload: dict = Body(...)):
                 "assignedIds": p.get("assignedIds", []),
                 "assignedClasses": p.get("assignedClasses", []),
                 "exampleAudio": p.get("exampleAudio", []),
+                "recordMode": ("whole" if p.get("recordMode") == "whole" else "each"),
                 "published": bool(p.get("published", True)),
             }
             db["assignments"].insert(0, a)
@@ -463,7 +465,7 @@ def delete_assignments(payload: dict = Body(...)):
 @app.patch("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: str, payload: dict = Body(...)):
     """과제 하나 수정 (마감일, 제목, 녹음 횟수, 배정 대상 등)."""
-    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio"}
+    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio", "recordMode"}
     with _lock:
         db = load_db()
         for a in db["assignments"]:
@@ -659,8 +661,12 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
         existing.update(payload)
         if not existing.get("startedAt"):
             existing["startedAt"] = now
-        # 회차 진행 계산
-        rounds_done = _rounds_done(existing.get("items") or [], item_count, rounds_total)
+        # 회차 진행 계산 (전체 한 번에 모드면 whole 배열 기준)
+        if (assignment or {}).get("recordMode") == "whole":
+            whole = existing.get("whole") or []
+            rounds_done = sum(1 for r in range(rounds_total) if r < len(whole) and whole[r])
+        else:
+            rounds_done = _rounds_done(existing.get("items") or [], item_count, rounds_total)
         existing["roundsDone"] = rounds_done
         existing["roundsTotal"] = rounds_total
         newly_submitted = payload.get("status") == "submitted" and prev_status != "submitted"
