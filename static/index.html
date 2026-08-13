@@ -2916,6 +2916,24 @@ function StudentReview({ student, assignments, reload, onBack }) {
     setDelBusy(null);
   };
 
+  const [bookBusy, setBookBusy] = useState(false);
+  const keepOnly = async (book, others) => {
+    const cnt = others.reduce((s,[,n])=>s+n,0);
+    if (!confirm(`${student.name} 학생에게 "${book}"만 남기고,\n나머지 ${others.length}권(과제 ${cnt}개)을 뺄까요?\n\n다른 학생과 공유된 과제는 이 학생만 빠지고, 이 학생 전용 과제는 삭제돼요.`)) return;
+    setBookBusy(true);
+    try { const r = await apiPost(`/students/${student.id}/clean-books`, { keep: book }); if (reload) await reload();
+      alert(`정리 완료! (${r.unassigned}개 배정 해제 · ${r.deleted}개 삭제)`); }
+    catch (e) { alert("정리 실패: " + e.message); }
+    setBookBusy(false);
+  };
+  const removeBook = async (book, n) => {
+    if (!confirm(`${student.name} 학생에게서 "${book}"(과제 ${n}개)을 뺄까요?`)) return;
+    setBookBusy(true);
+    try { await apiPost(`/students/${student.id}/clean-books`, { remove:[book] }); if (reload) await reload(); }
+    catch (e) { alert("정리 실패: " + e.message); }
+    setBookBusy(false);
+  };
+
   useEffect(() => {
     apiGet(`/student-submissions/${student.id}`)
       .then(setSubs).catch(()=>setSubs({})).finally(()=>setLoading(false));
@@ -2957,6 +2975,33 @@ function StudentReview({ student, assignments, reload, onBack }) {
           문장 ({counts.sentence})
         </button>
       </div>
+
+      {(() => {
+        const m = {};
+        mine.forEach(a => { const b = a.book || "(책 없음)"; m[b] = (m[b]||0)+1; });
+        const myBooks = Object.entries(m).sort((x,y)=>y[1]-x[1]);
+        if (myBooks.length < 2) return null;
+        return (
+          <div className="card" style={{ background:"var(--cream)", marginBottom:12 }}>
+            <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:2 }}>📚 이 학생의 교재 {myBooks.length}권</div>
+            <div className="muted" style={{ fontSize:12, marginBottom:8 }}>필요한 책 하나만 두고 나머지는 한 번에 뺄 수 있어요.</div>
+            {myBooks.map(([b,n]) => (
+              <div key={b} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, padding:"6px 0", borderTop:"1px solid var(--line)" }}>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📗 {b}</div>
+                  <div className="muted" style={{ fontSize:11 }}>과제 {n}개</div>
+                </div>
+                <div className="row" style={{ gap:6, flexShrink:0 }}>
+                  <button className="btn" style={{ fontSize:11, padding:"5px 10px" }} disabled={bookBusy}
+                    onClick={()=>keepOnly(b, myBooks.filter(([x])=>x!==b))}>이 책만 남기기</button>
+                  <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }} disabled={bookBusy}
+                    onClick={()=>removeBook(b, n)}>빼기</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {loading && <div className="center"><div className="spin" /></div>}
 
@@ -3511,8 +3556,23 @@ function AdminSettings({ students, assignments, reload }) {
   };
 
   const [delBusy, setDelBusy] = useState(false);
+  const [dupBusy, setDupBusy] = useState(false);
   const pubCount = assignments.filter(a => a.published !== false).length;
   const arcCount = assignments.filter(a => a.published === false).length;
+  const dedupe = async () => {
+    setDupBusy(true); setMsg("");
+    try {
+      const pre = await apiPost("/assignments/dedupe", { dryRun: true });
+      if (!pre.wouldDelete) { setMsg("정리할 중복 과제가 없어요. 👍"); setDupBusy(false); return; }
+      let m = `모든 책에서 중복(같은 책·제목·마감·문항수) 빈 복사본 ${pre.wouldDelete}개를 정리할까요?\n학생 녹음이 있는 과제는 그대로 둬요.`;
+      if (pre.keptConflict) m += `\n(제출이 여러 개인 중복 ${pre.keptConflict}건은 안전하게 그대로 둡니다.)`;
+      if (!confirm(m)) { setDupBusy(false); return; }
+      const r = await apiPost("/assignments/dedupe", {});
+      await reload();
+      setMsg(`중복 ${r.deleted}개를 정리했어요. ✅`);
+    } catch (e) { setMsg("정리 실패: " + e.message); }
+    setDupBusy(false);
+  };
   const deleteAll = async (scope) => {
     const label = scope === "published" ? `배포된 과제 ${pubCount}개`
       : scope === "all" ? `모든 과제 ${assignments.length}개 (📦보관함 포함)` : "";
@@ -3630,6 +3690,20 @@ function AdminSettings({ students, assignments, reload }) {
         </div>
         <div className="muted" style={{ marginTop:10 }}>현재 학생 {students.length}명 · 과제 {assignments.length}개</div>
         {msg && <div style={{ marginTop:8, fontSize:12, fontWeight:700, color:"var(--navy)" }}>{msg}</div>}
+      </div>
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>🧹 중복 과제 정리 (전체)</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          같은 책·제목·마감·문항수로 <b>두 번 이상 등록된 빈 복사본</b>을 모든 책에서 한 번에 정리해요.
+          <b>학생 녹음이 있는 과제는 그대로</b> 두니 안전해요.
+        </div>
+        <button className="btn" onClick={dedupe} disabled={dupBusy}>
+          {dupBusy ? "정리 중..." : "🧹 중복 과제 한 번에 정리"}
+        </button>
+        <div className="muted" style={{ fontSize:12, marginTop:10 }}>
+          같은 책이 <b>이름만 다르게</b> 두 번 있는 경우(예: “Word Up 400” ↔ “Word Up 400_Vocabulary Lists”)는 자동 정리가 안 돼요.
+          안 쓰는 쪽을 <b>과제관리 → 교재 → 교재 전체 삭제</b>로 지워주세요.
+        </div>
       </div>
       <div className="card" style={{ borderColor:"#E8C4BC" }}>
         <div style={{ fontWeight:700, color:"var(--danger)", marginBottom:6 }}>⚠️ 과제 전체 삭제</div>

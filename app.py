@@ -397,6 +397,103 @@ def delete_all_assignments(payload: dict = Body(...)):
     return {"deleted": deleted}
 
 
+def _has_recording(sub) -> bool:
+    """제출 기록에 실제 녹음/제출이 있는지."""
+    if not isinstance(sub, dict):
+        return False
+    if sub.get("status") in ("submitted", "reviewed"):
+        return True
+    for row in (sub.get("items") or []):
+        for t in (row or []):
+            if t:
+                return True
+    for t in (sub.get("whole") or []):
+        if t:
+            return True
+    return False
+
+
+@app.post("/api/assignments/dedupe")
+def dedupe_assignments(payload: dict = Body(...)):
+    """중복 과제(같은 책·제목·마감·문항수) 정리. 학생 녹음이 있는 건 보존하고 빈 복사본만 삭제.
+    dryRun=true면 삭제하지 않고 몇 개 지울지만 알려준다."""
+    dry = bool(payload.get("dryRun"))
+    # 녹음이 있는 과제 id 모으기 (학생 제출 파일 전체 1회 스캔)
+    subbed = set()
+    for sid in all_student_ids():
+        try:
+            data = load_student_subs(sid) or {}
+            for aid, sub in data.items():
+                if aid not in subbed and _has_recording(sub):
+                    subbed.add(aid)
+        except Exception:
+            pass
+    with _lock:
+        db = load_db()
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for a in db["assignments"]:
+            key = (a.get("book", ""), a.get("title", ""), a.get("dueDate") or "", len(a.get("items") or []))
+            groups[key].append(a)
+        to_delete = set()
+        kept_conflict = 0
+        for g in groups.values():
+            if len(g) < 2:
+                continue
+            with_subs = [a for a in g if a["id"] in subbed]
+            if not with_subs:
+                for a in g[1:]:                 # 첫 개만 남기고 삭제
+                    to_delete.add(a["id"])
+            else:
+                for a in g:                     # 빈 복사본만 삭제
+                    if a["id"] not in subbed:
+                        to_delete.add(a["id"])
+                if len(with_subs) > 1:
+                    kept_conflict += 1
+        if dry:
+            return {"wouldDelete": len(to_delete), "keptConflict": kept_conflict}
+        before = len(db["assignments"])
+        db["assignments"] = [a for a in db["assignments"] if a["id"] not in to_delete]
+        save_db(db)
+        deleted = before - len(db["assignments"])
+    return {"deleted": deleted, "keptConflict": kept_conflict}
+
+
+@app.post("/api/students/{sid}/clean-books")
+def clean_student_books(sid: str, payload: dict = Body(...)):
+    """한 학생의 교재 정리.
+    body {keep: '책이름'}  → 그 책만 남기고 이 학생이 받는 나머지 책을 뺌
+    body {remove: ['책1','책2']} → 지정한 책만 뺌
+    이 학생 전용 과제는 삭제, 다른 학생과 공유된 과제는 이 학생만 배정 해제."""
+    keep = payload.get("keep")
+    remove = set(payload.get("remove") or [])
+    if keep is None and not remove:
+        raise HTTPException(400, "keep 또는 remove를 지정해주세요.")
+    unassigned = 0
+    deleted = 0
+    with _lock:
+        db = load_db()
+        remaining = []
+        for a in db["assignments"]:
+            ids = a.get("assignedIds") or []
+            book = a.get("book", "")
+            hit = (sid in ids) and ((keep is not None and book != keep) or (book in remove))
+            if not hit:
+                remaining.append(a)
+                continue
+            classes = a.get("assignedClasses") or []
+            new_ids = [x for x in ids if x != sid]
+            if not new_ids and not classes:
+                deleted += 1            # 이 학생 전용 → 과제 삭제(목록에서 제외)
+            else:
+                a["assignedIds"] = new_ids
+                unassigned += 1
+                remaining.append(a)
+        db["assignments"] = remaining
+        save_db(db)
+    return {"unassigned": unassigned, "deleted": deleted}
+
+
 @app.post("/api/assignments/fill-meanings")
 async def fill_assignment_meanings():
     """기존 과제에서 비어 있는 한글 뜻만 자동 번역해 채운다."""
