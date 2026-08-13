@@ -978,7 +978,7 @@ function BulkUpload({ students, reload, onClose }) {
   const [startDay, setStartDay] = useState(1);
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
   const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
-  const [mode, setMode] = useState("all");
+  const [mode, setMode] = useState("hidden");   // 기본값: 보관함(실수로 전체 배포 방지)
   const [classes, setClasses] = useState([]);
   const [ids, setIds] = useState([]);
   const [err, setErr] = useState("");
@@ -1470,11 +1470,11 @@ function BulkUpload({ students, reload, onClose }) {
           <div style={{height:12}} />
           <label className="label">배정 대상</label>
           <div className="seg" style={{marginTop:0}}>
-            {[["all","전체"],["class","반별"],["individual","개별"],["hidden","보관"]].map(([v,l]) => (
+            {[["hidden","📦 보관함"],["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
               <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
             ))}
           </div>
-          {mode==="hidden" && <div className="muted" style={{ marginTop:8, fontSize:12 }}>📦 보관: 학생에게 안 보이게 저장만 해요. 나중에 과제 카드의 ✏️에서 전체/반별/개별로 배정하세요.</div>}
+          {mode==="hidden" && <div className="muted" style={{ marginTop:8, fontSize:12 }}>📦 기본은 <b>보관함</b>이에요 — 학생에겐 안 보이고 저장만 돼요. <b>지금 바로 특정 학생에게 내려면</b> 위에서 개별(또는 반별)을 고르세요. 나중에 보관함에서 배정해도 됩니다.</div>}
           {mode==="class" && (
             <div className="row" style={{marginTop:10}}>
               {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
@@ -1540,7 +1540,7 @@ function AdminAssignments({ students, assignments, reload, voice }) {
   const [title, setTitle] = useState(""); const [type, setType] = useState("word");
   const [list, setList] = useState(""); const [due, setDue] = useState("");
   const [rounds, setRounds] = useState(3);
-  const [mode, setMode] = useState("all");
+  const [mode, setMode] = useState("hidden");   // 기본값: 보관함(실수로 전체 배포 방지)
   const [classes, setClasses] = useState([]); const [ids, setIds] = useState([]);
   const [err, setErr] = useState(""); const [pdfBusy, setPdfBusy] = useState(false);
   const [trBusy, setTrBusy] = useState(false);
@@ -1718,11 +1718,11 @@ function AdminAssignments({ students, assignments, reload, voice }) {
           <div style={{height:14}} />
           <label className="label">배정 대상</label>
           <div className="seg" style={{marginTop:0}}>
-            {[["all","전체"],["class","반별"],["individual","개별"],["hidden","보관"]].map(([v,l]) => (
+            {[["hidden","📦 보관함"],["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
               <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
             ))}
           </div>
-          {mode==="hidden" && <div className="muted" style={{ marginTop:8, fontSize:12 }}>📦 보관: 학생에게 안 보이게 저장만 해요. 나중에 과제 카드의 ✏️에서 전체/반별/개별로 배정하세요.</div>}
+          {mode==="hidden" && <div className="muted" style={{ marginTop:8, fontSize:12 }}>📦 기본은 <b>보관함</b>이에요 — 학생에겐 안 보이고 저장만 돼요. <b>지금 바로 특정 학생에게 내려면</b> 위에서 개별(또는 반별)을 고르세요. 나중에 보관함에서 배정해도 됩니다.</div>}
           {mode==="class" && (
             <div className="row" style={{marginTop:10}}>
               {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
