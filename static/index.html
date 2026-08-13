@@ -1935,6 +1935,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const classNames = [...new Set((students || []).map(s => s.className).filter(Boolean))];
   const [roundsFrom, setRoundsFrom] = useState("");   // 회차 일괄변경 시작 과제 id ("" = 전체)
   const [newRounds, setNewRounds] = useState(2);
+  const [newRecordMode, setNewRecordMode] = useState("");   // "" 그대로 | each | whole
   const [busy, setBusy] = useState(false);
   const [dupBusy, setDupBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
@@ -2289,12 +2290,14 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     if (!roundsTargets.length) return setErr("해당하는 과제가 없어요.");
     setBusy(true); setErr("");
     try {
-      await Promise.all(roundsTargets.map(a =>
-        fetch("/api/assignments/" + a.id, {
+      await Promise.all(roundsTargets.map(a => {
+        const body = { rounds: newRounds };
+        if (newRecordMode) body.recordMode = newRecordMode;   // 문장 녹음 방식도 함께 일괄 변경
+        return fetch("/api/assignments/" + a.id, {
           method:"PATCH", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ rounds: newRounds })
-        })
-      ));
+          body: JSON.stringify(body)
+        });
+      }));
       await reload(); setPanel(null);
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -2371,7 +2374,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       </div>
       <div className="row" style={{ gap:6, marginBottom:6 }}>
         <button className={panel==="rounds" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setErr(""); }}>🔁 녹음 회차 바꾸기</button>
+          onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setNewRecordMode(""); setErr(""); }}>🔁 녹음 회차·방식 바꾸기</button>
         <button className={panel==="splitall" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="splitall"?null:"splitall"); setSplitAllStartIdx(0); setErr(""); }}>✂️ 교재 전체 나누기</button>
       </div>
@@ -2530,13 +2533,25 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
               <button key={n} className={newRounds===n?"on":""} onClick={()=>setNewRounds(n)}>{n}회</button>
             ))}
           </div>
+          {list.some(a => a.type==="sentence") && <>
+            <div style={{height:10}} />
+            <label className="label">녹음 방식 (문장) — 한꺼번에</label>
+            <div className="seg" style={{ marginTop:0 }}>
+              <button className={newRecordMode===""?"on":""} onClick={()=>setNewRecordMode("")}>그대로</button>
+              <button className={newRecordMode==="each"?"on":""} onClick={()=>setNewRecordMode("each")}>문장별</button>
+              <button className={newRecordMode==="whole"?"on":""} onClick={()=>setNewRecordMode("whole")}>전체 한 번에</button>
+            </div>
+            <div className="muted" style={{ marginTop:4, fontSize:11 }}>
+              {newRecordMode==="" ? "녹음 방식은 그대로 두고 회차만 바꿔요." : newRecordMode==="whole" ? "선택 범위의 문장 과제를 모두 '전체 한 번에'로 바꿔요." : "선택 범위의 문장 과제를 모두 '문장별 녹음'으로 바꿔요."}
+            </div>
+          </>}
           <div className="muted" style={{ marginTop:8 }}>
             대상 <b style={{color:"var(--navy)"}}>{roundsTargets.length}개</b> 과제
           </div>
           {err && <div className="err">{err}</div>}
           <div style={{height:12}} />
           <button className="btn full" onClick={doSetRounds} disabled={busy}>
-            {busy ? "변경 중..." : `${roundsTargets.length}개 과제를 ${newRounds}회로 변경`}
+            {busy ? "변경 중..." : `${roundsTargets.length}개 과제 변경 (${newRounds}회${newRecordMode ? " · " + (newRecordMode==="whole"?"전체 한 번에":"문장별") : ""})`}
           </button>
         </div>
       )}
