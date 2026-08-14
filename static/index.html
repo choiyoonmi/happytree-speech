@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-<title>해피트리 낭독 숙제</title>
+<title>트리톡 · 해피트리 낭독</title>
 <link rel="icon" href="/favicon.ico?v=3" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=3">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=3">
 <link rel="apple-touch-icon" href="/favicon-180.png?v=3">
 <meta name="theme-color" content="#1B2E4C">
-<meta name="apple-mobile-web-app-title" content="해피트리">
+<meta name="apple-mobile-web-app-title" content="트리톡">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -212,8 +212,8 @@ function Login({ onStudent, onAdmin, onBattle }) {
     <div className="wrap" style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
       <div style={{ width:"100%", maxWidth:360 }}>
         <div style={{ textAlign:"center", marginBottom:28 }}>
-          <div style={{ fontSize:26, fontWeight:800, color:"var(--navy)" }}>해피트리 낭독 숙제</div>
-          <div className="muted" style={{ marginTop:6 }}>단어 · 문장 녹음 제출</div>
+          <div style={{ fontSize:32, fontWeight:800, color:"var(--navy)", letterSpacing:"-0.02em" }}>트리톡</div>
+          <div className="muted" style={{ marginTop:6 }}>해피트리 낭독 · 단어 녹음</div>
         </div>
         <div style={{ display:"flex", background:"var(--cream-deep)", borderRadius:12, padding:4, marginBottom:16 }}>
           {[["student","학생"],["admin","선생님"]].map(([m,l]) => (
@@ -3755,7 +3755,7 @@ function AdminView({ onLogout }) {
   return (
     <div className="wrap">
       <div className="hdr">
-        <h1>해피트리 관리자</h1>
+        <h1>트리톡 관리자</h1>
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="tabs">
