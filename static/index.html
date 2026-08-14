@@ -12,6 +12,12 @@
 <meta name="apple-mobile-web-app-title" content="트리톡">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(()=>{}));
+  }
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -101,6 +107,35 @@ const apiPost = (p, body) => api(p, {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {})
 });
 const apiDelete = (p) => api(p, { method: "DELETE" });
+
+// ---- 웹 푸시 ----
+function urlB64ToUint8(base64String) {
+  const pad = "=".repeat((4 - base64String.length % 4) % 4);
+  const b64 = (base64String + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+const pushSupported = () => ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window);
+async function enablePush(studentId) {
+  if (!pushSupported()) throw new Error("이 기기(브라우저)는 알림을 지원하지 않아요. 크롬으로 열거나, 아이폰은 홈 화면에 추가한 뒤 다시 시도해주세요.");
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("알림이 허용되지 않았어요. 브라우저 설정에서 알림을 허용해주세요.");
+  const reg = await navigator.serviceWorker.ready;
+  const { publicKey } = await apiGet("/push/key");
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(publicKey) });
+  await apiPost(`/push/subscribe/${studentId}`, sub.toJSON());
+  return true;
+}
+async function disablePush(studentId) {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { await apiPost(`/push/unsubscribe/${studentId}`, sub.toJSON()); await sub.unsubscribe(); }
+  } catch (e) {}
+}
 // 학생이 학습을 시작하면 실시간 현황판에 알림 (실패해도 무시)
 const pingActivity = (sid, kind, title) => apiPost(`/activity/${sid}`, { kind, title }).catch(()=>{});
 
@@ -407,6 +442,47 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
 }
 
 // ---------- Student ----------
+function PushBell({ studentId }) {
+  const [state, setState] = useState("checking");   // checking | on | off | unsupported
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!pushSupported()) { setState("unsupported"); return; }
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        setState(sub && Notification.permission === "granted" ? "on" : "off");
+      } catch (e) { setState("off"); }
+    })();
+  }, []);
+  const turnOn = async () => {
+    setBusy(true);
+    try { await enablePush(studentId); setState("on"); alert("알림을 켰어요! 🔔 숙제 있는 날 폰으로 알려줄게요."); }
+    catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+  const turnOff = async () => { setBusy(true); try { await disablePush(studentId); setState("off"); } catch (e) {} setBusy(false); };
+  if (state === "checking") return null;
+  if (state === "unsupported") return (
+    <div className="card" style={{ padding:"10px 14px", background:"var(--cream)" }}>
+      <div className="muted" style={{ fontSize:12 }}>🔔 숙제 알림을 받으려면 <b>크롬</b>으로 열거나, 아이폰은 <b>공유 → 홈 화면에 추가</b> 후 그 아이콘으로 들어와 주세요.</div>
+    </div>
+  );
+  return (
+    <div className="card" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"12px 14px" }}>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontWeight:700, fontSize:14 }}>🔔 숙제 알림</div>
+        <div className="muted" style={{ fontSize:12, marginTop:2 }}>
+          {state==="on" ? "켜짐 — 숙제 있는 날 폰으로 알려줘요." : "켜두면 숙제 있는 날 폰으로 알려줘요!"}
+        </div>
+      </div>
+      {state==="on"
+        ? <button className="btn-ghost" style={{ fontSize:12, padding:"7px 12px", flexShrink:0 }} onClick={turnOff} disabled={busy}>{busy?"...":"끄기"}</button>
+        : <button className="btn" style={{ fontSize:13, padding:"8px 14px", flexShrink:0 }} onClick={turnOn} disabled={busy}>{busy?"켜는 중...":"알림 켜기"}</button>}
+    </div>
+  );
+}
+
 function StudentView({ student, onLogout }) {
   const voice = useVoice();
   const [assignments, setAssignments] = useState([]);
@@ -633,6 +709,7 @@ function StudentView({ student, onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="body">
+        <div style={{ marginBottom:12 }}><PushBell studentId={student.id} /></div>
         <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress}
           onOpenRecord={openA} onOpenVocab={setOpenVocab} />
       </div>
@@ -3557,6 +3634,16 @@ function AdminSettings({ students, assignments, reload }) {
 
   const [delBusy, setDelBusy] = useState(false);
   const [dupBusy, setDupBusy] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const remindDue = async () => {
+    if (!confirm("오늘 마감인데 아직 제출 안 한 학생들에게 '오늘 낭독 숙제' 알림을 보낼까요?\n(알림을 켠 학생에게만 갑니다.)")) return;
+    setPushBusy(true); setMsg("");
+    try {
+      const r = await apiPost("/push/remind-due", {});
+      setMsg(r.students ? `${r.students}명에게 알림을 보냈어요. ✅ (기기 ${r.devices}대)` : "오늘 보낼 대상이 없어요. (마감·미제출·알림켠 학생 없음)");
+    } catch (e) { setMsg("발송 실패: " + e.message); }
+    setPushBusy(false);
+  };
   const pubCount = assignments.filter(a => a.published !== false).length;
   const arcCount = assignments.filter(a => a.published === false).length;
   const dedupe = async () => {
@@ -3690,6 +3777,19 @@ function AdminSettings({ students, assignments, reload }) {
         </div>
         <div className="muted" style={{ marginTop:10 }}>현재 학생 {students.length}명 · 과제 {assignments.length}개</div>
         {msg && <div style={{ marginTop:8, fontSize:12, fontWeight:700, color:"var(--navy)" }}>{msg}</div>}
+      </div>
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>🔔 숙제 알림 보내기</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          <b>오늘 마감인데 아직 제출 안 한</b> 학생들에게 폰 알림을 보내요. <b>알림을 켠 학생</b>에게만 갑니다.
+          (학생은 로그인 후 “🔔 알림 켜기”를 눌러야 받아요.)
+        </div>
+        <button className="btn" onClick={remindDue} disabled={pushBusy}>
+          {pushBusy ? "보내는 중..." : "🔔 오늘 마감 학생에게 알림 보내기"}
+        </button>
+        <div className="muted" style={{ fontSize:12, marginTop:10 }}>
+          아이폰은 <b>홈 화면에 추가</b>한 트리톡(iOS 16.4+)에서만 알림이 와요.
+        </div>
       </div>
       <div className="card">
         <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>🧹 중복 과제 정리 (전체)</div>

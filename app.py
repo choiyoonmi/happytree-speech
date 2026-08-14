@@ -41,6 +41,96 @@ VOCAB_DIR.mkdir(parents=True, exist_ok=True)
 ACT_DIR = DATA_DIR / "activity"  # 실시간 학습 현황 (학생별, 활동종류별 최근 기록)
 ACT_DIR.mkdir(parents=True, exist_ok=True)
 
+PUSH_DIR = DATA_DIR / "push"      # 웹 푸시 구독 정보 (학생별 파일)
+PUSH_DIR.mkdir(parents=True, exist_ok=True)
+VAPID_FILE = DATA_DIR / "vapid.json"
+VAPID_PEM = DATA_DIR / "vapid_private.pem"
+
+
+def get_vapid():
+    """VAPID 키를 로드하거나 없으면 새로 생성해 저장한다. {publicKey, privatePemPath} 반환."""
+    import base64
+    if VAPID_FILE.exists() and VAPID_PEM.exists():
+        try:
+            with open(VAPID_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("publicKey"):
+                return data["publicKey"], str(VAPID_PEM)
+        except Exception:
+            pass
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import serialization
+    priv = ec.generate_private_key(ec.SECP256R1())
+    pem = priv.private_bytes(serialization.Encoding.PEM,
+                             serialization.PrivateFormat.PKCS8,
+                             serialization.NoEncryption())
+    with open(VAPID_PEM, "wb") as f:
+        f.write(pem)
+    raw = priv.public_key().public_bytes(serialization.Encoding.X962,
+                                          serialization.PublicFormat.UncompressedPoint)
+    pub_b64 = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+    with open(VAPID_FILE, "w", encoding="utf-8") as f:
+        json.dump({"publicKey": pub_b64}, f)
+    return pub_b64, str(VAPID_PEM)
+
+
+def _push_path(sid: str) -> Path:
+    return PUSH_DIR / f"{_safe_id(sid)}.json"
+
+
+def load_push_subs(sid: str) -> list:
+    p = _push_path(sid)
+    if not p.exists():
+        return []
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_push_subs(sid: str, subs: list):
+    p = _push_path(sid)
+    tmp = p.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(subs, f, ensure_ascii=False)
+    tmp.replace(p)
+
+
+def send_push_to_student(sid: str, title: str, body: str, url: str = "/") -> int:
+    """한 학생의 모든 기기로 푸시 발송. 성공한 기기 수 반환. 만료된 구독은 정리."""
+    subs = load_push_subs(sid)
+    if not subs:
+        return 0
+    try:
+        from pywebpush import webpush, WebPushException
+    except Exception as e:
+        print("[push] pywebpush 없음:", e)
+        return 0
+    pub, pem_path = get_vapid()
+    payload = json.dumps({"title": title, "body": body, "url": url})
+    claims = {"sub": "mailto:white21040@gmail.com"}
+    ok = 0
+    alive = []
+    for sub in subs:
+        try:
+            webpush(subscription_info=sub, data=payload,
+                    vapid_private_key=pem_path, vapid_claims=dict(claims))
+            ok += 1
+            alive.append(sub)
+        except WebPushException as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (404, 410):
+                continue                      # 만료된 구독 → 제거
+            alive.append(sub)                 # 일시 오류는 유지
+            print("[push] 발송 실패:", code, e)
+        except Exception as e:
+            alive.append(sub)
+            print("[push] 발송 오류:", e)
+    if len(alive) != len(subs):
+        save_push_subs(sid, alive)
+    return ok
+
 
 def _sub_lock(student_id: str):
     """학생별 잠금 — 서로 다른 학생은 동시에 저장 가능."""
@@ -1723,6 +1813,83 @@ def ping_activity(student_id: str, payload: dict = Body(...)):
 def get_activity_all():
     """선생님 실시간 현황판용: {student_id: {kind: {at, ts, title}}}."""
     return {sid: load_activity(sid) for sid in all_activity_student_ids()}
+
+
+# ---------- 웹 푸시 알림 ----------
+def _today_kr() -> str:
+    from datetime import datetime, timezone, timedelta
+    d = datetime.now(timezone.utc) + timedelta(hours=9)
+    return d.strftime("%Y-%m-%d")
+
+
+@app.get("/api/push/key")
+def push_public_key():
+    pub, _ = get_vapid()
+    return {"publicKey": pub}
+
+
+@app.post("/api/push/subscribe/{student_id}")
+def push_subscribe(student_id: str, payload: dict = Body(...)):
+    """학생 기기의 푸시 구독 저장. body = PushSubscription(JSON)."""
+    endpoint = (payload or {}).get("endpoint")
+    if not endpoint:
+        raise HTTPException(400, "구독 정보가 올바르지 않아요.")
+    with _sub_lock(student_id):
+        subs = load_push_subs(student_id)
+        subs = [s for s in subs if s.get("endpoint") != endpoint]  # 같은 기기 중복 제거
+        subs.append(payload)
+        save_push_subs(student_id, subs)
+    return {"ok": True, "devices": len(subs)}
+
+
+@app.post("/api/push/unsubscribe/{student_id}")
+def push_unsubscribe(student_id: str, payload: dict = Body(default={})):
+    endpoint = (payload or {}).get("endpoint")
+    with _sub_lock(student_id):
+        subs = load_push_subs(student_id)
+        subs = [s for s in subs if endpoint and s.get("endpoint") != endpoint] if endpoint else []
+        save_push_subs(student_id, subs)
+    return {"ok": True, "devices": len(subs)}
+
+
+@app.post("/api/push/test/{student_id}")
+def push_test(student_id: str):
+    """이 학생 기기로 테스트 알림 발송."""
+    db = load_db()
+    st = next((s for s in db.get("students", []) if s.get("id") == student_id), None)
+    name = (st or {}).get("name") or "학생"
+    sent = send_push_to_student(student_id, "트리톡 알림 테스트 🔔",
+                                f"{name}야, 알림이 잘 오는지 확인 중이에요!", "/")
+    return {"sent": sent}
+
+
+@app.post("/api/push/remind-due")
+def push_remind_due(payload: dict = Body(default={})):
+    """오늘(또는 지정일) 마감인데 아직 제출 안 한 학생들에게 낭독 숙제 알림 발송."""
+    day = str((payload or {}).get("date") or _today_kr())
+    db = load_db()
+    students = db.get("students", [])
+    assignments = db.get("assignments", [])
+    sent = 0
+    reached = 0
+    for s in students:
+        sid = s.get("id")
+        due = [a for a in assignments
+               if a.get("published", True) and (a.get("dueDate") == day)
+               and ((not a.get("assignedIds")) or sid in a.get("assignedIds", []))]
+        if not due:
+            continue
+        subs_map = load_student_subs(sid)
+        undone = [a for a in due if (subs_map.get(a["id"]) or {}).get("status") not in ("submitted", "reviewed")]
+        if not undone:
+            continue
+        n = len(undone)
+        got = send_push_to_student(sid, "오늘 낭독 숙제 🎤",
+                                   f"{s.get('name','')}야, 오늘 할 낭독 숙제 {n}개가 있어요!", "/")
+        if got:
+            sent += 1
+            reached += got
+    return {"students": sent, "devices": reached, "date": day}
 
 
 # ---------- 실시간 단어 배틀 (WebSocket, 메모리 방) ----------
