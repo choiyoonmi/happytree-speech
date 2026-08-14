@@ -1863,10 +1863,8 @@ def push_test(student_id: str):
     return {"sent": sent}
 
 
-@app.post("/api/push/remind-due")
-def push_remind_due(payload: dict = Body(default={})):
-    """오늘(또는 지정일) 마감인데 아직 제출 안 한 학생들에게 낭독 숙제 알림 발송."""
-    day = str((payload or {}).get("date") or _today_kr())
+def _do_remind_due(day: str) -> dict:
+    """지정일 마감인데 아직 제출 안 한 학생들에게 낭독 숙제 알림 발송."""
     db = load_db()
     students = db.get("students", [])
     assignments = db.get("assignments", [])
@@ -1890,6 +1888,57 @@ def push_remind_due(payload: dict = Body(default={})):
             sent += 1
             reached += got
     return {"students": sent, "devices": reached, "date": day}
+
+
+@app.post("/api/push/remind-due")
+def push_remind_due(payload: dict = Body(default={})):
+    """오늘(또는 지정일) 마감인데 아직 제출 안 한 학생들에게 낭독 숙제 알림 발송."""
+    day = str((payload or {}).get("date") or _today_kr())
+    return _do_remind_due(day)
+
+
+# ---- 자동 발송 스케줄러: 매일 오후 5시·저녁 8시(KST) ----
+REMIND_HOURS = {17, 20}
+PUSH_SCHED_FILE = DATA_DIR / "push_sched.json"
+
+
+def _load_last_slot() -> str:
+    try:
+        with open(PUSH_SCHED_FILE, "r", encoding="utf-8") as f:
+            return json.load(f).get("last", "")
+    except Exception:
+        return ""
+
+
+def _save_last_slot(slot: str):
+    try:
+        with open(PUSH_SCHED_FILE, "w", encoding="utf-8") as f:
+            json.dump({"last": slot}, f)
+    except Exception:
+        pass
+
+
+def _reminder_loop():
+    import time as _t
+    from datetime import datetime, timezone, timedelta
+    while True:
+        try:
+            now = datetime.now(timezone.utc) + timedelta(hours=9)   # KST
+            if now.hour in REMIND_HOURS:
+                slot = f"{now:%Y-%m-%d}T{now.hour:02d}"
+                if _load_last_slot() != slot:
+                    _save_last_slot(slot)
+                    try:
+                        res = _do_remind_due(now.strftime("%Y-%m-%d"))
+                        print("[push] auto reminder", slot, res)
+                    except Exception as e:
+                        print("[push] auto reminder failed:", e)
+        except Exception as e:
+            print("[push] scheduler loop error:", e)
+        _t.sleep(50)
+
+
+threading.Thread(target=_reminder_loop, daemon=True).start()
 
 
 # ---------- 실시간 단어 배틀 (WebSocket, 메모리 방) ----------
