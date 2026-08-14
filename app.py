@@ -1897,9 +1897,12 @@ def push_remind_due(payload: dict = Body(default={})):
     return _do_remind_due(day)
 
 
-# ---- 자동 발송 스케줄러: 매일 오후 5시·저녁 8시(KST) ----
-REMIND_HOURS = {17, 20}
+# ---- 자동 발송 스케줄러 (KST): 평일 오후5시·저녁8시 / 주말 오후4시·저녁8시 ----
 PUSH_SCHED_FILE = DATA_DIR / "push_sched.json"
+
+
+def _remind_hours_for(dt) -> set:
+    return {16, 20} if dt.weekday() >= 5 else {17, 20}   # 토(5)·일(6)은 4시·8시
 
 
 def _load_last_slot() -> str:
@@ -1924,7 +1927,7 @@ def _reminder_loop():
     while True:
         try:
             now = datetime.now(timezone.utc) + timedelta(hours=9)   # KST
-            if now.hour in REMIND_HOURS:
+            if now.hour in _remind_hours_for(now):
                 slot = f"{now:%Y-%m-%d}T{now.hour:02d}"
                 if _load_last_slot() != slot:
                     _save_last_slot(slot)
