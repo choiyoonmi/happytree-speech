@@ -318,7 +318,7 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
           const up = await fetch("/api/audio", { method: "POST", body: fd });
           const upJson = await up.json();
 
-          let score = null, recognized = null, detail = null, words = null, assessError = null, assessDebug = null;
+          let score = null, recognized = null, detail = null, words = null, durationMs = null, assessError = null, assessDebug = null;
           try {
             const fd2 = new FormData();
             fd2.append("audio", blob, "take.webm");
@@ -326,6 +326,7 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
             const as = await fetch("/api/assess", { method: "POST", body: fd2 });
             if (as.ok) {
               const d = await as.json();
+              durationMs = d.audio && d.audio.durationMs != null ? Math.round(d.audio.durationMs) : null;
               recognized = d.recognizedText || null;
               score = d.pronScore != null ? Math.round(d.pronScore) : null;
               words = d.words || null;
@@ -352,7 +353,7 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
             assessError = "발음평가 서버에 연결하지 못했어요.";
           }
 
-          onSaved(index, round, { audio: upJson.url, recognized, score, detail, words, assessError, assessDebug });
+          onSaved(index, round, { audio: upJson.url, recognized, score, detail, words, durationMs, assessError, assessDebug });
         } catch (e) {
           setErr("업로드에 실패했어요. 인터넷 연결을 확인해주세요.");
         }
