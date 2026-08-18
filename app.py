@@ -11,6 +11,7 @@ import httpx
 from fastapi import FastAPI, UploadFile, Form, HTTPException, File, Body, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydub import AudioSegment
 
 from notify import send_telegram
@@ -326,6 +327,13 @@ migrate_submissions_if_needed()
 
 
 app = FastAPI(title="HappyTree Reading Homework")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://admin.happytreeacademy.com"],
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/api/health")
