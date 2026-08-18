@@ -270,43 +270,6 @@ async def fetch_shared_accounts(params: dict) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def merge_student_file(path_factory, old_id: str, new_id: str):
-    """아이디 변경 시 학생별 JSON 파일을 새 아이디로 안전하게 합친다."""
-    old_path = path_factory(old_id)
-    new_path = path_factory(new_id)
-    if old_path == new_path or not old_path.exists():
-        return
-    try:
-        with open(old_path, "r", encoding="utf-8") as f:
-            old_data = json.load(f)
-        new_data = None
-        if new_path.exists():
-            with open(new_path, "r", encoding="utf-8") as f:
-                new_data = json.load(f)
-        if isinstance(old_data, dict):
-            merged = dict(old_data)
-            if isinstance(new_data, dict):
-                merged.update(new_data)
-        elif isinstance(old_data, list):
-            merged = list(old_data)
-            if isinstance(new_data, list):
-                seen = {json.dumps(item, sort_keys=True, ensure_ascii=False) for item in merged}
-                for item in new_data:
-                    key = json.dumps(item, sort_keys=True, ensure_ascii=False)
-                    if key not in seen:
-                        merged.append(item)
-                        seen.add(key)
-        else:
-            merged = new_data if new_data is not None else old_data
-        tmp = new_path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(merged, f, ensure_ascii=False)
-        tmp.replace(new_path)
-        old_path.unlink(missing_ok=True)
-    except Exception as exc:
-        print(f"[student-sync] {old_id} → {new_id} 파일 이전 실패:", exc)
-
-
 def upsert_shared_student(shared: dict) -> dict:
     """공용 명단 학생을 트리톡 DB에 반영하고 기존 학습 기록은 보존한다."""
     sid = str(shared.get("id", "")).strip()
@@ -318,25 +281,8 @@ def upsert_shared_student(shared: dict) -> dict:
         db = load_db()
         student = next((s for s in db["students"] if str(s.get("id")) == sid), None)
         if student is None:
-            student = next((s for s in db["students"] if str(s.get("name", "")).strip() == name), None)
-
-        if student is None:
             student = {"id": sid, "pw": "", "name": name, "className": ""}
             db["students"].append(student)
-        else:
-            old_id = str(student.get("id", "")).strip()
-            if old_id and old_id != sid:
-                for assignment in db.get("assignments", []):
-                    ids = assignment.get("assignedIds") or []
-                    assignment["assignedIds"] = list(dict.fromkeys(
-                        sid if str(item) == old_id else item for item in ids
-                    ))
-                merge_student_file(_sub_path, old_id, sid)
-                merge_student_file(_vocab_path, old_id, sid)
-                merge_student_file(_act_path, old_id, sid)
-                merge_student_file(_push_path, old_id, sid)
-                student["id"] = sid
-                print(f"[student-sync] {name}: {old_id} → {sid} 기록 이전")
 
         student["name"] = name
         student["className"] = str(shared.get("cls", "")).strip()
