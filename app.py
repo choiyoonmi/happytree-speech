@@ -1377,6 +1377,8 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     weekly = {}
     daily = {}
     acc_all, flu_all, comp_all = [], [], []
+    recording_ms = []
+    recording_attempts = 0
 
     for a in assigned:
         sub = student_subs.get(a["id"]) or {}
@@ -1403,6 +1405,12 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             if s:
                 item_scores.append(max(s))
             for t in ti:
+                recording_attempts += 1
+                if t.get("durationMs") is not None:
+                    try:
+                        recording_ms.append(max(0, int(t.get("durationMs"))))
+                    except Exception:
+                        pass
                 d = t.get("detail") or {}
                 if day:
                     if d.get("accuracy") is not None: daily[day]["acc"].append(d["accuracy"])
@@ -1559,6 +1567,11 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             "completeness": avg_of(comp_all),
         },
         "submitRate": rate,
+        "time": {
+            "recordingSeconds": round(sum(recording_ms) / 1000) if recording_ms else None,
+            "averageRecordingSeconds": round(sum(recording_ms) / len(recording_ms) / 1000, 1) if recording_ms else None,
+            "recordingAttempts": recording_attempts,
+        },
         "submittedCount": submitted_count,
         "totalAssigned": total_assigned,
         "assignments": rows,
