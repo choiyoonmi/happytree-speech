@@ -18,6 +18,10 @@ from notify import send_telegram
 AZURE_KEY = os.environ.get("AZURE_SPEECH_KEY")
 AZURE_REGION = os.environ.get("AZURE_SPEECH_REGION", "eastus")
 ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "happytree")
+STUDENT_ACCOUNT_API = os.environ.get(
+    "STUDENT_ACCOUNT_API",
+    "https://script.google.com/macros/s/AKfycbzRqfFTJeLfcV2_UOgnB6MCGtB7C9peTQCpj3RkR9qH85j1PwudvnF_HR6fpLVCKstb/exec",
+)
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 AUDIO_DIR = DATA_DIR / "audio"
@@ -252,6 +256,105 @@ def save_db(db):
     tmp.replace(DB_PATH)
 
 
+
+async def fetch_shared_accounts(params: dict) -> dict:
+    """해피트리 공용 학생계정 API를 호출한다."""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            response = await client.get(STUDENT_ACCOUNT_API, params=params)
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        print("[student-sync] 공용 계정 API 오류:", exc)
+        raise HTTPException(503, "학생계정 서버 연결이 지연되고 있어요. 잠시 후 다시 시도해 주세요.")
+    return data if isinstance(data, dict) else {}
+
+
+def merge_student_file(path_factory, old_id: str, new_id: str):
+    """아이디 변경 시 학생별 JSON 파일을 새 아이디로 안전하게 합친다."""
+    old_path = path_factory(old_id)
+    new_path = path_factory(new_id)
+    if old_path == new_path or not old_path.exists():
+        return
+    try:
+        with open(old_path, "r", encoding="utf-8") as f:
+            old_data = json.load(f)
+        new_data = None
+        if new_path.exists():
+            with open(new_path, "r", encoding="utf-8") as f:
+                new_data = json.load(f)
+        if isinstance(old_data, dict):
+            merged = dict(old_data)
+            if isinstance(new_data, dict):
+                merged.update(new_data)
+        elif isinstance(old_data, list):
+            merged = list(old_data)
+            if isinstance(new_data, list):
+                seen = {json.dumps(item, sort_keys=True, ensure_ascii=False) for item in merged}
+                for item in new_data:
+                    key = json.dumps(item, sort_keys=True, ensure_ascii=False)
+                    if key not in seen:
+                        merged.append(item)
+                        seen.add(key)
+        else:
+            merged = new_data if new_data is not None else old_data
+        tmp = new_path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(merged, f, ensure_ascii=False)
+        tmp.replace(new_path)
+        old_path.unlink(missing_ok=True)
+    except Exception as exc:
+        print(f"[student-sync] {old_id} → {new_id} 파일 이전 실패:", exc)
+
+
+def upsert_shared_student(shared: dict) -> dict:
+    """공용 명단 학생을 트리톡 DB에 반영하고 기존 학습 기록은 보존한다."""
+    sid = str(shared.get("id", "")).strip()
+    name = str(shared.get("name", "")).strip()
+    if not sid or not name:
+        raise HTTPException(502, "학생계정 응답이 올바르지 않아요.")
+
+    with _lock:
+        db = load_db()
+        student = next((s for s in db["students"] if str(s.get("id")) == sid), None)
+        if student is None:
+            student = next((s for s in db["students"] if str(s.get("name", "")).strip() == name), None)
+
+        if student is None:
+            student = {"id": sid, "pw": "", "name": name, "className": ""}
+            db["students"].append(student)
+        else:
+            old_id = str(student.get("id", "")).strip()
+            if old_id and old_id != sid:
+                for assignment in db.get("assignments", []):
+                    ids = assignment.get("assignedIds") or []
+                    assignment["assignedIds"] = list(dict.fromkeys(
+                        sid if str(item) == old_id else item for item in ids
+                    ))
+                merge_student_file(_sub_path, old_id, sid)
+                merge_student_file(_vocab_path, old_id, sid)
+                merge_student_file(_act_path, old_id, sid)
+                merge_student_file(_push_path, old_id, sid)
+                student["id"] = sid
+                print(f"[student-sync] {name}: {old_id} → {sid} 기록 이전")
+
+        student["name"] = name
+        student["className"] = str(shared.get("cls", "")).strip()
+        if shared.get("pw") is not None:
+            student["pw"] = str(shared.get("pw", "")).strip()
+        save_db(db)
+        return dict(student)
+
+
+async def sync_shared_roster() -> list:
+    """공용 관리자 명단을 트리톡에 병합한다. 트리톡 전용 기록은 삭제하지 않는다."""
+    data = await fetch_shared_accounts({"action": "rosterInfo"})
+    if not data.get("ok") or not isinstance(data.get("students"), list):
+        raise HTTPException(502, "공용 학생명단을 불러오지 못했어요.")
+    for shared in data["students"]:
+        upsert_shared_student(shared or {})
+    return load_db()["students"]
+
 def migrate_submissions_if_needed():
     """예전 db.json 안에 있던 submissions를 학생별 파일로 옮긴다 (최초 1회)."""
     db = load_db()
@@ -292,14 +395,19 @@ def health():
 
 # ---------- auth ----------
 @app.post("/api/login/student")
-def login_student(payload: dict = Body(...)):
-    db = load_db()
+async def login_student(payload: dict = Body(...)):
     sid = str(payload.get("id", "")).strip()
     pw = str(payload.get("pw", "")).strip()
-    for s in db["students"]:
-        if s["id"] == sid and s["pw"] == pw:
-            return {"ok": True, "student": s}
-    raise HTTPException(401, "아이디 또는 비밀번호가 일치하지 않아요.")
+    if not sid or not pw:
+        raise HTTPException(400, "아이디와 비밀번호를 입력해 주세요.")
+
+    shared = await fetch_shared_accounts({"action": "login", "id": sid, "pw": pw})
+    if not shared.get("ok"):
+        raise HTTPException(401, "아이디 또는 비밀번호가 일치하지 않아요.")
+    shared["id"] = sid
+    shared["pw"] = pw
+    student = upsert_shared_student(shared)
+    return {"ok": True, "student": student}
 
 
 @app.post("/api/login/admin")
@@ -311,8 +419,12 @@ def login_admin(payload: dict = Body(...)):
 
 # ---------- students ----------
 @app.get("/api/students")
-def get_students():
-    return load_db()["students"]
+async def get_students():
+    try:
+        return await sync_shared_roster()
+    except HTTPException as exc:
+        print("[student-sync] 명단 동기화 실패, 로컬 명단 사용:", exc.detail)
+        return load_db()["students"]
 
 
 @app.post("/api/students")
