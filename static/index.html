@@ -501,6 +501,7 @@ function StudentView({ student, onLogout }) {
   const [saveMsg, setSaveMsg] = useState("");
   const [done, setDone] = useState(false);
   const [openVocab, setOpenVocab] = useState(null);
+  const [openSentence, setOpenSentence] = useState(null);
   const [vocabProgress, setVocabProgress] = useState({});
 
   const mine = assignments.filter(a =>
@@ -705,6 +706,26 @@ function StudentView({ student, onLogout }) {
     );
   }
 
+  if (openSentence) {
+    return (
+      <div className="wrap">
+        <div className="hdr">
+          <div className="row" style={{ gap:12 }}>
+            <button onClick={()=>{ setOpenSentence(null); reloadVocab(); }} style={{ background:"none", color:"var(--cream)", fontSize:22 }}>‹</button>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{openSentence.title}</div>
+              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>문장 자습 · {openSentence.items.length}문장</div>
+            </div>
+          </div>
+        </div>
+        <div className="body">
+          <SentenceStudy assignment={openSentence} student={student} voice={voice}
+            onClose={()=>{ setOpenSentence(null); reloadVocab(); }} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="wrap">
       <div className="hdr">
@@ -717,14 +738,14 @@ function StudentView({ student, onLogout }) {
       <div className="body">
         <div style={{ marginBottom:12 }}><PushBell studentId={student.id} /></div>
         <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress}
-          onOpenRecord={openA} onOpenVocab={setOpenVocab} />
+          onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} />
       </div>
     </div>
   );
 }
 
 // ---------- 학생 홈: 달력 + [녹음 숙제 / 단어 자습] 두 탭 (같은 달력 공유) ----------
-function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab }) {
+function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab, onOpenSentence }) {
   const today = new Date();
   const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [tab, setTab] = useState("record");
@@ -732,9 +753,14 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
     `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`);
 
   const isVocab = tab === "vocab";
+  const isSentence = tab === "sentence";
+  const isStudy = isVocab || isSentence;
+  const studyLabel = isSentence ? "문장 자습" : "단어 자습";
   const source = isVocab
     ? mine.filter(a => (a.type || "word") === "word" && (a.items || []).length)
-    : mine;
+    : isSentence
+      ? mine.filter(a => a.type === "sentence" && (a.items || []).length)
+      : mine;
 
   const byDate = {};
   const noDate = [];
@@ -767,8 +793,8 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
     setYm({ y, m });
   };
 
-  const doneOf = (a) => isVocab
-    ? !!(vocabProgress[a.id] && vocabProgress[a.id].best != null)
+  const doneOf = (a) => isStudy
+    ? !!(vocabProgress[a.id] && (vocabProgress[a.id].best != null || (vocabProgress[a.id].byMode && Object.keys(vocabProgress[a.id].byMode).length)))
     : (statusMap[a.id] || "none") !== "none";
 
   const dayState = (d) => {
@@ -815,13 +841,30 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
       </button>
     );
   };
-  const card = isVocab ? vocabCard : recordCard;
+  const sentenceCard = (a) => {
+    const rec = vocabProgress[a.id];
+    return (
+      <button key={a.id} onClick={()=>onOpenSentence(a)} className="card"
+        style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+        <div style={{ minWidth:0 }}>
+          <div className="row" style={{ marginBottom:5 }}>
+            <Badge tone="b-gold">문장</Badge>
+            <span className="muted">{a.items.length}문장</span>
+          </div>
+          <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
+        </div>
+        <Badge tone={rec ? "b-navy" : "b-gray"}>{rec && rec.best!=null ? `최고 ${rec.best}점` : rec ? "학습중" : "시작 전"}</Badge>
+      </button>
+    );
+  };
+  const card = isVocab ? vocabCard : isSentence ? sentenceCard : recordCard;
 
   return (
     <>
       <div className="seg" style={{ marginBottom:12 }}>
-        <button className={!isVocab ? "on" : ""} onClick={()=>setTab("record")}>📅 녹음 숙제</button>
-        <button className={isVocab ? "on" : ""} onClick={()=>setTab("vocab")}>📚 단어 자습</button>
+        <button className={tab==="record" ? "on" : ""} onClick={()=>setTab("record")}>📅 녹음</button>
+        <button className={tab==="vocab" ? "on" : ""} onClick={()=>setTab("vocab")}>📚 단어</button>
+        <button className={tab==="sentence" ? "on" : ""} onClick={()=>setTab("sentence")}>📝 문장</button>
       </div>
 
       <div className="card" style={{ padding:14 }}>
@@ -863,7 +906,7 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
         </div>
 
         <div className="row" style={{ gap:12, marginTop:12, justifyContent:"center" }}>
-          {[["#2E7D5B", isVocab?"완료":"완료"],["var(--gold)", isVocab?"할 수 있어요":"해야 해요"],["var(--danger)","기한 지남"]].map(([c,l]) => (
+          {[["#2E7D5B","완료"],["var(--gold)", isStudy?"할 수 있어요":"해야 해요"],["var(--danger)","기한 지남"]].map(([c,l]) => (
             <span key={l} style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
               <span style={{ width:7, height:7, borderRadius:"50%", background:c, display:"inline-block" }} />{l}
             </span>
@@ -872,18 +915,18 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
       </div>
 
       <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:14 }}>
-        {picked.slice(5).replace("-","월 ")}일 {isVocab ? "단어 자습" : "숙제"}
+        {picked.slice(5).replace("-","월 ")}일 {isStudy ? studyLabel : "숙제"}
       </div>
       {!pickedList.length && (
         <div className="card" style={{ textAlign:"center", padding:24 }}>
-          <span className="muted">이 날은 {isVocab ? "단어 자습이" : "숙제가"} 없어요 🎈</span>
+          <span className="muted">이 날은 {isStudy ? studyLabel+"이" : "숙제가"} 없어요 🎈</span>
         </div>
       )}
       {pickedList.map(card)}
 
       {noDate.length > 0 && (
         <>
-          <div style={{ fontWeight:700, color:"var(--navy)", margin:"18px 4px 8px", fontSize:14 }}>날짜 없는 {isVocab ? "단어장" : "숙제"}</div>
+          <div style={{ fontWeight:700, color:"var(--navy)", margin:"18px 4px 8px", fontSize:14 }}>날짜 없는 {isStudy ? (isSentence?"문장":"단어장") : "숙제"}</div>
           {noDate.map(card)}
         </>
       )}
@@ -3890,6 +3933,151 @@ function shuffleArr(a) {
   return b;
 }
 
+// ---------- 문장 자습 (뜻 확인 · 문장 배열) ----------
+function SentenceStudy({ assignment, student, voice, onClose }) {
+  const cur = assignment;
+  const [mode, setMode] = useState(null);
+  const [rec, setRec] = useState(null);
+  const [savedMsg, setSavedMsg] = useState("");
+  const reload = () => apiGet(`/vocab/${student.id}`).then(d => setRec(d[cur.id] || null)).catch(()=>{});
+  useEffect(() => { reload(); }, []);
+  const pairs = cur.items.map((w, i) => ({ text: w, kor: (cur.meanings && cur.meanings[i]) || "" }));
+  const back = () => setMode(null);
+  const persist = async (body) => {
+    try { const r = await apiPost(`/vocab/${cur.id}/${student.id}`, body); setRec(r); setSavedMsg("저장됐어요 ✓"); setTimeout(()=>setSavedMsg(""), 1600); }
+    catch (e) { reload(); }
+  };
+  if (mode === "meaning") return <SentenceFlash pairs={pairs} title={cur.title} voice={voice} onBack={back} onDone={()=>persist({ mode:"smeaning" })} />;
+  if (mode === "scramble") return <Unscramble pairs={pairs} title={cur.title} voice={voice} onBack={back} onDone={(c,t)=>persist({ mode:"unscramble", correct:c, total:t })} />;
+
+  const bm = (rec && rec.byMode) || {};
+  const modes = [
+    ["meaning", "smeaning", "🃏 뜻 확인하기", "문장을 넘기며 한글 뜻을 확인해요 (발음 자동재생)"],
+    ["scramble", "unscramble", "🧩 문장 배열", "섞인 단어를 순서대로 배열해요 · 점수 기록"],
+  ];
+  return <>
+    <div className="muted" style={{ marginBottom:12 }}>{pairs.length}문장{rec && rec.best!=null ? ` · 배열 최고 ${rec.best}점` : ""}</div>
+    {modes.map(([id, mk, label, desc]) => (
+      <button key={id} className="card" onClick={()=>setMode(id)}
+        style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+        <div><div style={{ fontWeight:700, fontSize:15 }}>{bm[mk] ? "✅ " : ""}{label}</div>
+          <div className="muted" style={{ marginTop:2 }}>{desc}{mk==="unscramble" && bm.unscramble && bm.unscramble.best!=null ? ` · 최고 ${bm.unscramble.best}점` : ""}</div></div>
+        <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+      </button>
+    ))}
+    {savedMsg && (
+      <div style={{ position:"fixed", left:0, right:0, bottom:24, display:"flex", justifyContent:"center", pointerEvents:"none", zIndex:90 }}>
+        <div style={{ background:"var(--navy)", color:"#fff", padding:"8px 16px", borderRadius:999, fontSize:13, fontWeight:700 }}>{savedMsg}</div>
+      </div>
+    )}
+  </>;
+}
+
+function SentenceFlash({ pairs, title, voice, onBack, onDone }) {
+  const [order] = useState(() => shuffleArr(pairs));
+  const [i, setI] = useState(0);
+  const [flip, setFlip] = useState(false);
+  const doneRef = useRef(false);
+  const p = order[i];
+  useEffect(() => {
+    if (p) speak(p.text, voice, 0.85);
+    if (i === order.length - 1 && !doneRef.current) { doneRef.current = true; onDone && onDone(); }
+  }, [i]);
+  const move = (d) => { setFlip(false); setI(x => Math.max(0, Math.min(order.length - 1, x + d))); };
+  return <>
+    <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
+    <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{order.length}</div>
+    <button onClick={()=>setFlip(f=>!f)} className="card"
+      style={{ width:"100%", minHeight:200, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:12, padding:"22px 18px" }}>
+      <div style={{ fontSize: flip ? 19 : 21, fontWeight:800, color:"var(--navy)", lineHeight:1.5, textAlign:"center" }}>{flip ? p.kor : p.text}</div>
+      <div className="muted">{flip ? "영어 보기" : "뜻 보기"} (탭)</div>
+    </button>
+    <button className="btn-ghost" style={{ width:"100%", marginTop:8 }} onClick={()=>speak(p.text, voice, 0.7)}>🔊 다시 듣기</button>
+    <div className="row" style={{ gap:8, marginTop:8 }}>
+      <button className="btn-ghost" style={{ flex:1 }} onClick={()=>move(-1)} disabled={i===0}>이전</button>
+      <button className="btn" style={{ flex:1 }} onClick={()=>move(1)} disabled={i===order.length-1}>다음</button>
+    </div>
+  </>;
+}
+
+function Unscramble({ pairs, title, voice, onBack, onDone }) {
+  const [order] = useState(() => shuffleArr(pairs.filter(p => (p.text||"").trim().split(/\s+/).length >= 2)));
+  const [i, setI] = useState(0);
+  const [tokens, setTokens] = useState([]);
+  const [bank, setBank] = useState([]);
+  const [picked, setPicked] = useState([]);
+  const [checked, setChecked] = useState(null);
+  const scoreRef = useRef(0);
+  const [scoreView, setScoreView] = useState(0);
+  const p = order[i];
+  useEffect(() => {
+    const w = p ? p.text.trim().split(/\s+/) : [];
+    setTokens(w); setBank(shuffleArr(w.map((_, k) => k))); setPicked([]); setChecked(null);
+  }, [i]);
+
+  if (!order.length) return <>
+    <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
+    <div className="card" style={{ textAlign:"center", padding:24 }}><span className="muted">단어가 2개 이상인 문장이 없어 배열할 게 없어요.</span></div>
+  </>;
+
+  const remaining = bank.filter(k => !picked.includes(k));
+  const target = tokens.join(" ");
+  const answer = picked.map(k => tokens[k]).join(" ");
+  const pick = (k) => { if (!checked) setPicked(prev => [...prev, k]); };
+  const undo = () => { if (!checked) setPicked(prev => prev.slice(0, -1)); };
+  const check = () => {
+    const ok = answer === target;
+    setChecked(ok ? "right" : "wrong");
+    if (ok) { scoreRef.current += 1; setScoreView(scoreRef.current); }
+    speak(p.text, voice, 0.85);
+  };
+  const next = () => {
+    if (i >= order.length - 1) { onDone && onDone(scoreRef.current, order.length); onBack(); }
+    else setI(i + 1);
+  };
+
+  return <>
+    <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
+    <div className="row" style={{ justifyContent:"space-between", marginBottom:8 }}>
+      <span className="muted">{title} · {i+1}/{order.length}</span>
+      <span style={{ fontWeight:700, color:"var(--navy)", fontSize:13 }}>맞힘 {scoreView}</span>
+    </div>
+    <div className="card" style={{ background:"var(--cream)", padding:"12px 14px", marginBottom:10 }}>
+      <div style={{ fontSize:11, fontWeight:700, color:"var(--navy-soft)", marginBottom:4 }}>이 뜻이 되도록 단어를 순서대로 놓아요</div>
+      <div style={{ fontSize:16, fontWeight:700, color:"var(--navy)", lineHeight:1.5 }}>{p.kor || "(뜻 없음)"}</div>
+    </div>
+    <div className="card" style={{ minHeight:66, display:"flex", flexWrap:"wrap", gap:6, alignItems:"flex-start",
+      borderColor: checked==="right" ? "var(--good)" : checked==="wrong" ? "var(--danger)" : "var(--line)" }}>
+      {picked.length ? picked.map((k, idx) => (
+        <span key={idx} style={{ padding:"7px 11px", borderRadius:10, background:"var(--navy)", color:"#fff", fontWeight:700, fontSize:15 }}>{tokens[k]}</span>
+      )) : <span className="muted" style={{ alignSelf:"center", fontSize:13 }}>아래 단어를 눌러 문장을 만들어요</span>}
+    </div>
+    {checked === "wrong" && (
+      <div style={{ marginTop:8, fontSize:14, color:"var(--danger)", fontWeight:700 }}>아쉬워요! 정답: <span style={{ color:"var(--navy)" }}>{target}</span></div>
+    )}
+    {checked === "right" && (
+      <div style={{ marginTop:8, fontSize:15, color:"var(--good)", fontWeight:800 }}>정답이에요! 🎉</div>
+    )}
+    {!checked && (
+      <div className="row" style={{ flexWrap:"wrap", gap:8, marginTop:12 }}>
+        {remaining.map((k) => (
+          <button key={k} onClick={()=>pick(k)}
+            style={{ padding:"9px 13px", borderRadius:11, border:"1px solid var(--navy)", background:"#fff", color:"var(--navy)", fontWeight:700, fontSize:16 }}>{tokens[k]}</button>
+        ))}
+      </div>
+    )}
+    <div className="row" style={{ gap:8, marginTop:16 }}>
+      {!checked ? <>
+        <button className="btn-ghost" style={{ flex:1 }} onClick={undo} disabled={!picked.length}>되돌리기</button>
+        <button className="btn" style={{ flex:2 }} onClick={check} disabled={remaining.length>0}>확인</button>
+      </> : (
+        <button className="btn full" onClick={next}>{i >= order.length-1 ? "끝내기" : "다음 문장 →"}</button>
+      )}
+    </div>
+  </>;
+}
+
+// ---------- 단어 자습 ----------
 function VocabSetStudy({ assignment, student, voice, onClose }) {
   const cur = assignment;
   const [mode, setMode] = useState(null);

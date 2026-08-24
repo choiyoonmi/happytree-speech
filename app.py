@@ -1815,11 +1815,11 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
     """단어 자습 한 판 결과 저장. body: {mode, correct, total}
     mode='flash'(카드암기)는 점수 없이 '했음'만 기록. 4단계 모두 하면 completedAt 기록."""
     mode = str(payload.get("mode") or "test")[:20]
-    is_flash = (mode == "flash")
+    is_noscore = mode in ("flash", "smeaning")   # 점수 없이 '했음'만 기록하는 모드(카드암기·문장 뜻확인)
     correct = max(0, int(payload.get("correct") or 0))
     total = int(payload.get("total") or 0)
     score = 0
-    if not is_flash:
+    if not is_noscore:
         if total <= 0:
             raise HTTPException(400, "문항 수가 없어요.")
         correct = min(correct, total)
@@ -1832,13 +1832,13 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
             rec["startedAt"] = now
         rec["attempts"] = rec.get("attempts", 0) + 1
         by = rec.get("byMode") or {}
-        if is_flash:
-            bm = by.get("flash") or {"attempts": 0}
+        if is_noscore:
+            bm = by.get(mode) or {"attempts": 0}
             bm["attempts"] = bm.get("attempts", 0) + 1
             bm["done"] = True
             bm["last"] = {"at": now}
-            by["flash"] = bm
-            rec["last"] = {"mode": "flash", "at": now}
+            by[mode] = bm
+            rec["last"] = {"mode": mode, "at": now}
         else:
             rec["best"] = max(rec.get("best", 0), score)
             rec["last"] = {"mode": mode, "correct": correct, "total": total, "score": score, "at": now}
