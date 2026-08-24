@@ -776,6 +776,21 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
   Object.keys(byDate).forEach(k => byDate[k].sort(dayCmp));
   noDate.sort(dayCmp);
 
+  // 달력 완료 배지: 전체 과제 기준으로 그날 완료한 활동 표시 (탭과 무관하게 한눈에)
+  const allByDate = {};
+  mine.forEach(a => { if (a.dueDate) (allByDate[a.dueDate] = allByDate[a.dueDate] || []).push(a); });
+  const dayBadges = (k) => {
+    const list = allByDate[k] || [];
+    const seen = {};
+    list.forEach(a => {
+      const L = a.type === "sentence" ? "문" : "단";
+      const st = statusMap[a.id] || "none";
+      if (st === "submitted" || st === "reviewed") seen[L + "R"] = { label: L, kind: "rec" };
+      if (vocabProgress[a.id]) seen[L + "S"] = { label: L, kind: "study" };
+    });
+    return ["단R", "문R", "단S", "문S"].filter(x => seen[x]).map(x => seen[x]);
+  };
+
   const first = new Date(ym.y, ym.m, 1);
   const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
   const startDow = first.getDay();
@@ -898,19 +913,47 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
                   fontSize:14, fontWeight: st ? 700 : 400,
                   display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2 }}>
                 {d}
-                {st && <span style={{ width:6, height:6, borderRadius:"50%",
-                  background: isPicked ? "#fff" : colors[st] }} />}
+                {(() => {
+                  const bs = dayBadges(k);
+                  const showDot = st && st !== "done" && !bs.length;
+                  return <>
+                    {bs.length > 0 && (
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:2, justifyContent:"center", maxWidth:"100%" }}>
+                        {bs.map((b,bi) => (
+                          <span key={bi} style={{ fontSize:8, fontWeight:800, lineHeight:1.1, padding:"1px 3px", borderRadius:4,
+                            background: b.kind==="rec" ? (isPicked ? "#9FB0CC" : "var(--navy)") : "var(--good)",
+                            color:"#fff", border: isPicked ? "1px solid rgba(255,255,255,.6)" : "none" }}>{b.label}</span>
+                        ))}
+                      </div>
+                    )}
+                    {showDot && <span style={{ width:6, height:6, borderRadius:"50%", background: isPicked ? "#fff" : colors[st] }} />}
+                  </>;
+                })()}
               </button>
             );
           })}
         </div>
 
-        <div className="row" style={{ gap:12, marginTop:12, justifyContent:"center" }}>
-          {[["#2E7D5B","완료"],["var(--gold)", isStudy?"할 수 있어요":"해야 해요"],["var(--danger)","기한 지남"]].map(([c,l]) => (
-            <span key={l} style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
-              <span style={{ width:7, height:7, borderRadius:"50%", background:c, display:"inline-block" }} />{l}
+        <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:6, alignItems:"center" }}>
+          <div className="row" style={{ gap:10, justifyContent:"center", flexWrap:"wrap" }}>
+            <span style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
+              <span style={{ fontSize:9, fontWeight:800, color:"#fff", background:"var(--navy)", borderRadius:4, padding:"1px 4px" }}>단</span>
+              <span style={{ fontSize:9, fontWeight:800, color:"#fff", background:"var(--navy)", borderRadius:4, padding:"1px 4px" }}>문</span>
+              🎤 녹음 완료
             </span>
-          ))}
+            <span style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
+              <span style={{ fontSize:9, fontWeight:800, color:"#fff", background:"var(--good)", borderRadius:4, padding:"1px 4px" }}>단</span>
+              <span style={{ fontSize:9, fontWeight:800, color:"#fff", background:"var(--good)", borderRadius:4, padding:"1px 4px" }}>문</span>
+              📚 자습 완료
+            </span>
+          </div>
+          <div className="row" style={{ gap:12, justifyContent:"center" }}>
+            {[["var(--gold)", isStudy?"할 수 있어요":"해야 해요"],["var(--danger)","기한 지남"]].map(([c,l]) => (
+              <span key={l} style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
+                <span style={{ width:7, height:7, borderRadius:"50%", background:c, display:"inline-block" }} />{l}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
