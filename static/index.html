@@ -776,6 +776,15 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
   Object.keys(byDate).forEach(k => byDate[k].sort(dayCmp));
   noDate.sort(dayCmp);
 
+  // 자습 완료 기준: 단계의 50% 이상 완료 (단어 4단계 중 2개↑, 문장 2단계 중 1개↑)
+  const studyDone = (a) => {
+    const rec = vocabProgress[a.id];
+    if (!rec || !rec.byMode) return false;
+    const stages = a.type === "sentence" ? ["smeaning", "unscramble"] : ["flash", "choice", "spell", "test"];
+    const done = stages.filter(s => rec.byMode[s]).length;
+    return done / stages.length >= 0.5;
+  };
+
   // 달력 완료 배지: 전체 과제 기준으로 그날 완료한 활동 표시 (탭과 무관하게 한눈에)
   const allByDate = {};
   mine.forEach(a => { if (a.dueDate) (allByDate[a.dueDate] = allByDate[a.dueDate] || []).push(a); });
@@ -786,7 +795,7 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
       const L = a.type === "sentence" ? "문" : "단";
       const st = statusMap[a.id] || "none";
       if (st === "submitted" || st === "reviewed") seen[L + "R"] = { label: L, kind: "rec" };
-      if (vocabProgress[a.id]) seen[L + "S"] = { label: L, kind: "study" };
+      if (studyDone(a)) seen[L + "S"] = { label: L, kind: "study" };
     });
     return ["단R", "문R", "단S", "문S"].filter(x => seen[x]).map(x => seen[x]);
   };
@@ -809,7 +818,7 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
   };
 
   const doneOf = (a) => isStudy
-    ? !!(vocabProgress[a.id] && (vocabProgress[a.id].best != null || (vocabProgress[a.id].byMode && Object.keys(vocabProgress[a.id].byMode).length)))
+    ? studyDone(a)
     : (statusMap[a.id] || "none") !== "none";
 
   const dayState = (d) => {
