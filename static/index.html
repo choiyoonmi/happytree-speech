@@ -560,7 +560,7 @@ function StudentView({ student, onLogout }) {
     });
   };
 
-  // 전체 한 번에 모드: 회차별 전체 지문 녹음 저장
+  // 통문장 말하기 모드: 회차별 통문장 녹음 저장
   const onSavedWhole = (roundIdx, val) => {
     setSub(prev => {
       const whole = (prev.whole || []).slice();
@@ -638,12 +638,12 @@ function StudentView({ student, onLogout }) {
           {open.type==="sentence" && open.recordMode==="whole" ? (
             <>
               <div className="card" style={{ background:"var(--cream)", padding:12 }}>
-                <div style={{ fontSize:11, fontWeight:700, color:"var(--navy-soft)", marginBottom:6 }}>📖 전체 지문 — 처음부터 끝까지 한 번에 읽어요</div>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--navy-soft)", marginBottom:6 }}>📖 통문장 — 처음부터 끝까지 한 번에 읽어요</div>
                 <div style={{ fontSize:15, lineHeight:1.7, color:"var(--navy)" }}>
                   {open.items.map((t,i)=>(<div key={i}>{i+1}. {t}</div>))}
                 </div>
               </div>
-              <Recorder key={`whole-${round}`} index={0} label="전체 지문 읽기"
+              <Recorder key={`whole-${round}`} index={0} label="통문장 말하기"
                 text={open.items.join("\n")}
                 take={(sub.whole||[])[round]} round={round}
                 onSaved={(_,r,v)=>onSavedWhole(r,v)} voice={voice} />
@@ -1566,11 +1566,11 @@ function BulkUpload({ students, reload, onClose }) {
             <div style={{height:12}} />
             <label className="label">녹음 방식</label>
             <div className="seg" style={{marginTop:0}}>
-              <button className={recordMode==="each"?"on":""} onClick={()=>setRecordMode("each")}>문장별 녹음</button>
-              <button className={recordMode==="whole"?"on":""} onClick={()=>setRecordMode("whole")}>전체 한 번에</button>
+              <button className={recordMode==="each"?"on":""} onClick={()=>setRecordMode("each")}>문장별 끊어읽기</button>
+              <button className={recordMode==="whole"?"on":""} onClick={()=>setRecordMode("whole")}>통문장 말하기</button>
             </div>
             <div className="muted" style={{ marginTop:4, fontSize:12 }}>
-              {recordMode==="whole" ? "전체 지문을 한 번에 읽고 하나의 점수로 평가 (고학년용)" : "문장을 하나씩 녹음·채점 (저학년용)"}
+              {recordMode==="whole" ? "통문장을 한 번에 읽고 하나의 점수로 평가 (고학년용)" : "문장을 하나씩 녹음·채점 (저학년용)"}
             </div>
           </>}
 
@@ -2654,10 +2654,10 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
             <div className="seg" style={{ marginTop:0 }}>
               <button className={newRecordMode===""?"on":""} onClick={()=>setNewRecordMode("")}>그대로</button>
               <button className={newRecordMode==="each"?"on":""} onClick={()=>setNewRecordMode("each")}>문장별</button>
-              <button className={newRecordMode==="whole"?"on":""} onClick={()=>setNewRecordMode("whole")}>전체 한 번에</button>
+              <button className={newRecordMode==="whole"?"on":""} onClick={()=>setNewRecordMode("whole")}>통문장 말하기</button>
             </div>
             <div className="muted" style={{ marginTop:4, fontSize:11 }}>
-              {newRecordMode==="" ? "녹음 방식은 그대로 두고 회차만 바꿔요." : newRecordMode==="whole" ? "선택 범위의 문장 과제를 모두 '전체 한 번에'로 바꿔요." : "선택 범위의 문장 과제를 모두 '문장별 녹음'으로 바꿔요."}
+              {newRecordMode==="" ? "녹음 방식은 그대로 두고 회차만 바꿔요." : newRecordMode==="whole" ? "선택 범위의 문장 과제를 모두 '통문장 말하기'로 바꿔요." : "선택 범위의 문장 과제를 모두 '문장별 끊어읽기'로 바꿔요."}
             </div>
           </>}
           <div className="muted" style={{ marginTop:8 }}>
@@ -2666,7 +2666,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
           {err && <div className="err">{err}</div>}
           <div style={{height:12}} />
           <button className="btn full" onClick={doSetRounds} disabled={busy}>
-            {busy ? "변경 중..." : `${roundsTargets.length}개 과제 변경 (${newRounds}회${newRecordMode ? " · " + (newRecordMode==="whole"?"전체 한 번에":"문장별") : ""})`}
+            {busy ? "변경 중..." : `${roundsTargets.length}개 과제 변경 (${newRounds}회${newRecordMode ? " · " + (newRecordMode==="whole"?"통문장 말하기":"문장별") : ""})`}
           </button>
         </div>
       )}
@@ -2779,12 +2779,12 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
                   {a.type==="sentence" && <>
                     <label className="label" style={{ marginTop:10, marginBottom:4 }}>녹음 방식 (문장)</label>
                     <div className="seg" style={{ marginTop:0 }}>
-                      <button className={editRecordMode==="each"?"on":""} onClick={()=>setEditRecordMode("each")}>문장별 녹음</button>
-                      <button className={editRecordMode==="whole"?"on":""} onClick={()=>setEditRecordMode("whole")}>전체 한 번에</button>
+                      <button className={editRecordMode==="each"?"on":""} onClick={()=>setEditRecordMode("each")}>문장별 끊어읽기</button>
+                      <button className={editRecordMode==="whole"?"on":""} onClick={()=>setEditRecordMode("whole")}>통문장 말하기</button>
                     </div>
                     <div className="muted" style={{ marginTop:6, fontSize:11 }}>
                       {editRecordMode==="whole"
-                        ? "전체 지문을 처음부터 끝까지 한 번에 읽고 하나의 점수로 평가해요. (고학년용)"
+                        ? "통문장을 처음부터 끝까지 한 번에 읽고 하나의 점수로 평가해요. (고학년용)"
                         : "문장을 하나씩 녹음하고 문장마다 점수를 매겨요. (저학년용)"}
                     </div>
                   </>}
@@ -2833,7 +2833,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
               ) : (
                 <button onClick={()=>openEdit(a)}
                   style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12, textAlign:"left" }}>
-                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회{a.type==="sentence" && a.recordMode==="whole" ? " · 전체읽기" : ""} · {a.published===false ? "📦 보관함" : (a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
+                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회{a.type==="sentence" && a.recordMode==="whole" ? " · 통문장" : ""} · {a.published===false ? "📦 보관함" : (a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
                 </button>
               )}
             </div>
@@ -3201,7 +3201,7 @@ function SubmissionDetail({ student, assignment, onBack }) {
       ) : (
         <>
           {(isWhole
-            ? [{ head: "📖 전체 지문 (한 번에 읽기)", meaning: "", takes: normalizeTakes(sub.whole).slice(0, a.rounds || 3),
+            ? [{ head: "📖 통문장 (한 번에 읽기)", meaning: "", takes: normalizeTakes(sub.whole).slice(0, a.rounds || 3),
                  body: a.items.map((t,i)=>`${i+1}. ${t}`).join("\n") }]
             : a.items.map((text,i) => ({ head: `${i+1}. ${text}`, meaning: (a.meanings||[])[i], takes: normalizeTakes(sub.items[i]).slice(0, a.rounds || 3), body: null }))
           ).map((row,i) => {
