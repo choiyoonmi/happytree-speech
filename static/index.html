@@ -915,21 +915,21 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
             const colors = { done:"#2E7D5B", todo:"var(--gold)", late:"var(--danger)" };
             return (
               <button key={k} onClick={()=>setPicked(k)}
-                style={{ aspectRatio:"1", borderRadius:10, position:"relative",
+                style={{ minHeight:52, padding:"5px 0", borderRadius:10, position:"relative",
                   background: isPicked ? "var(--navy)" : isToday ? "var(--cream-deep)" : "transparent",
                   border: isToday && !isPicked ? "1px solid var(--gold)" : "none",
                   color: isPicked ? "#fff" : "var(--ink)",
-                  fontSize:14, fontWeight: st ? 700 : 400,
-                  display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2 }}>
+                  fontSize:15, fontWeight: st ? 700 : 400,
+                  display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:3 }}>
                 {d}
                 {(() => {
                   const bs = dayBadges(k);
                   const showDot = st && st !== "done" && !bs.length;
                   return <>
                     {bs.length > 0 && (
-                      <div style={{ display:"flex", flexWrap:"wrap", gap:2, justifyContent:"center", maxWidth:"100%" }}>
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:3, justifyContent:"center", maxWidth:"100%" }}>
                         {bs.map((b,bi) => (
-                          <span key={bi} style={{ fontSize:8, fontWeight:800, lineHeight:1.1, padding:"1px 3px", borderRadius:4,
+                          <span key={bi} style={{ fontSize:12, fontWeight:800, lineHeight:1.15, padding:"1px 5px", borderRadius:5,
                             background: b.kind==="rec" ? (isPicked ? "#9FB0CC" : "var(--navy)") : "var(--good)",
                             color:"#fff", border: isPicked ? "1px solid rgba(255,255,255,.6)" : "none" }}>{b.label}</span>
                         ))}
@@ -946,13 +946,13 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
         <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:6, alignItems:"center" }}>
           <div className="row" style={{ gap:10, justifyContent:"center", flexWrap:"wrap" }}>
             <span style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
-              <span style={{ fontSize:9, fontWeight:800, color:"#fff", background:"var(--navy)", borderRadius:4, padding:"1px 4px" }}>단</span>
-              <span style={{ fontSize:9, fontWeight:800, color:"#fff", background:"var(--navy)", borderRadius:4, padding:"1px 4px" }}>문</span>
+              <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"var(--navy)", borderRadius:4, padding:"1px 4px" }}>단</span>
+              <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"var(--navy)", borderRadius:4, padding:"1px 4px" }}>문</span>
               🎤 녹음 완료
             </span>
             <span style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
-              <span style={{ fontSize:9, fontWeight:800, color:"#fff", background:"var(--good)", borderRadius:4, padding:"1px 4px" }}>단</span>
-              <span style={{ fontSize:9, fontWeight:800, color:"#fff", background:"var(--good)", borderRadius:4, padding:"1px 4px" }}>문</span>
+              <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"var(--good)", borderRadius:4, padding:"1px 4px" }}>단</span>
+              <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"var(--good)", borderRadius:4, padding:"1px 4px" }}>문</span>
               📚 자습 완료
             </span>
           </div>
