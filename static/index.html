@@ -2007,7 +2007,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
 
   const groupsOf = (a) => {
-    if (a.published === false) return ["📦 보관함"];
+    if (a.published === false) return [a.type === "sentence" ? "📝 문장 보관함" : "📦 단어 보관함"];
     if (a.assignedClasses?.length) return a.assignedClasses;
     if (a.assignedIds?.length) {
       const names = students.filter(s=>a.assignedIds.includes(s.id)).map(s=>s.className || s.name);
