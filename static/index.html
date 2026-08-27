@@ -191,6 +191,127 @@ function splitMeaning(line) {
   return { text: line.trim(), meaning: "" };
 }
 
+// ---------- 문장 다루기 ----------
+// 문장 끝처럼 보이지만 아닌 것들(Mr. Dr. e.g. U.S. …)
+const SENT_ABBR = /(?:^|[\s("'“‘])(?:mr|mrs|ms|dr|prof|st|mt|sgt|jr|sr|vs|etc|e\.g|i\.e|a\.m|p\.m|u\.s|u\.k|fig|no|vol|approx|inc|ltd|ave|dept)$/i;
+
+// PDF·문서에서 줄바꿈으로 잘린 문장을 다시 이어 붙인다. (빈 줄 = 문단 경계)
+function reflowLines(text) {
+  const out = [];
+  String(text || "").replace(/\r/g, "").split("\n").forEach(raw => {
+    const line = raw.trim();
+    if (!line) { out.push(""); return; }
+    const prev = out.length ? out[out.length - 1] : "";
+    // 앞 줄이 문장부호로 끝나지 않았으면 = 문장이 이어지는 중
+    if (prev && !/[.!?…:;][")\]'”’]?$/.test(prev)) out[out.length - 1] = (prev + " " + line).replace(/\s{2,}/g, " ");
+    else out.push(line);
+  });
+  return out.filter(Boolean).join("\n");
+}
+
+// 글을 문장 단위로 자른다. (한 줄에 여러 문장 / 여러 줄에 한 문장 모두 처리)
+function splitSentences(text) {
+  const out = [];
+  reflowLines(text).split("\n").forEach(para => {
+    let buf = "";
+    for (let i = 0; i < para.length; i++) {
+      const ch = para[i];
+      buf += ch;
+      if (ch !== "." && ch !== "!" && ch !== "?" && ch !== "…") continue;
+      let j = i + 1;
+      while (j < para.length && /["')\]”’]/.test(para[j])) { buf += para[j]; j++; }   // 닫는 따옴표까지
+      const rest = para.slice(j);
+      i = j - 1;
+      if (rest && !/^\s/.test(rest)) continue;                       // 3.5 / Level 5.1 → 문장 끝 아님
+      if (ch === ".") {
+        const before = buf.replace(/["')\]”’]*$/, "").slice(0, -1);
+        if (SENT_ABBR.test(before)) continue;                        // Mr. Dr. etc.
+        if (/(?:^|\s)[A-Z]$/.test(before)) continue;                 // 이니셜 J. K.
+      }
+      if (rest && !/^\s+["'“‘(\[]?[A-Z0-9가-힣]/.test(rest)) continue; // 다음이 새 문장처럼 안 보이면 계속
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+    }
+    if (buf.trim()) out.push(buf.trim());
+  });
+  return out;
+}
+
+// 문장 + 한글 뜻 분리. 문장 안의 '-' 는 건드리지 않는다. (첫 한글 글자에서 자름)
+function splitSentenceMeaning(line) {
+  const s = String(line || "").trim();
+  const idx = s.search(/[가-힣]/);
+  if (idx <= 0) return { text: s, meaning: "" };
+  const text = s.slice(0, idx).replace(/[\s/|·]+$/, "").trim();      // 끝의 구분자만 정리 (마침표는 유지)
+  if (!/[a-zA-Z]/.test(text)) return { text: s, meaning: "" };
+  return { text, meaning: s.slice(idx).trim() };
+}
+
+// 문장 단위로 다시 나눌지 판단.
+// ① 문장이 줄보다 많아지거나(한 줄에 여러 문장), ② 줄을 이어 붙였고 결과가 모두 문장부호로 끝날 때만 다시 나눈다.
+// (마침표 없이 한 줄에 하나씩 쓴 목록은 그대로 둔다)
+function sentencesOrLines(text) {
+  const lines = String(text || "").split("\n").map(s => s.trim()).filter(Boolean);
+  const sents = splitSentences(text);
+  if (!sents.length) return lines;
+  if (sents.length > lines.length) return sents;
+  const merged = reflowLines(text).split("\n").filter(Boolean).length < lines.length;
+  const allEnd = sents.every(t => /[.!?…][")\]'”’]?$/.test(t));
+  return (merged && allEnd) ? sents : lines;
+}
+
+// 과제 목록 텍스트 → [{text, meaning}]
+// 문장 유형은 문장 단위로(sentencesOrLines), 단어 유형은 지금처럼 줄 단위로 읽는다.
+function parseItemList(text, type) {
+  const lines = String(text || "").split("\n").map(s => s.trim()).filter(Boolean);
+  if (type !== "sentence") return lines.map(splitMeaning);
+  return sentencesOrLines(text).map(splitSentenceMeaning);
+}
+
+// 페이지마다 되풀이되는 줄 = 머리말/꼬리말(교재명·레벨·페이지) → 제거.
+// 반복된 단어(복습 유닛)까지 지워지지 않도록 '전체 페이지의 절반 이상'에 나올 때만 버린다.
+function dropRunningHeaders(lines, pages) {
+  const need = Math.max(3, Math.ceil((pages || 0) * 0.5));
+  const count = {};
+  lines.forEach(l => { count[l] = (count[l] || 0) + 1; });
+  return lines.filter(l => !(count[l] >= need && l.length <= 60));
+}
+
+// PDF 한 줄 안의 조각들을 붙인다. 글자 사이 간격이 벌어진 곳에만 공백을 넣는다.
+// (그냥 공백으로 이으면 "sunglass es", 그냥 붙이면 단어가 들러붙는다)
+function joinPdfItems(items) {
+  let line = "", prevEnd = null;
+  items.slice().sort((a, b) => a.transform[4] - b.transform[4]).forEach(it => {
+    const s = it.str;
+    if (!s) return;
+    const x = it.transform[4];
+    if (prevEnd !== null) {
+      const size = Math.abs(it.transform[0]) || it.height || 10;
+      if (x - prevEnd > size * 0.2 && !/\s$/.test(line) && !/^\s/.test(s)) line += " ";
+    }
+    line += s;
+    prevEnd = x + (it.width || 0);
+  });
+  return line.replace(/\s+/g, " ").trim();
+}
+
+// PDF 전체를 줄 배열로 (모든 업로드 경로가 이걸 씀)
+async function pdfToLines(file) {
+  const buf = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  const lines = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const content = await (await doc.getPage(p)).getTextContent();
+    const byRow = {};
+    content.items.forEach(it => { const y = Math.round(it.transform[5]); (byRow[y] = byRow[y] || []).push(it); });
+    Object.keys(byRow).map(Number).sort((a, b) => b - a).forEach(y => {
+      const line = joinPdfItems(byRow[y]);
+      if (line) lines.push(line);
+    });
+  }
+  return { lines, pages: doc.numPages };
+}
+
 function useVoice() {
   const [voice, setVoice] = useState(null);
   useEffect(() => {
@@ -1216,6 +1337,8 @@ function BulkUpload({ students, reload, onClose }) {
   const aiTimer = useRef(null);
   const [needEng, setNeedEng] = useState(false);   // 한글뜻만 있는 파일 → 영어 채워야 함
   const [engBusy, setEngBusy] = useState(false);
+  const [sentenceFix, setSentenceFix] = useState(true);   // 문장 자동 정리 (줄바꿈으로 잘린 문장 이어붙이기)
+  const [srcKind, setSrcKind] = useState("");             // pdf | excel | ai
 
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
   const DAYNAMES = ["일","월","화","수","목","금","토"];
@@ -1292,26 +1415,20 @@ function BulkUpload({ students, reload, onClose }) {
   };
 
   const parsePdf = async (file) => {
-    const buf = await file.arrayBuffer();
-    const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-    const lines = [];
-    for (let p = 1; p <= doc.numPages; p++) {
-      const page = await doc.getPage(p);
-      const content = await page.getTextContent();
-      const byRow = {};
-      content.items.forEach(it => { const y = Math.round(it.transform[5]); (byRow[y] = byRow[y] || []).push(it); });
-      Object.keys(byRow).map(Number).sort((a,b)=>b-a).forEach(y => {
-        const line = byRow[y].sort((a,b)=>a.transform[4]-b.transform[4]).map(i=>i.str).join(" ").replace(/\s+/g," ").trim();
-        if (line) lines.push(line);
-      });
-    }
+    const pdf = await pdfToLines(file);
+    const lines = dropRunningHeaders(pdf.lines, pdf.pages);   // 페이지마다 반복되는 교재명·머리말 제거
     const out = [];
     let curDay = null;
     let label = null;
     let seenWord = false;   // 이번 Day에서 단어 행을 하나라도 봤는지 (머리글 오인 방지)
-    const isHeaderish = (t) =>
-      /단어|품사|어휘\s*리스트|능률|voca|class|name|date/i.test(t) ||
-      /^(?:no\.?|번호|english\s*word|영어\s*단어|뜻|meaning|단어|의미|page|\d+)$/i.test(t);
+    // 표 머리글 줄만 걸러낸다. (예전엔 name·class·date가 들어간 문장까지 통째로 버려졌다 — "My name is Tom.")
+    const isHeaderish = (t) => {
+      const s = String(t || "").trim();
+      if (/^(?:no\.?|번호|english\s*word|영어\s*단어|뜻|meaning|단어|의미|page|\d+)$/i.test(s)) return true;
+      if (/[.!?]$/.test(s)) return false;                  // 문장부호로 끝나면 문장이다
+      if (s.split(/\s+/).length > 6) return false;         // 긴 줄은 머리글이 아니다
+      return /단어|품사|어휘\s*리스트|능률|voca/i.test(s) || /^(?:class|name|date)\b/i.test(s);
+    };
     lines.forEach(line => {
       const d = dayNumber(line);
       if (d !== null) {
@@ -1319,14 +1436,15 @@ function BulkUpload({ students, reload, onClose }) {
         seenWord = false;
         label = label || detectLabel(line);
         const rest = line.replace(/.*(?:day|unit|lesson|lec|chapter)\s*0*\d+/i, "")
-          .replace(/.*\d+\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)/, "").trim();
+          .replace(/.*\d+\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)/, "")
+          .replace(/^\s*[.\-–:)·]\s*/, "").trim();       // Unit 번호 뒤에 남은 구두점 정리
         const e = extractEng(rest);
-        if (e) { out.push({ day: curDay, text: e.text, meaning: e.meaning }); seenWord = true; }
+        if (e) { out.push({ day: curDay, text: e.text, meaning: e.meaning, raw: rest, titleRow: true }); seenWord = true; }
         return;
       }
       if (isHeaderish(line)) return;
       const e = extractEng(line);
-      if (e) { out.push({ day: curDay, text: e.text, meaning: e.meaning }); seenWord = true; }
+      if (e) { out.push({ day: curDay, text: e.text, meaning: e.meaning, raw: line }); seenWord = true; }
       else if (/[가-힣]/.test(line) && !/[a-zA-Z]/.test(line) && !/^\s*\d/.test(line) && out.length && seenWord) {
         // 영어 없이 한글만 있는 줄 = 앞 단어 뜻이 다음 줄로 이어진 것 → 이어붙임
         const last = out[out.length - 1];
@@ -1340,6 +1458,7 @@ function BulkUpload({ students, reload, onClose }) {
   const aiRead = async (file) => {
     if (!file) return;
     setErr(""); setRows(null); setAiBusy(true);
+    setSrcKind("ai");
     setAiSecs(0);
     if (aiTimer.current) clearInterval(aiTimer.current);
     aiTimer.current = setInterval(() => setAiSecs(s => s + 1), 1000);
@@ -1376,17 +1495,7 @@ function BulkUpload({ students, reload, onClose }) {
     const name = (file.name || "").toLowerCase();
     let lines = [], label = null;
     if (name.endsWith(".pdf")) {
-      const buf = await file.arrayBuffer();
-      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-      for (let p = 1; p <= doc.numPages; p++) {
-        const content = await (await doc.getPage(p)).getTextContent();
-        const byRow = {};
-        content.items.forEach(it => { const y = Math.round(it.transform[5]); (byRow[y] = byRow[y] || []).push(it); });
-        Object.keys(byRow).map(Number).sort((a,b)=>b-a).forEach(y => {
-          const line = byRow[y].sort((a,b)=>a.transform[4]-b.transform[4]).map(i=>i.str).join(" ").replace(/\s+/g," ").trim();
-          if (line) lines.push(line);
-        });
-      }
+      lines = (await pdfToLines(file)).lines;
     } else {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type:"array" });
@@ -1425,8 +1534,10 @@ function BulkUpload({ students, reload, onClose }) {
   const readFile = async (file) => {
     setErr(""); setRows(null); setNeedEng(false);
     const name = (file.name || "").toLowerCase();
+    const isPdf = name.endsWith(".pdf");
+    setSrcKind(isPdf ? "pdf" : "excel");
     try {
-      const res = name.endsWith(".pdf") ? await parsePdf(file) : await parseExcel(file);
+      const res = isPdf ? await parsePdf(file) : await parseExcel(file);
       // 영어만: 영문자가 들어간 항목만 남김 (머리글·번호·한글전용 줄 제거)
       const parsed = res.parsed.filter(r => /[a-zA-Z]/.test(r.text || ""));
       if (parsed.length) {
@@ -1456,21 +1567,50 @@ function BulkUpload({ students, reload, onClose }) {
     } catch (e) { setErr("파일을 읽는 데 실패했어요. (PDF는 스캔 이미지형이면 텍스트 추출이 안 돼요)"); }
   };
 
+  // 문장 과제: PDF·엑셀의 '줄'을 문장 단위로 다시 나눈다 (줄바꿈으로 잘린 문장 복구)
+  const fixedRows = React.useMemo(() => {
+    if (!rows || type !== "sentence" || !sentenceFix) return rows;
+    const out = [];
+    let bucket = [], bucketDay;
+    const flush = () => {
+      if (!bucket.length) return;
+      // 지문 제목 줄은 문장이 아니니 뒤 문장과 붙이지 않는다
+      while (bucket.length && bucket[0].titleRow) out.push(bucket.shift());
+      if (!bucket.length) return;
+      const raws = bucket.map(r => r.raw || r.text).filter(Boolean);
+      const text = raws.join("\n");
+      // PDF는 '줄'이 문장 경계가 아니니 항상 문장으로 다시 나눈다. 엑셀·AI는 안전하게 판단해서.
+      const sents = srcKind === "pdf" ? splitSentences(text) : sentencesOrLines(text);
+      if (bucket.some(r => r.meaning) || !sents.length) out.push(...bucket);
+      else sents.forEach(t => {
+        const sp = splitSentenceMeaning(t);
+        out.push({ day: bucketDay, text: sp.text, meaning: sp.meaning });
+      });
+      bucket = [];
+    };
+    rows.forEach(r => {
+      if (bucket.length && r.day !== bucketDay) flush();
+      bucketDay = r.day; bucket.push(r);
+    });
+    flush();
+    return out;
+  }, [rows, type, sentenceFix, srcKind]);
+
   // Day별로 묶기
   const groups = React.useMemo(() => {
-    if (!rows) return [];
+    if (!fixedRows) return [];
     if (hasDayCol) {
       const m = {};
-      rows.filter(r => (r.day ?? 1) >= startDay)
+      fixedRows.filter(r => (r.day ?? 1) >= startDay)
         .forEach(r => { const d = r.day ?? 1; (m[d] = m[d] || []).push(r); });
       return Object.keys(m).map(Number).sort((a,b)=>a-b).map(d => ({ day:d, rows:m[d] }));
     }
     const out = [];
-    for (let i=0; i<rows.length; i+=perDay) {
-      out.push({ day: out.length+1, rows: rows.slice(i, i+perDay) });
+    for (let i=0; i<fixedRows.length; i+=perDay) {
+      out.push({ day: out.length+1, rows: fixedRows.slice(i, i+perDay) });
     }
     return out;
-  }, [rows, hasDayCol, perDay, startDay]);
+  }, [fixedRows, hasDayCol, perDay, startDay]);
 
   // 선택한 요일에 맞춰 마감일 계산
   const dueDates = React.useMemo(() => {
@@ -1597,7 +1737,7 @@ function BulkUpload({ students, reload, onClose }) {
       {rows && (
         <>
           <div style={{ marginTop:14, padding:10, background:"var(--cream)", borderRadius:8 }}>
-            <b style={{ color:"var(--navy)" }}>{rows.length}개</b> 단어를 읽었어요 ·
+            <b style={{ color:"var(--navy)" }}>{(fixedRows || rows).length}개</b> {type==="sentence" ? "문장" : "단어"}을 읽었어요 ·
             {hasDayCol ? " 파일의 구분 사용" : ` ${perDay}개씩 나눔`} →
             <b style={{ color:"var(--navy)" }}> {groups.length}개 과제</b>
             <button className="btn-ghost" style={{ fontSize:11, padding:"4px 8px", marginLeft:8 }}
@@ -1621,7 +1761,7 @@ function BulkUpload({ students, reload, onClose }) {
                 </div>
               </div>
             )}
-            <div style={{ fontSize:11, color:"var(--navy-soft)", margin:"8px 0 4px", fontWeight:700 }}>{unitLabel}별 단어 수</div>
+            <div style={{ fontSize:11, color:"var(--navy-soft)", margin:"8px 0 4px", fontWeight:700 }}>{unitLabel}별 {type==="sentence" ? "문장" : "단어"} 수</div>
             <div className="row" style={{ flexWrap:"wrap", gap:5 }}>
               {groups.map(g => {
                 const few = g.rows.length < 5;
@@ -1669,6 +1809,25 @@ function BulkUpload({ students, reload, onClose }) {
           </div>
 
           {type==="sentence" && <>
+            <div style={{height:12}} />
+            <label className="label">문장 정리</label>
+            <button onClick={()=>setSentenceFix(!sentenceFix)}
+              style={{ width:"100%", textAlign:"left", padding:"10px 12px", borderRadius:8, fontSize:13, fontWeight:700,
+                border:"1px solid var(--line)", background: sentenceFix ? "var(--navy)" : "#fff", color: sentenceFix ? "var(--cream)" : "var(--navy)" }}>
+              {sentenceFix ? "✅" : "⬜"} 줄바꿈으로 잘린 문장 이어 붙이기
+            </button>
+            <div className="muted" style={{ marginTop:4, fontSize:12 }}>
+              PDF는 한 문장이 두 줄로 잘려 있어요. 켜두면 마침표(. ? !)를 기준으로 문장을 온전하게 다시 맞춰요.
+            </div>
+            {groups[0] && (
+              <div style={{ marginTop:8, padding:"8px 10px", background:"#fff", border:"1px solid var(--line)", borderRadius:8 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--navy)" }}>{unitLabel} {groups[0].day} 미리보기 ({groups[0].rows.length}문장)</div>
+                <div style={{ marginTop:4, fontSize:12, color:"var(--navy)", lineHeight:1.7 }}>
+                  {groups[0].rows.slice(0,4).map((r,i)=>(<div key={i}>{i+1}. {r.text}</div>))}
+                  {groups[0].rows.length>4 && <div className="muted">… 외 {groups[0].rows.length-4}문장</div>}
+                </div>
+              </div>
+            )}
             <div style={{height:12}} />
             <label className="label">녹음 방식</label>
             <div className="seg" style={{marginTop:0}}>
@@ -1786,11 +1945,10 @@ function AdminAssignments({ students, assignments, reload, voice }) {
   const [fillBusy, setFillBusy] = useState(false);
 
   const autoTranslate = async () => {
-    const lines = list.split("\n").map(s=>s.trim()).filter(Boolean);
-    if (!lines.length) return setErr("먼저 목록을 입력해주세요.");
+    const parsed = parseItemList(list, type);
+    if (!parsed.length) return setErr("먼저 목록을 입력해주세요.");
     setTrBusy(true); setErr("");
     try {
-      const parsed = lines.map(splitMeaning);
       const need = parsed.map((p,i) => p.meaning ? null : i).filter(i => i !== null);
       if (!need.length) { setErr("이미 모든 항목에 한글 뜻이 있어요."); setTrBusy(false); return; }
       const r = await apiPost("/translate", { texts: need.map(i => parsed[i].text) });
@@ -1799,6 +1957,9 @@ function AdminAssignments({ students, assignments, reload, voice }) {
     } catch (e) { setErr(e.message); }
     setTrBusy(false);
   };
+
+  const preview = React.useMemo(() => parseItemList(list, type), [list, type]);
+  const rawLineCount = React.useMemo(() => list.split("\n").map(x=>x.trim()).filter(Boolean).length, [list]);
 
   const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
 
@@ -1817,21 +1978,12 @@ function AdminAssignments({ students, assignments, reload, voice }) {
   const readPdf = async (file) => {
     setErr(""); setPdfBusy(true);
     try {
-      const buf = await file.arrayBuffer();
-      const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-      let all = [];
-      for (let p=1; p<=doc.numPages; p++) {
-        const page = await doc.getPage(p);
-        const c = await page.getTextContent();
-        const rows = {};
-        c.items.forEach(it => {
-          const y = Math.round(it.transform[5]);
-          (rows[y] = rows[y] || []).push(it);
-        });
-        Object.keys(rows).map(Number).sort((a,b)=>b-a).forEach(y => {
-          const line = rows[y].sort((a,b)=>a.transform[4]-b.transform[4]).map(i=>i.str).join("").trim();
-          if (line) all.push(line);
-        });
+      const pdf = await pdfToLines(file);
+      let all = dropRunningHeaders(pdf.lines, pdf.pages);
+      // 문장 과제면 PDF의 줄바꿈을 무시하고 문장 단위로 다시 나눈다 (문장이 중간에 잘리는 것 방지)
+      if (type === "sentence") {
+        const sents = splitSentences(all.join("\n"));
+        if (sents.length) all = sents;
       }
       if (!all.length) setErr("PDF에서 텍스트를 찾지 못했어요. 스캔 이미지형일 수 있어요.");
       else setList(p => p.trim() ? p.trim()+"\n"+all.join("\n") : all.join("\n"));
@@ -1840,9 +1992,8 @@ function AdminAssignments({ students, assignments, reload, voice }) {
   };
 
   const create = async () => {
-    const lines = list.split("\n").map(s=>s.trim()).filter(Boolean);
-    if (!title.trim() || !lines.length) return setErr("제목과 목록을 입력해주세요.");
-    const parsed = lines.map(splitMeaning);
+    const parsed = parseItemList(list, type);
+    if (!title.trim() || !parsed.length) return setErr("제목과 목록을 입력해주세요.");
     const items = parsed.map(p => p.text);
     const meanings = parsed.map(p => p.meaning);
     let assignedIds = [];
@@ -1945,13 +2096,23 @@ function AdminAssignments({ students, assignments, reload, voice }) {
           <textarea className="field" rows={6} value={list} onChange={e=>setList(e.target.value)}
             placeholder={"apple / 사과\nbanana / 바나나\n\n한글 뜻은 '/' 뒤에 쓰거나, 영어만 넣고 '한글뜻 자동'을 누르세요."} />
           {list.trim() && (
-            <div className="row" style={{ marginTop:8 }}>
-              {list.split("\n").map(s=>s.trim()).filter(Boolean).slice(0,6).map((w,i)=>(
-                <button key={i} onClick={()=>speak(w, voice)}
-                  style={{ fontSize:11, padding:"4px 9px", borderRadius:999, background:"var(--cream-deep)", color:"var(--navy)" }}>
-                  🔊 {w}
-                </button>
-              ))}
+            <div style={{ marginTop:8, padding:"8px 10px", background:"var(--cream)", borderRadius:8 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:"var(--navy)" }}>
+                올라갈 {type==="sentence" ? "문장" : "단어"} {preview.length}개
+                {type==="sentence" && preview.length !== rawLineCount &&
+                  <span style={{ fontWeight:600, color:"var(--navy-soft)" }}> · 줄바꿈으로 잘린 문장을 이어서 문장 단위로 나눴어요 (입력 {rawLineCount}줄)</span>}
+              </div>
+              <div style={{ marginTop:6, display:"flex", flexWrap:"wrap", gap:5 }}>
+                {preview.slice(0, type==="sentence" ? 4 : 6).map((p,i)=>(
+                  <button key={i} onClick={()=>speak(p.text, voice)}
+                    style={{ fontSize:11, padding:"4px 9px", borderRadius:999, background:"var(--cream-deep)", color:"var(--navy)",
+                      textAlign:"left", maxWidth:"100%", flex: type==="sentence" ? "1 1 100%" : "0 0 auto" }}>
+                    🔊 {p.text}{p.meaning ? " — " + p.meaning : ""}
+                  </button>
+                ))}
+                {preview.length > (type==="sentence" ? 4 : 6) &&
+                  <span className="muted" style={{ fontSize:11 }}>… 외 {preview.length - (type==="sentence" ? 4 : 6)}개</span>}
+              </div>
             </div>
           )}
           <div style={{height:14}} />
@@ -2347,7 +2508,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   };
   const toggleIn = (arr, set, v) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
 
-  const saveOne = async (id) => {
+  const saveOne = async (id, aType) => {
     setBusy(true); setErr("");
     let assignedIds = [], assignedClasses = [];
     if (editMode === "class") {
@@ -2359,7 +2520,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     const published = editMode !== "hidden";
     const body = { dueDate: editDue || null, rounds: editRounds, assignedIds, assignedClasses, published, recordMode: editRecordMode };
     if (showItems) {
-      const parsed = editItems.split("\n").map(s => s.trim()).filter(Boolean).map(splitMeaning);
+      const parsed = parseItemList(editItems, aType);
       if (parsed.length) { body.items = parsed.map(p => p.text); body.meanings = parsed.map(p => p.meaning || ""); }
     }
     try {
@@ -2931,7 +3092,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
                   </div>
                   <div className="row" style={{ marginTop:10, gap:6 }}>
                     <button className="btn" style={{ flex:1, padding:"7px 12px", fontSize:12 }}
-                      onClick={()=>saveOne(a.id)} disabled={busy}>{busy ? "저장 중..." : "저장"}</button>
+                      onClick={()=>saveOne(a.id, a.type)} disabled={busy}>{busy ? "저장 중..." : "저장"}</button>
                     <button className="btn-ghost" style={{ padding:"7px 12px", fontSize:12 }}
                       onClick={()=>setEditing(null)}>취소</button>
                   </div>
