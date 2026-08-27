@@ -879,6 +879,78 @@ def _avg_score_from_items(items):
     return round(sum(scores) / len(scores)) if scores else None
 
 
+# ---------- 트리톡 알림: 오늘의 4활동(단어녹음·문장녹음·단어자습·문장자습) 현황 ----------
+BOT_NOTIFY_URL = os.environ.get("BOT_NOTIFY_URL",
+    "https://script.google.com/macros/s/AKfycbwHxEXK4Lz80L8A9zDiqIE8CNzNKSSiFCk6HYevmRdhde5eSRmSVATwHuRxsHBnv7Uh/exec")
+
+def _treetalk_today_status(student_id):
+    """오늘 트리톡 4활동 현황: 단어녹음/문장녹음 점수 + 단어자습/문장자습 완료(50%↑)."""
+    from datetime import datetime, timezone, timedelta
+    d = datetime.now(timezone.utc) + timedelta(hours=9)
+    today = "%d/%d" % (d.month, d.day)   # _now_kr()과 같은 'M/D'
+    db = load_db()
+    atype = {}
+    for a in db.get("assignments", []):
+        atype[a.get("id")] = a.get("type", "word")
+    res = {"word_rec": None, "sent_rec": None, "word_study": False, "sent_study": False}
+    is_today = lambda ts: str(ts or "").split(" ")[0] == today
+    try:
+        subs = load_student_subs(student_id) or {}
+    except Exception:
+        subs = {}
+    for aid, sub in subs.items():
+        if (sub or {}).get("status") not in ("submitted", "reviewed"):
+            continue
+        if not (is_today(sub.get("submittedAt")) or is_today(sub.get("completedAt"))):
+            continue
+        avg = _avg_score_from_items(sub.get("items"))
+        if avg is None:
+            continue
+        if atype.get(aid, "word") == "sentence":
+            res["sent_rec"] = avg if res["sent_rec"] is None else max(res["sent_rec"], avg)
+        else:
+            res["word_rec"] = avg if res["word_rec"] is None else max(res["word_rec"], avg)
+    try:
+        vocab = load_vocab(student_id) or {}
+    except Exception:
+        vocab = {}
+    for aid, rec in vocab.items():
+        by = (rec or {}).get("byMode") or {}
+        touched = any(is_today(((bm or {}).get("last") or {}).get("at")) for bm in by.values())
+        if not touched:
+            continue
+        stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
+        if sum(1 for s in stages if by.get(s)) / len(stages) >= 0.5:
+            if atype.get(aid, "word") == "sentence":
+                res["sent_study"] = True
+            else:
+                res["word_study"] = True
+    return res
+
+def _notify_treetalk(student_id):
+    """트리톡 활동 완료 시 담당쌤(학년별, 입력봇이 결정)+원장께 4활동 현황 알림. best-effort."""
+    try:
+        db = load_db()
+        student = next((s for s in db.get("students", []) if s.get("id") == student_id), None)
+        if not student:
+            return
+        name = student.get("name") or student_id
+        cls = student.get("className") or ""
+        st = _treetalk_today_status(student_id)
+        wr = ("%d점" % st["word_rec"]) if st["word_rec"] is not None else "⬜"
+        sr = ("%d점" % st["sent_rec"]) if st["sent_rec"] is not None else "⬜"
+        what = ("단어 녹음 %s · 문장 녹음 %s\n단어 자습 %s · 문장 자습 %s"
+                % (wr, sr, "✅" if st["word_study"] else "⬜", "✅" if st["sent_study"] else "⬜"))
+        import urllib.request, urllib.parse
+        q = urllib.parse.urlencode({"learndone": "1", "app": "트리톡", "student": name, "cls": cls, "what": what})
+        try:
+            urllib.request.urlopen(BOT_NOTIFY_URL + "?" + q, timeout=8).read()
+        except Exception as e:
+            print("[treetalk] relay fail:", e)
+    except Exception as e:
+        print("[treetalk] notify err:", e)
+
+
 def _notify_reading_submission(student_id, assignment_id, sub):
     """학생이 낭독 숙제를 '제출'하면 원장님 텔레그램으로 알림."""
     db = load_db()
@@ -960,9 +1032,9 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     # 이번 저장으로 '제출됨' 상태가 새로 된 경우에만 알림 (중간 저장·재저장 시엔 안 보냄)
     if payload.get("status") == "submitted" and prev_status != "submitted":
         try:
-            _notify_reading_submission(student_id, assignment_id, existing)
+            _notify_treetalk(student_id)   # 담당쌤(학년별)+원장께 4활동 현황
         except Exception as e:
-            print("[telegram] 낭독 제출 알림 실패:", e)
+            print("[telegram] 트리톡 제출 알림 실패:", e)
 
     return existing
 
@@ -1849,6 +1921,7 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
             rec["startedAt"] = now
         rec["attempts"] = rec.get("attempts", 0) + 1
         by = rec.get("byMode") or {}
+        _prev_keys = set(by.keys())
         if is_noscore:
             bm = by.get(mode) or {"attempts": 0}
             bm["attempts"] = bm.get("attempts", 0) + 1
@@ -1865,12 +1938,22 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
             bm["last"] = {"correct": correct, "total": total, "score": score, "at": now}
             by[mode] = bm
         rec["byMode"] = by
+        # 자습 완료(단계 50%↑) 새로 도달 시 트리톡 알림 트리거
+        _adb = load_db()
+        _a = next((x for x in _adb.get("assignments", []) if x.get("id") == assignment_id), None)
+        _stg = ["smeaning", "unscramble"] if (_a or {}).get("type", "word") == "sentence" else ["flash", "choice", "spell", "test"]
+        _fire_study = (sum(1 for s in _stg if s in _prev_keys) / len(_stg)) < 0.5 <= (sum(1 for s in _stg if s in by) / len(_stg))
         complete = VOCAB_STAGES.issubset(set(by.keys()))
         rec["complete"] = complete
         if complete and not rec.get("completedAt"):
             rec["completedAt"] = now
         data[assignment_id] = rec
         save_vocab(student_id, data)
+    if _fire_study:
+        try:
+            _notify_treetalk(student_id)   # 자습 완료 → 담당쌤(학년별)+원장께
+        except Exception as e:
+            print("[treetalk] 자습 알림 실패:", e)
     return rec
 
 
