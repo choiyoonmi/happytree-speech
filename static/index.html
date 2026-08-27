@@ -203,7 +203,10 @@ function reflowLines(text) {
     if (!line) { out.push(""); return; }
     const prev = out.length ? out[out.length - 1] : "";
     // 앞 줄이 문장부호로 끝나지 않았으면 = 문장이 이어지는 중
-    if (prev && !/[.!?…:;][")\]'”’]?$/.test(prev)) out[out.length - 1] = (prev + " " + line).replace(/\s{2,}/g, " ");
+    const cont = prev && !/[.!?…:;][")\]'”’]?$/.test(prev);
+    // 단, 앞 줄이 짧은 제목처럼 보이고(8단어 이하) 다음 줄이 대문자로 새 문장을 시작하면 → 제목이므로 붙이지 않음
+    const headingBreak = cont && prev.split(/\s+/).length <= 8 && /^["'“‘(\[]?[A-Z]/.test(line);
+    if (cont && !headingBreak) out[out.length - 1] = (prev + " " + line).replace(/\s{2,}/g, " ");
     else out.push(line);
   });
   return out.filter(Boolean).join("\n");
