@@ -627,27 +627,44 @@ def clean_student_books(sid: str, payload: dict = Body(...)):
         raise HTTPException(400, "keep 또는 remove를 지정해주세요.")
     unassigned = 0
     deleted = 0
+    converted = 0
     with _lock:
         db = load_db()
+        all_ids = [s.get("id") for s in db.get("students", []) if s.get("id")]
         remaining = []
         for a in db["assignments"]:
+            if a.get("published") is False:      # 보관함은 건드리지 않음
+                remaining.append(a)
+                continue
             ids = a.get("assignedIds") or []
+            classes = a.get("assignedClasses") or []
             book = a.get("book", "")
-            hit = (sid in ids) and ((keep is not None and book != keep) or (book in remove))
+            is_all = (not ids) and (not classes)             # 전체(모든 학생) 배정
+            student_has = (sid in ids) or is_all             # 이 학생이 받는 책인지
+            hit = student_has and ((keep is not None and book != keep) or (book in remove))
             if not hit:
                 remaining.append(a)
                 continue
-            classes = a.get("assignedClasses") or []
-            new_ids = [x for x in ids if x != sid]
-            if not new_ids and not classes:
-                deleted += 1            # 이 학생 전용 → 과제 삭제(목록에서 제외)
+            if is_all:
+                # 전체 → 이 학생만 빼기 = 나머지 학생에게만 개별 배정
+                others = [x for x in all_ids if x != sid]
+                if others:
+                    a["assignedIds"] = others
+                    converted += 1
+                    remaining.append(a)
+                else:
+                    deleted += 1                              # 학생이 이 사람뿐이면 삭제
             else:
-                a["assignedIds"] = new_ids
-                unassigned += 1
-                remaining.append(a)
+                new_ids = [x for x in ids if x != sid]
+                if not new_ids and not classes:
+                    deleted += 1                              # 이 학생 전용 → 과제 삭제
+                else:
+                    a["assignedIds"] = new_ids
+                    unassigned += 1
+                    remaining.append(a)
         db["assignments"] = remaining
         save_db(db)
-    return {"unassigned": unassigned, "deleted": deleted}
+    return {"unassigned": unassigned + converted, "deleted": deleted}
 
 
 @app.post("/api/assignments/fill-meanings")
