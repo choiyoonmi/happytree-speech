@@ -927,7 +927,7 @@ def _treetalk_today_status(student_id):
                 res["word_study"] = True
     return res
 
-def _notify_treetalk(student_id):
+def _notify_treetalk(student_id, lesson=""):
     """트리톡 활동 완료 시 담당쌤(학년별, 입력봇이 결정)+원장께 4활동 현황 알림. best-effort."""
     try:
         db = load_db()
@@ -942,7 +942,10 @@ def _notify_treetalk(student_id):
         what = ("단어 녹음 %s · 문장 녹음 %s\n단어 자습 %s · 문장 자습 %s"
                 % (wr, sr, "✅" if st["word_study"] else "⬜", "✅" if st["sent_study"] else "⬜"))
         import urllib.request, urllib.parse
-        q = urllib.parse.urlencode({"learndone": "1", "app": "트리톡", "student": name, "cls": cls, "what": what})
+        _params = {"learndone": "1", "app": "트리톡", "student": name, "cls": cls, "what": what}
+        if lesson:
+            _params["lesson"] = lesson
+        q = urllib.parse.urlencode(_params)
         try:
             urllib.request.urlopen(BOT_NOTIFY_URL + "?" + q, timeout=8).read()
         except Exception as e:
@@ -1032,7 +1035,7 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     # 이번 저장으로 '제출됨' 상태가 새로 된 경우에만 알림 (중간 저장·재저장 시엔 안 보냄)
     if payload.get("status") == "submitted" and prev_status != "submitted":
         try:
-            _notify_treetalk(student_id)   # 담당쌤(학년별)+원장께 4활동 현황
+            _notify_treetalk(student_id, lesson=a_title)   # 담당쌤(학년별)+원장께 4활동 현황
         except Exception as e:
             print("[telegram] 트리톡 제출 알림 실패:", e)
 
@@ -1951,7 +1954,7 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
         save_vocab(student_id, data)
     if _fire_study:
         try:
-            _notify_treetalk(student_id)   # 자습 완료 → 담당쌤(학년별)+원장께
+            _notify_treetalk(student_id, lesson=(_a or {}).get("title", ""))   # 자습 완료 → 담당쌤(학년별)+원장께
         except Exception as e:
             print("[treetalk] 자습 알림 실패:", e)
     return rec
