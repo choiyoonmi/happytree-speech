@@ -1222,7 +1222,14 @@ def assess_with_sdk(wav_path: str, reference: str):
 
     if result.reason == speechsdk.ResultReason.Canceled:
         det = result.cancellation_details
-        raise HTTPException(502, f"Azure 취소됨: {det.reason} {det.error_details or ''}"[:300])
+        raw = f"{det.reason} {det.error_details or ''}"
+        print("[assess] canceled:", raw)   # 원본 기술 에러는 서버 로그에만
+        low = (det.error_details or "").lower()
+        if "quota" in low or "1007" in low or "throttl" in low or "429" in low:
+            msg = "지금 발음 채점이 잠시 몰려서 안 돼요. 녹음은 저장됐으니 그대로 제출하면 돼요 🙂"
+        else:
+            msg = "지금 발음 채점이 잠시 안 돼요. 녹음은 저장됐으니 그대로 제출해도 돼요 🙂"
+        raise HTTPException(502, msg)
 
     if result.reason != speechsdk.ResultReason.RecognizedSpeech:
         return {"ok": False, "status": str(result.reason).split(".")[-1], "text": ""}
