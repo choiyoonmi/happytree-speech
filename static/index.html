@@ -2264,6 +2264,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [sessions, setSessions] = useState(1);        // 요일 유지 시 몇 회분
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
   const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
+  const [respreadStartIdx, setRespreadStartIdx] = useState(0);   // 시작일에 놓을 Day(목록 인덱스)
   const [assignMode, setAssignMode] = useState("all");   // 사본 배정 대상
   const [assignClasses, setAssignClasses] = useState([]);
   const [assignIds, setAssignIds] = useState([]);
@@ -2488,10 +2489,13 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
 
   const doRespread = async () => {
     if (!weekdays.length) return setErr("요일을 하나 이상 선택해주세요.");
+    const startIdx = Math.max(0, Math.min(respreadStartIdx, list.length - 1));
+    const targets = list.slice(startIdx);   // 선택한 Day부터만 다시 배치(앞 Day는 원래 날짜 유지)
+    if (!targets.length) return setErr("다시 배치할 Day가 없어요.");
     setBusy(true); setErr("");
     try {
       await apiPost("/assignments/reschedule",
-        { mode:"respread", ids: list.map(a=>a.id), startDate, weekdays });
+        { mode:"respread", ids: targets.map(a=>a.id), startDate, weekdays });
       await reload(); setPanel(null);
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -2739,7 +2743,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
         <button className={panel==="shift" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="shift"?null:"shift"); setErr(""); }}>⏭ 뒤로 미루기</button>
         <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="respread"?null:"respread"); setErr(""); }}>🗓 일정 다시 짜기</button>
+          onClick={()=>{ setPanel(panel==="respread"?null:"respread"); setRespreadStartIdx(0); setErr(""); }}>🗓 일정 다시 짜기</button>
       </div>
       <div className="row" style={{ gap:6, marginBottom:6 }}>
         <button className={panel==="rounds" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
@@ -3007,9 +3011,17 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       {panel === "respread" && (
         <div className="card" style={{ background:"var(--cream)" }}>
           <div className="muted" style={{ marginBottom:10 }}>
-            시작일과 요일을 새로 정하면, 교재 전체 일정을 처음부터 다시 계산해요.
+            <b style={{ color:"var(--navy)" }}>어느 Day</b>를 <b style={{ color:"var(--navy)" }}>어느 날짜·요일</b>부터 시작할지 정하면, 그 Day부터 선택한 요일에 하루 하나씩 다시 배치해요. (그 앞 Day는 원래 날짜 그대로 둬요)
           </div>
-          <label className="label">새 시작일</label>
+          <label className="label">시작일에 놓을 Day</label>
+          <select className="field" value={respreadStartIdx}
+            onChange={e=>setRespreadStartIdx(Number(e.target.value))}>
+            {list.map((a,i) => (
+              <option key={a.id} value={i}>{a.title}{a.dueDate ? ` (현재 ${formatDue(a.dueDate)})` : ""}</option>
+            ))}
+          </select>
+          <div style={{height:10}} />
+          <label className="label">새 시작일 (위 Day를 놓을 날짜)</label>
           <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
           <div style={{height:10}} />
           <label className="label">숙제 요일</label>
@@ -3024,7 +3036,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
           {err && <div className="err">{err}</div>}
           <div style={{height:12}} />
           <button className="btn full" onClick={doRespread} disabled={busy}>
-            {busy ? "적용 중..." : `${list.length}개 과제 일정 다시 짜기`}
+            {busy ? "적용 중..." : `"${(list[Math.min(respreadStartIdx, list.length-1)]||{}).title || ""}"부터 ${Math.max(0, list.length - respreadStartIdx)}개 다시 짜기`}
           </button>
         </div>
       )}
