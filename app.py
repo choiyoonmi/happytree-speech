@@ -615,6 +615,51 @@ def dedupe_assignments(payload: dict = Body(...)):
     return {"deleted": deleted, "keptConflict": kept_conflict}
 
 
+@app.post("/api/assignments/dedupe-book")
+def dedupe_book(payload: dict = Body(...)):
+    """지정한 과제(ids) 안에서 같은 '제목'이 여러 번 있으면 하나만 남기고 정리.
+    (마감일이 서로 달라도 같은 Day면 중복으로 봄 — 같은 책을 두 번 배정한 경우)
+    남길 하나: 녹음이 있는 것 우선, 없으면 마감일이 가장 이른 것.
+    dryRun=true면 삭제하지 않고 몇 개 지울지만 알려준다."""
+    ids = payload.get("ids") or []
+    dry = bool(payload.get("dryRun"))
+    if not ids:
+        raise HTTPException(400, "정리할 과제를 지정해주세요.")
+    idset = set(ids)
+    # 녹음이 있는 과제 id 모으기
+    subbed = set()
+    for sid in all_student_ids():
+        try:
+            data = load_student_subs(sid) or {}
+            for aid, sub in data.items():
+                if aid in idset and aid not in subbed and _has_recording(sub):
+                    subbed.add(aid)
+        except Exception:
+            pass
+    with _lock:
+        db = load_db()
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for a in db["assignments"]:
+            if a["id"] in idset:
+                groups[a.get("title", "")].append(a)
+        to_delete = set()
+        for g in groups.values():
+            if len(g) < 2:
+                continue
+            # 정렬: 녹음 있는 것 먼저, 그다음 마감일 이른 순 → 첫 개를 남긴다
+            g.sort(key=lambda a: (a["id"] not in subbed, a.get("dueDate") or "9999-99-99"))
+            for a in g[1:]:
+                to_delete.add(a["id"])
+        if dry:
+            return {"wouldDelete": len(to_delete)}
+        before = len(db["assignments"])
+        db["assignments"] = [a for a in db["assignments"] if a["id"] not in to_delete]
+        save_db(db)
+        deleted = before - len(db["assignments"])
+    return {"deleted": deleted}
+
+
 @app.post("/api/students/{sid}/clean-books")
 def clean_student_books(sid: str, payload: dict = Body(...)):
     """한 학생의 교재 정리.
