@@ -4331,10 +4331,10 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const saveResult = (correct, total) => persist({ mode, correct, total });
   const saveFlash = () => persist({ mode: "flash" });
 
-  if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} voice={voice} onBack={backToModes} onDone={saveFlash} />;
-  if (mode === "choice") return <ChoiceQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} />;
-  if (mode === "spell") return <SpellQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} />;
-  if (mode === "test") return <ChoiceQuiz pairs={pairs} title={cur.title} onBack={backToModes} onDone={saveResult} limit={Math.min(20, pairs.length)} />;
+  if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} label="카드 암기" voice={voice} onBack={backToModes} onDone={saveFlash} />;
+  if (mode === "choice") return <ChoiceQuiz pairs={pairs} title={cur.title} label="뜻 고르기" onBack={backToModes} onDone={saveResult} />;
+  if (mode === "spell") return <SpellQuiz pairs={pairs} title={cur.title} label="스펠링" onBack={backToModes} onDone={saveResult} />;
+  if (mode === "test") return <ChoiceQuiz pairs={pairs} title={cur.title} label="미니 테스트" onBack={backToModes} onDone={saveResult} limit={Math.min(20, pairs.length)} />;
 
   const bm = (rec && rec.byMode) || {};
   const doneCount = ["flash","choice","spell","test"].filter(k => bm[k]).length;
@@ -4375,17 +4375,28 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   </>;
 }
 
-function Flashcards({ pairs, title, voice, onBack, onDone }) {
+function Flashcards({ pairs, title, voice, onBack, onDone, label }) {
   const [order] = useState(() => shuffleArr(pairs));
   const [i, setI] = useState(0);
   const [flip, setFlip] = useState(false);
+  const [done, setDone] = useState(false);
   const doneRef = useRef(false);
   const p = order[i];
   useEffect(() => {
-    if (p) playModel(p.audio, p.word, voice);   // 카드가 바뀌면 발음 자동재생(선생님 음원 우선)
-    if (i === order.length - 1 && !doneRef.current) { doneRef.current = true; onDone && onDone(); }  // 마지막 카드까지 보면 '완료' 기록
-  }, [i]);
+    if (!done && p) playModel(p.audio, p.word, voice);   // 카드가 바뀌면 발음 자동재생(선생님 음원 우선)
+  }, [i, done]);
+  const finish = () => { if (!doneRef.current) { doneRef.current = true; onDone && onDone(); } setDone(true); };  // 마지막 카드까지 보면 '완료' 기록
   const move = (d) => { setFlip(false); setI(x => Math.max(0, Math.min(order.length - 1, x + d))); };
+  if (done) return <>
+    <div className="card" style={{ textAlign:"center", padding:24, background:"var(--green-bg,#E7F1EA)", borderColor:"var(--green-line,#BFE0CC)" }}>
+      <div style={{ fontSize:44, lineHeight:1 }}>🎉</div>
+      <div style={{ fontSize:20, fontWeight:800, color:"var(--good,#2E7D5B)", marginTop:6 }}>{label ? label + " 완료!" : "완료!"}</div>
+      <div style={{ fontSize:12, color:"var(--navy-soft)", marginTop:6 }}>{title}</div>
+      <div className="muted" style={{ marginTop:8 }}>{order.length}개 카드를 모두 봤어요</div>
+    </div>
+    <button className="btn full" style={{ marginTop:14 }} onClick={onBack}>모드 선택으로</button>
+  </>;
+  const last = i === order.length - 1;
   return <>
     <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
     <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{order.length}</div>
@@ -4397,12 +4408,14 @@ function Flashcards({ pairs, title, voice, onBack, onDone }) {
     <button className="btn-ghost" style={{ width:"100%", marginTop:8 }} onClick={()=>playModel(p.audio, p.word, voice)}>🔊 다시 듣기{p.audio ? " (선생님)" : ""}</button>
     <div className="row" style={{ gap:8, marginTop:8 }}>
       <button className="btn-ghost" style={{ flex:1 }} onClick={()=>move(-1)} disabled={i===0}>이전</button>
-      <button className="btn" style={{ flex:1 }} onClick={()=>move(1)} disabled={i===order.length-1}>다음</button>
+      {last
+        ? <button className="btn" style={{ flex:1 }} onClick={finish}>완료</button>
+        : <button className="btn" style={{ flex:1 }} onClick={()=>move(1)}>다음</button>}
     </div>
   </>;
 }
 
-function ChoiceQuiz({ pairs, title, onBack, onDone, limit }) {
+function ChoiceQuiz({ pairs, title, onBack, onDone, limit, label }) {
   const [qs] = useState(() => shuffleArr(pairs).slice(0, limit || pairs.length).map(q => {
     const others = shuffleArr(pairs.filter(p => p !== q)).slice(0, 3).map(p => p.kor);
     return { ...q, options: shuffleArr([q.kor, ...others]) };
@@ -4427,7 +4440,7 @@ function ChoiceQuiz({ pairs, title, onBack, onDone, limit }) {
     }, 620);
   };
 
-  if (phase === "result") return <QuizResult title={title} score={score} total={qs.length} wrong={wrong} onBack={onBack} />;
+  if (phase === "result") return <QuizResult title={title} label={label} score={score} total={qs.length} wrong={wrong} onBack={onBack} />;
 
   return <>
     <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
@@ -4449,7 +4462,7 @@ function ChoiceQuiz({ pairs, title, onBack, onDone, limit }) {
   </>;
 }
 
-function SpellQuiz({ pairs, title, onBack, onDone }) {
+function SpellQuiz({ pairs, title, onBack, onDone, label }) {
   const [qs] = useState(() => shuffleArr(pairs));
   const [i, setI] = useState(0);
   const [val, setVal] = useState("");
@@ -4473,7 +4486,7 @@ function SpellQuiz({ pairs, title, onBack, onDone }) {
     }, 850);
   };
 
-  if (phase === "result") return <QuizResult title={title} score={score} total={qs.length} wrong={wrong} onBack={onBack} />;
+  if (phase === "result") return <QuizResult title={title} label={label} score={score} total={qs.length} wrong={wrong} onBack={onBack} />;
 
   return <>
     <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
@@ -4490,13 +4503,15 @@ function SpellQuiz({ pairs, title, onBack, onDone }) {
   </>;
 }
 
-function QuizResult({ title, score, total, wrong, onBack }) {
+function QuizResult({ title, score, total, wrong, onBack, label }) {
   const pct = total ? Math.round(score * 100 / total) : 0;
   return <>
-    <div className="card" style={{ textAlign:"center", padding:24 }}>
-      <div style={{ fontSize:13, color:"var(--navy-soft)" }}>{title}</div>
-      <div style={{ fontSize:40, fontWeight:800, color:"var(--navy)", marginTop:8 }}>{pct}점</div>
-      <div className="muted" style={{ marginTop:4 }}>{total}문제 중 {score}개 정답</div>
+    <div className="card" style={{ textAlign:"center", padding:24, background:"var(--green-bg,#E7F1EA)", borderColor:"var(--green-line,#BFE0CC)" }}>
+      <div style={{ fontSize:44, lineHeight:1 }}>🎉</div>
+      <div style={{ fontSize:20, fontWeight:800, color:"var(--good,#2E7D5B)", marginTop:6 }}>{label ? label + " 완료!" : "완료!"}</div>
+      <div style={{ fontSize:12, color:"var(--navy-soft)", marginTop:6 }}>{title}</div>
+      <div style={{ fontSize:40, fontWeight:800, color:"var(--navy)", marginTop:6 }}>{pct}점</div>
+      <div className="muted" style={{ marginTop:2 }}>{total}문제 중 {score}개 정답</div>
     </div>
     {wrong.length > 0 && <>
       <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:14 }}>틀린 단어 {wrong.length}개</div>
