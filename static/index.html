@@ -630,6 +630,7 @@ function StudentView({ student, onLogout }) {
   const [done, setDone] = useState(false);
   const [openVocab, setOpenVocab] = useState(null);
   const [openSentence, setOpenSentence] = useState(null);
+  const [openExam, setOpenExam] = useState(null);
   const [vocabProgress, setVocabProgress] = useState({});
 
   const mine = assignments.filter(a =>
@@ -854,6 +855,26 @@ function StudentView({ student, onLogout }) {
     );
   }
 
+  if (openExam) {
+    return (
+      <div className="wrap">
+        <div className="hdr">
+          <div className="row" style={{ gap:12 }}>
+            <button onClick={()=>{ setOpenExam(null); }} style={{ background:"none", color:"var(--cream)", fontSize:22 }}>‹</button>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{openExam.title}</div>
+              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>권말 진급 시험</div>
+            </div>
+          </div>
+        </div>
+        <div className="body">
+          <ExamPlay assignment={openExam} student={student}
+            onClose={()=>{ setOpenExam(null); }} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="wrap">
       <div className="hdr">
@@ -872,14 +893,14 @@ function StudentView({ student, onLogout }) {
         </a>
         <div style={{ marginBottom:12 }}><PushBell studentId={student.id} /></div>
         <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress}
-          onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} />
+          onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} onOpenExam={setOpenExam} />
       </div>
     </div>
   );
 }
 
 // ---------- 학생 홈: 달력 + [녹음 숙제 / 단어 자습] 두 탭 (같은 달력 공유) ----------
-function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab, onOpenSentence }) {
+function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam }) {
   const today = new Date();
   const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [tab, setTab] = useState("record");
@@ -891,10 +912,10 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
   const isStudy = isVocab || isSentence;
   const studyLabel = isSentence ? "문장 자습" : "단어 자습";
   const source = isVocab
-    ? mine.filter(a => (a.type || "word") === "word" && (a.items || []).length)
+    ? mine.filter(a => ((a.type || "word") === "word" || a.type === "exam") && (a.items || []).length)
     : isSentence
       ? mine.filter(a => a.type === "sentence" && (a.items || []).length)
-      : mine;
+      : mine.filter(a => a.type !== "exam");
 
   const byDate = {};
   const noDate = [];
@@ -1015,7 +1036,25 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
       </button>
     );
   };
-  const card = isVocab ? vocabCard : isSentence ? sentenceCard : recordCard;
+  const examCard = (a) => {
+    const rec = vocabProgress; // placeholder unused
+    return (
+      <button key={a.id} onClick={()=>onOpenExam(a)} className="card"
+        style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10,
+          border:"1.5px solid var(--gold)", background:"var(--cream-deep, #fbf6ea)" }}>
+        <div style={{ minWidth:0 }}>
+          <div className="row" style={{ marginBottom:5 }}>
+            <Badge tone="b-gold">진급시험</Badge>
+            <span className="muted">{a.items.length}단어 · 40문항</span>
+          </div>
+          <div style={{ fontWeight:800, fontSize:15, color:"var(--navy)" }}>🎯 {a.title}</div>
+        </div>
+        <span style={{ color:"var(--navy)", fontSize:20 }}>›</span>
+      </button>
+    );
+  };
+  const vocabOrExam = (a) => a.type === "exam" ? examCard(a) : vocabCard(a);
+  const card = isVocab ? vocabOrExam : isSentence ? sentenceCard : recordCard;
 
   return (
     <>
@@ -1122,17 +1161,18 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
 }
 
 // ---------- Admin: students ----------
+const SCHOOL_GRADES = ["초1","초2","초3","초4","초5","초6","중1","중2","중3"];
 function AdminStudents({ students, reload }) {
   const [name, setName] = useState(""); const [cls, setCls] = useState("");
-  const [id, setId] = useState(""); const [pw, setPw] = useState("");
+  const [id, setId] = useState(""); const [pw, setPw] = useState(""); const [grade, setGrade] = useState("");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null); const [bulkBusy, setBulkBusy] = useState(false);
-  const [editSid, setEditSid] = useState(null); const [editCls, setEditCls] = useState("");
+  const [editSid, setEditSid] = useState(null); const [editCls, setEditCls] = useState(""); const [editGrade, setEditGrade] = useState("");
 
   const saveClass = async (sid) => {
     try {
       await fetch("/api/students/" + sid, { method:"PATCH", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ className: editCls }) });
+        body: JSON.stringify({ className: editCls, grade: editGrade }) });
       setEditSid(null); await reload();
     } catch (e) { setErr(e.message); }
   };
@@ -1198,8 +1238,8 @@ function AdminStudents({ students, reload }) {
     if (!name.trim()) return setErr("이름을 입력해주세요.");
     setBusy(true); setErr("");
     try {
-      await apiPost("/students", { name, className: cls, id, pw });
-      setName(""); setCls(""); setId(""); setPw("");
+      await apiPost("/students", { name, className: cls, id, pw, grade });
+      setName(""); setCls(""); setId(""); setPw(""); setGrade("");
       await reload();
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -1223,6 +1263,12 @@ function AdminStudents({ students, reload }) {
         <div style={{height:10}} />
         <label className="label">반 (선택)</label>
         <input className="field" value={cls} onChange={e=>setCls(e.target.value)} placeholder="초등3반" />
+        <div style={{height:10}} />
+        <label className="label">학년 (진급시험 동학년 백분위용)</label>
+        <select className="field" value={grade} onChange={e=>setGrade(e.target.value)}>
+          <option value="">학년 선택</option>
+          {SCHOOL_GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
         <div style={{height:10}} />
         <label className="label">아이디 (비워두면 자동 발급)</label>
         <input className="field" value={id} onChange={e=>setId(e.target.value)} placeholder="기존 학원 아이디" />
@@ -1287,22 +1333,28 @@ function AdminStudents({ students, reload }) {
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
                   <div>
                     <div style={{ fontWeight:700, fontSize:14 }}>{s.name}
-                      <span className="muted" style={{ fontWeight:500 }}> · {s.className || "반 미지정"}</span></div>
+                      <span className="muted" style={{ fontWeight:500 }}> · {s.className || "반 미지정"}</span>
+                      {s.grade ? <span style={{ fontWeight:700, fontSize:12, color:"var(--navy)", background:"var(--cream-deep,#f3ecd9)", borderRadius:6, padding:"1px 7px", marginLeft:6 }}>{s.grade}</span>
+                        : <span style={{ fontSize:12, color:"var(--danger)", marginLeft:6 }}>학년 미지정</span>}</div>
                     <div className="muted" style={{ marginTop:3 }}>
                       아이디 <b style={{color:"var(--navy)"}}>{s.id}</b> / 비밀번호 <b style={{color:"var(--navy)"}}>{s.pw}</b>
                     </div>
                   </div>
                   <div className="row" style={{ gap:8, flexShrink:0 }}>
-                    <button onClick={()=>{ setEditSid(editSid===s.id?null:s.id); setEditCls(s.className||""); }}
-                      title="반 변경" style={{ background:"none", fontSize:16 }}>✏️</button>
+                    <button onClick={()=>{ setEditSid(editSid===s.id?null:s.id); setEditCls(s.className||""); setEditGrade(s.grade||""); }}
+                      title="반·학년 변경" style={{ background:"none", fontSize:16 }}>✏️</button>
                     <button onClick={()=>del(s.id)} style={{ background:"none", color:"var(--danger)", fontSize:18 }}>🗑</button>
                   </div>
                 </div>
                 {editSid===s.id && (
-                  <div className="row" style={{ gap:6, marginTop:10 }}>
-                    <input className="field" style={{ flex:1, padding:"7px 10px", fontSize:13 }} value={editCls}
+                  <div className="row" style={{ gap:6, marginTop:10, flexWrap:"wrap" }}>
+                    <input className="field" style={{ flex:1, minWidth:110, padding:"7px 10px", fontSize:13 }} value={editCls}
                       onChange={e=>setEditCls(e.target.value)} placeholder="반 이름 (예: 초등5반)"
                       list="cls-list" onKeyDown={e=>e.key==="Enter"&&saveClass(s.id)} autoFocus />
+                    <select className="field" style={{ width:96, padding:"7px 8px", fontSize:13 }} value={editGrade} onChange={e=>setEditGrade(e.target.value)}>
+                      <option value="">학년</option>
+                      {SCHOOL_GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
                     <button className="btn" style={{ padding:"7px 12px", fontSize:12 }} onClick={()=>saveClass(s.id)}>저장</button>
                     <button className="btn-ghost" style={{ padding:"7px 12px", fontSize:12 }} onClick={()=>setEditSid(null)}>취소</button>
                   </div>
@@ -4538,6 +4590,168 @@ function QuizResult({ title, score, total, wrong, onBack, label }) {
       ))}
     </>}
     <button className="btn full" style={{ marginTop:14 }} onClick={onBack}>모드 선택으로</button>
+  </>;
+}
+
+// ---------- 권말 진급 시험 (온라인 자동채점 + 성적표) ----------
+function ExamPlay({ assignment, student, onClose }) {
+  const a = assignment;
+  const pool = (a.items || []).map((w, i) => ({
+    en: String(w || ""), ko: String((a.meanings && a.meanings[i]) || ""),
+    ex: String((a.examples && a.examples[i]) || ""), exKo: String((a.exampleKo && a.exampleKo[i]) || "")
+  })).filter(p => p.en && p.ko);
+  const pass = a.passScore || 70;
+  const NQ = Math.min(40, pool.length);
+  const norm = s => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const cloze = (ex, en) => {
+    if (!ex) return null;
+    const re = new RegExp("\\b" + en.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+    if (!re.test(ex)) return null;
+    return ex.replace(re, "______");
+  };
+  const [qs] = useState(() => {
+    const sh = shuffleArr(pool).slice(0, NQ);
+    const types = ["choice", "write", "clozeChoice", "clozeWrite"];
+    return sh.map((p, idx) => {
+      let t = types[idx % 4];
+      const cz = cloze(p.ex, p.en);
+      if ((t === "clozeChoice" || t === "clozeWrite") && !cz) t = (idx % 2 ? "write" : "choice");
+      if (t === "choice") {
+        const opts = shuffleArr([p.ko, ...shuffleArr(pool.filter(x => x.ko !== p.ko)).slice(0, 3).map(x => x.ko)]);
+        return { type: "choice", prompt: p.en, answer: p.ko, options: opts, p };
+      }
+      if (t === "write") return { type: "write", prompt: p.ko, answer: p.en, p };
+      if (t === "clozeChoice") {
+        const opts = shuffleArr([p.en, ...shuffleArr(pool.filter(x => x.en !== p.en)).slice(0, 3).map(x => x.en)]);
+        return { type: "clozeChoice", prompt: cz, sub: p.exKo, answer: p.en, options: opts, p };
+      }
+      return { type: "clozeWrite", prompt: cz, sub: p.exKo, answer: p.en, p };
+    });
+  });
+  const t0 = useRef(Date.now());
+  const [i, setI] = useState(0);
+  const [val, setVal] = useState("");
+  const [picked, setPicked] = useState(null);
+  const [correct, setCorrect] = useState(0);
+  const [byType, setByType] = useState({ choice: [0, 0], write: [0, 0], clozeChoice: [0, 0], clozeWrite: [0, 0] });
+  const [phase, setPhase] = useState("q");
+  const [report, setReport] = useState(null);
+  const [wrong, setWrong] = useState([]);
+  const q = qs[i];
+  const isChoice = q && (q.type === "choice" || q.type === "clozeChoice");
+
+  useEffect(() => { pingActivity(student.id, "test", a.title); }, []);
+
+  const finish = async (nc, bt) => {
+    setPhase("submitting");
+    const seconds = Math.round((Date.now() - t0.current) / 1000);
+    const byTypeScore = {};
+    Object.keys(bt).forEach(k => { byTypeScore[k] = bt[k][1] ? Math.round(bt[k][0] * 100 / bt[k][1]) : null; });
+    try {
+      await apiPost(`/exam/${a.id}/${student.id}`, { correct: nc, total: qs.length, seconds, byType: byTypeScore });
+      const rep = await apiGet(`/exam-report/${a.id}/${student.id}`);
+      setReport(rep);
+    } catch (e) { setReport({ score: Math.round(nc * 100 / qs.length), error: true }); }
+    setPhase("done");
+  };
+  const advance = (ok) => {
+    const bt = { ...byType }; bt[q.type] = [bt[q.type][0] + (ok ? 1 : 0), bt[q.type][1] + 1]; setByType(bt);
+    const nc = correct + (ok ? 1 : 0); setCorrect(nc);
+    if (!ok) setWrong(w => [...w, q]);
+    setTimeout(() => {
+      if (i + 1 >= qs.length) finish(nc, bt);
+      else { setI(i + 1); setVal(""); setPicked(null); }
+    }, isChoice ? 480 : 260);
+  };
+  const choose = (opt) => { if (picked != null) return; setPicked(opt); advance(opt === q.answer); };
+  const submitWrite = () => { if (picked != null) return; const ok = norm(val) === norm(q.answer) && norm(val) !== ""; setPicked(ok ? "ok" : "no"); advance(ok); };
+
+  if (pool.length < 4) return <div className="card">시험 문항이 부족해요. 선생님께 문의해 주세요.<button className="btn full" style={{ marginTop: 12 }} onClick={onClose}>돌아가기</button></div>;
+  if (phase === "submitting") return <div className="card" style={{ textAlign: "center", padding: 30 }}><div className="muted">채점 중…</div></div>;
+  if (phase === "done") return <ExamReport report={report} title={a.title} pass={pass} wrong={wrong} onClose={onClose} />;
+
+  const typeLabel = { choice: "뜻 고르기", write: "단어 쓰기", clozeChoice: "예문 빈칸 고르기", clozeWrite: "예문 빈칸 쓰기" }[q.type];
+  const isCloze = q.type === "clozeChoice" || q.type === "clozeWrite";
+  return <>
+    <div className="muted" style={{ marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+      <span>{i + 1}/{qs.length} · {typeLabel}</span><span>맞음 {correct}</span>
+    </div>
+    <div style={{ height: 6, borderRadius: 4, background: "var(--line,#e5e2d8)", marginBottom: 12, overflow: "hidden" }}>
+      <div style={{ height: "100%", width: `${Math.round(i / qs.length * 100)}%`, background: "var(--gold)" }} />
+    </div>
+    <div className="card" style={{ padding: 20, textAlign: "center" }}>
+      <div style={{ fontSize: isCloze ? 17 : 23, fontWeight: 800, color: "var(--navy)", lineHeight: 1.5 }}>{q.prompt}</div>
+      {q.sub && <div className="muted" style={{ marginTop: 6, fontSize: 13 }}>{q.sub}</div>}
+      {q.type === "write" && <div className="muted" style={{ marginTop: 6 }}>영어로 쓰기</div>}
+    </div>
+    {isChoice ? (
+      <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+        {q.options.map((opt, k) => {
+          let bg = "#fff", col = "var(--navy)", bd = "var(--line)";
+          if (picked != null) { if (opt === q.answer) { bg = "#E3F1E9"; col = "#2E7D5B"; bd = "#8FC7AA"; } else if (opt === picked) { bg = "#F6E1DC"; col = "var(--danger)"; bd = "#E8C4BC"; } }
+          return <button key={k} onClick={() => choose(opt)} disabled={picked != null}
+            style={{ textAlign: "left", padding: "12px 14px", borderRadius: 10, border: `1px solid ${bd}`, background: bg, color: col, fontSize: 15, fontWeight: 600 }}>{opt}</button>;
+        })}
+      </div>
+    ) : (
+      <>
+        <input className="field" value={val} onChange={e => setVal(e.target.value)} autoFocus
+          onKeyDown={e => { if (e.key === "Enter") submitWrite(); }} placeholder="영어 단어 입력" disabled={picked != null}
+          style={{ marginTop: 10, borderColor: picked === "ok" ? "#8FC7AA" : picked === "no" ? "#E8C4BC" : undefined }} />
+        {picked === "no" && <div style={{ marginTop: 6, color: "var(--danger)", fontSize: 13 }}>정답: <b>{q.answer}</b></div>}
+        <button className="btn full" style={{ marginTop: 10 }} onClick={submitWrite} disabled={picked != null}>확인</button>
+      </>
+    )}
+  </>;
+}
+
+function ExamReport({ report, title, pass, wrong, onClose }) {
+  const r = report;
+  if (!r) return <div className="card">결과를 불러오지 못했어요.<button className="btn full" style={{ marginTop: 12 }} onClick={onClose}>돌아가기</button></div>;
+  const passed = r.pass != null ? r.pass : (r.score >= pass);
+  const metric = (label, obj, isTime) => {
+    if (!obj || obj.top == null) return (
+      <div className="card" style={{ padding: 14 }}>
+        <div className="muted" style={{ fontSize: 11, fontWeight: 700 }}>{label}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--navy-soft)", marginTop: 6 }}>표본 부족</div>
+      </div>);
+    return (
+      <div className="card" style={{ padding: 14 }}>
+        <div className="muted" style={{ fontSize: 11, fontWeight: 700 }}>{label}</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--navy)", marginTop: 2 }}>상위 {obj.top}%</div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{obj.n}명 중 · 평균 {isTime ? (obj.avgText || "-") : (obj.avg + "점")}</div>
+      </div>);
+  };
+  return <>
+    <div className="card" style={{ textAlign: "center", padding: 22, background: passed ? "var(--green-bg,#E7F1EA)" : "#FBECEB", borderColor: passed ? "#BFE0CC" : "#E8C4BC" }}>
+      <div style={{ fontSize: 13, color: "var(--navy-soft)", fontWeight: 700 }}>{title} · 권말 진급 시험</div>
+      <div style={{ fontSize: 46, fontWeight: 800, color: "var(--navy)", marginTop: 4 }}>{r.score}<span style={{ fontSize: 18, color: "var(--navy-soft)" }}>점</span></div>
+      <div style={{ marginTop: 6 }}>
+        <span style={{ display: "inline-block", padding: "4px 14px", borderRadius: 999, fontWeight: 800, fontSize: 14, background: passed ? "var(--good,#2E7D5B)" : "var(--danger)", color: "#fff" }}>{passed ? "진급 통과 🎉" : "재응시 권장"}</span>
+      </div>
+      {(r.secondsText || r.band) && <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>{r.secondsText ? `소요 시간 ${r.secondsText}` : ""}{r.band ? ` · ${r.band}등급` : ""}</div>}
+    </div>
+    {!r.error && <>
+      <div style={{ fontWeight: 700, color: "var(--navy)", margin: "14px 4px 8px", fontSize: 14 }}>📊 내 위치 · 점수</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {metric("전체(전 학년)", r.score_all, false)}
+        {metric("같은 학년" + (r.grade ? ` (${r.grade})` : ""), r.score_grade, false)}
+      </div>
+      <div style={{ fontWeight: 700, color: "var(--navy)", margin: "14px 4px 8px", fontSize: 14 }}>⏱️ 내 위치 · 시간 (빠를수록 상위)</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {metric("전체(전 학년)", r.time_all, true)}
+        {metric("같은 학년" + (r.grade ? ` (${r.grade})` : ""), r.time_grade, true)}
+      </div>
+    </>}
+    {wrong && wrong.length > 0 && <>
+      <div style={{ fontWeight: 700, color: "var(--navy)", margin: "14px 4px 8px", fontSize: 14 }}>틀린 단어 {wrong.length}개</div>
+      {wrong.slice(0, 40).map((q, k) => (
+        <div key={k} className="card" style={{ display: "flex", justifyContent: "space-between", padding: "9px 13px" }}>
+          <b style={{ color: "var(--navy)" }}>{q.p.en}</b><span className="muted">{q.p.ko}</span>
+        </div>
+      ))}
+    </>}
+    <button className="btn full" style={{ marginTop: 14 }} onClick={onClose}>완료</button>
   </>;
 }
 

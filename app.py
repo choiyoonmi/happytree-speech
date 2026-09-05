@@ -1,5 +1,6 @@
 import os
 import io
+import math
 import asyncio
 import json
 import base64
@@ -211,6 +212,38 @@ def all_vocab_student_ids() -> list:
     return [p.stem for p in VOCAB_DIR.glob("*.json")]
 
 
+# ---------- 권말 진급 시험 저장소 (학생별 파일, exam assignment_id별 최고 기록) ----------
+EXAM_DIR = DATA_DIR / "exam"
+EXAM_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _exam_path(student_id: str) -> Path:
+    return EXAM_DIR / f"{_safe_id(student_id)}.json"
+
+
+def load_exam(student_id: str) -> dict:
+    p = _exam_path(student_id)
+    if not p.exists():
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_exam(student_id: str, data: dict):
+    p = _exam_path(student_id)
+    tmp = p.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    tmp.replace(p)
+
+
+def all_exam_student_ids() -> list:
+    return [p.stem for p in EXAM_DIR.glob("*.json")]
+
+
 # ---------- 실시간 학습 활동 (학생별, 활동종류별 최근 1건) ----------
 def _act_path(student_id: str) -> Path:
     return ACT_DIR / f"{_safe_id(student_id)}.json"
@@ -408,6 +441,7 @@ def add_student(payload: dict = Body(...)):
             "pw": str(payload.get("pw", "")).strip() or uuid.uuid4().hex[:4],
             "name": str(payload.get("name", "")).strip(),
             "className": str(payload.get("className", "")).strip(),
+            "grade": str(payload.get("grade", "")).strip(),
         }
         db["students"].append(student)
         save_db(db)
@@ -438,6 +472,7 @@ def add_students_bulk(payload: dict = Body(...)):
                 "pw": str((it or {}).get("pw", "")).strip() or uuid.uuid4().hex[:4],
                 "name": name,
                 "className": str((it or {}).get("className", "")).strip(),
+                "grade": str((it or {}).get("grade", "")).strip(),
             }
             db["students"].append(student)
             created.append(student)
@@ -447,8 +482,8 @@ def add_students_bulk(payload: dict = Body(...)):
 
 @app.patch("/api/students/{student_id}")
 def update_student(student_id: str, payload: dict = Body(...)):
-    """학생 정보 수정 (반, 이름 등)."""
-    allowed = {"name", "className", "pw"}
+    """학생 정보 수정 (반, 이름, 학년 등)."""
+    allowed = {"name", "className", "pw", "grade"}
     with _lock:
         db = load_db()
         for s in db["students"]:
@@ -487,6 +522,9 @@ def add_assignment(payload: dict = Body(...)):
             "type": payload.get("type", "word"),
             "items": payload.get("items", []),
             "meanings": payload.get("meanings", []),
+            "examples": payload.get("examples", []),
+            "exampleKo": payload.get("exampleKo", []),
+            "passScore": int(payload.get("passScore") or 70),
             "dueDate": payload.get("dueDate") or None,
             "rounds": max(1, min(3, int(payload.get("rounds") or 3))),
             "assignedIds": payload.get("assignedIds", []),
@@ -532,6 +570,9 @@ def add_assignments_bulk(payload: dict = Body(...)):
                 "type": p.get("type", "word"),
                 "items": words,
                 "meanings": p.get("meanings", []),
+                "examples": p.get("examples", []),
+                "exampleKo": p.get("exampleKo", []),
+                "passScore": int(p.get("passScore") or 70),
                 "dueDate": p.get("dueDate") or None,
                 "rounds": max(1, min(3, int(p.get("rounds") or 3))),
                 "assignedIds": p.get("assignedIds", []),
@@ -790,10 +831,28 @@ def delete_assignments(payload: dict = Body(...)):
     return {"deleted": before - len(db["assignments"])}
 
 
+def _sync_exam_dates(db):
+    """각 권말 시험(type=exam, autoDate!=False)의 마감일을 그 책 마지막 Day + 1일로 맞춘다.
+    선생님이 시험 날짜를 직접 바꾸면 autoDate=False가 되어 더는 자동 조정하지 않는다."""
+    from datetime import date, timedelta
+    def parse(s):
+        y, m, d = map(int, s.split("-")); return date(y, m, d)
+    for ex in db.get("assignments", []):
+        if ex.get("type") != "exam" or ex.get("autoDate") is False:
+            continue
+        book = ex.get("book", "")
+        days = [a for a in db["assignments"]
+                if a.get("book") == book and a.get("type") != "exam" and a.get("dueDate")]
+        if not days:
+            continue
+        last = max(parse(a["dueDate"]) for a in days)
+        ex["dueDate"] = (last + timedelta(days=1)).isoformat()
+
+
 @app.patch("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: str, payload: dict = Body(...)):
     """과제 하나 수정 (마감일, 제목, 녹음 횟수, 배정 대상 등)."""
-    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio", "recordMode"}
+    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio", "recordMode", "examples", "exampleKo", "passScore"}
     with _lock:
         db = load_db()
         for a in db["assignments"]:
@@ -811,6 +870,11 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
                         a[k] = v if isinstance(v, list) else []
                     else:
                         a[k] = str(v).strip()
+                # 시험 날짜를 직접 바꾸면 자동조정 해제 / 그 외엔 시험 날짜 재동기화
+                if a.get("type") == "exam" and "dueDate" in payload:
+                    a["autoDate"] = False
+                else:
+                    _sync_exam_dates(db)
                 save_db(db)
                 return a
     raise HTTPException(404, "과제를 찾을 수 없어요.")
@@ -887,6 +951,7 @@ def reschedule(payload: dict = Body(...)):
         else:
             raise HTTPException(400, "알 수 없는 방식이에요.")
 
+        _sync_exam_dates(db)   # 책 일정이 바뀌면 권말 시험을 마지막 날 다음날로 재조정
         save_db(db)
     return {"updated": len(targets), "assignments": targets}
 
@@ -2030,6 +2095,135 @@ def get_vocab(student_id: str):
 def get_vocab_all():
     """선생님 대시보드용: 모든 학생의 단어 자습 기록 {student_id: {aid: record}}."""
     return {sid: load_vocab(sid) for sid in all_vocab_student_ids()}
+
+
+# ---------- 권말 진급 시험: 응시·채점·성적표(백분위+시간, 전체/동학년) ----------
+EXAM_BANDS = [(4, 1), (11, 2), (23, 3), (40, 4), (60, 5), (77, 6), (89, 7), (96, 8), (100, 9)]
+
+
+def _band_of(top_pct: int) -> int:
+    for cut, g in EXAM_BANDS:
+        if top_pct <= cut:
+            return g
+    return 9
+
+
+def _top_percent(values, my, higher_is_better=True):
+    """상위 몇 %인지. higher_is_better=True면 값이 클수록 상위(점수),
+    False면 값이 작을수록 상위(시간). 본인 포함 모집단 기준."""
+    vals = [v for v in values if v is not None]
+    n = len(vals)
+    if n <= 0:
+        return None
+    if higher_is_better:
+        better = sum(1 for v in vals if v > my)
+    else:
+        better = sum(1 for v in vals if v < my)
+    return max(1, math.ceil((better + 1) / n * 100))
+
+
+def _fmt_secs(s):
+    try:
+        s = int(round(s))
+    except Exception:
+        return "-"
+    return f"{s//60}분 {s%60}초" if s >= 60 else f"{s}초"
+
+
+@app.post("/api/exam/{assignment_id}/{student_id}")
+def submit_exam(assignment_id: str, student_id: str, payload: dict = Body(...)):
+    """권말 진급 시험 결과 저장. body: {correct, total, seconds, byType:{choice,write,clozeWrite,clozeChoice}}
+    최고 점수를 보관하고, 동점이면 더 짧은 시간을 보관한다."""
+    correct = max(0, int(payload.get("correct") or 0))
+    total = int(payload.get("total") or 0)
+    if total <= 0:
+        raise HTTPException(400, "문항 수가 없어요.")
+    correct = min(correct, total)
+    score = round(correct * 100 / total)
+    seconds = max(0, int(payload.get("seconds") or 0))
+    by_type = payload.get("byType") or {}
+    now = _now_kr()
+    with _sub_lock(student_id):
+        data = load_exam(student_id)
+        rec = data.get(assignment_id) or {"attempts": 0, "best": None, "bestSeconds": None}
+        rec["attempts"] = rec.get("attempts", 0) + 1
+        rec["last"] = {"score": score, "correct": correct, "total": total, "seconds": seconds, "byType": by_type, "at": now}
+        prev = rec.get("best")
+        # 최고점 갱신(동점이면 더 빠른 시간)
+        if prev is None or score > prev or (score == prev and (rec.get("bestSeconds") is None or seconds < rec["bestSeconds"])):
+            rec["best"] = score
+            rec["bestSeconds"] = seconds
+            rec["bestByType"] = by_type
+            rec["bestAt"] = now
+        data[assignment_id] = rec
+        save_exam(student_id, data)
+    return rec
+
+
+def _exam_population(assignment_id: str):
+    """이 시험을 친 모든 학생의 (grade, best, bestSeconds) 목록."""
+    db = load_db()
+    gmap = {str(s.get("id")): str(s.get("grade") or "") for s in db.get("students", [])}
+    out = []
+    for sid in all_exam_student_ids():
+        rec = (load_exam(sid) or {}).get(assignment_id)
+        if not rec or rec.get("best") is None:
+            continue
+        out.append({"sid": sid, "grade": gmap.get(sid, ""), "score": rec.get("best"),
+                    "seconds": rec.get("bestSeconds")})
+    return out
+
+
+@app.get("/api/exam-report/{assignment_id}/{student_id}")
+def exam_report(assignment_id: str, student_id: str):
+    """한 학생의 성적표: 점수·시간을 전체(학년혼합)와 동학년 대비 백분위/평균으로."""
+    rec = (load_exam(student_id) or {}).get(assignment_id)
+    if not rec or rec.get("best") is None:
+        raise HTTPException(404, "아직 이 시험 기록이 없어요.")
+    db = load_db()
+    student = next((s for s in db.get("students", []) if str(s.get("id")) == str(student_id)), None)
+    grade = str((student or {}).get("grade") or "")
+    a = next((x for x in db.get("assignments", []) if x.get("id") == assignment_id), None)
+    pass_score = int((a or {}).get("passScore") or 70)
+    pop = _exam_population(assignment_id)
+    all_scores = [p["score"] for p in pop]
+    all_secs = [p["seconds"] for p in pop if p.get("seconds") is not None]
+    gr_pop = [p for p in pop if p["grade"] == grade] if grade else []
+    gr_scores = [p["score"] for p in gr_pop]
+    gr_secs = [p["seconds"] for p in gr_pop if p.get("seconds") is not None]
+
+    my_score = rec["best"]
+    my_secs = rec.get("bestSeconds")
+
+    def avg(xs):
+        return round(sum(xs) / len(xs)) if xs else None
+
+    top_all = _top_percent(all_scores, my_score, True)
+    top_gr = _top_percent(gr_scores, my_score, True) if gr_scores else None
+    time_top_all = _top_percent(all_secs, my_secs, False) if (my_secs is not None and all_secs) else None
+    time_top_gr = _top_percent(gr_secs, my_secs, False) if (my_secs is not None and gr_secs) else None
+
+    return {
+        "score": my_score,
+        "seconds": my_secs,
+        "secondsText": _fmt_secs(my_secs) if my_secs is not None else None,
+        "byType": rec.get("bestByType") or {},
+        "grade": grade,
+        "passScore": pass_score,
+        "pass": my_score >= pass_score,
+        "band": _band_of(top_all) if top_all else None,
+        "score_all": {"top": top_all, "n": len(all_scores), "avg": avg(all_scores)},
+        "score_grade": {"top": top_gr, "n": len(gr_scores), "avg": avg(gr_scores)},
+        "time_all": {"top": time_top_all, "n": len(all_secs), "avg": avg(all_secs), "avgText": _fmt_secs(avg(all_secs)) if all_secs else None},
+        "time_grade": {"top": time_top_gr, "n": len(gr_secs), "avg": avg(gr_secs), "avgText": _fmt_secs(avg(gr_secs)) if gr_secs else None},
+        "attempts": rec.get("attempts", 1),
+    }
+
+
+@app.get("/api/exam-all")
+def exam_all():
+    """선생님 대시보드용: 모든 학생의 권말 시험 기록 {student_id: {aid: record}}."""
+    return {sid: load_exam(sid) for sid in all_exam_student_ids()}
 
 
 # ---------- 실시간 학습 현황 ----------
