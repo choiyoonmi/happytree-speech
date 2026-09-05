@@ -19,6 +19,12 @@ from notify import send_telegram
 AZURE_KEY = os.environ.get("AZURE_SPEECH_KEY")
 AZURE_REGION = os.environ.get("AZURE_SPEECH_REGION", "eastus")
 ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "happytree")
+# 상시 테스트용 관리자 비밀번호 — 만료일이 없고, 몇 명이 동시에 들어와도 상관없다.
+TEST_ADMIN_PASSCODE = os.environ.get("TEST_ADMIN_PASSCODE", "test0000")
+# 상시 테스트 학생 계정 — 공용 학생계정 서버를 거치지 않고 바로 통과시킨다(기간 제한·중복 로그인 제한 없음).
+TEST_STUDENTS = {
+    "test0000": {"pw": "test0000", "name": "테스트학생", "cls": "테스트"},
+}
 STUDENT_ACCOUNT_API = os.environ.get(
     "STUDENT_ACCOUNT_API",
     "https://script.google.com/macros/s/AKfycbzRqfFTJeLfcV2_UOgnB6MCGtB7C9peTQCpj3RkR9qH85j1PwudvnF_HR6fpLVCKstb/exec",
@@ -355,6 +361,13 @@ async def login_student(payload: dict = Body(...)):
     if not sid or not pw:
         raise HTTPException(400, "아이디와 비밀번호를 입력해 주세요.")
 
+    test = TEST_STUDENTS.get(sid)
+    if test:
+        if pw != test["pw"]:
+            raise HTTPException(401, "아이디 또는 비밀번호가 일치하지 않아요.")
+        student = upsert_shared_student({"id": sid, "pw": pw, "name": test["name"], "cls": test["cls"]})
+        return {"ok": True, "student": student}
+
     shared = await fetch_shared_accounts({"action": "login", "id": sid, "pw": pw})
     if not shared.get("ok"):
         raise HTTPException(401, "아이디 또는 비밀번호가 일치하지 않아요.")
@@ -366,7 +379,7 @@ async def login_student(payload: dict = Body(...)):
 
 @app.post("/api/login/admin")
 def login_admin(payload: dict = Body(...)):
-    if str(payload.get("pw", "")) != ADMIN_PASSCODE:
+    if str(payload.get("pw", "")) not in (ADMIN_PASSCODE, TEST_ADMIN_PASSCODE):
         raise HTTPException(401, "비밀번호가 올바르지 않아요.")
     return {"ok": True}
 
