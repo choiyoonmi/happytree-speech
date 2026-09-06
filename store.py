@@ -192,6 +192,53 @@ def save_db(path: Path, db: dict):
             print("[store] ★원격 db 쓰기 실패 — 디스크 사본만 남았다. 복구 필요")
 
 
+def sync_to_remote(sources, db_path=None) -> dict:
+    """디스크에 있는 것을 D1 로 밀어 올린다.
+
+    mirror 모드에서만 돈다. 그때는 디스크가 원본이고 D1 은 사본이므로
+    통째로 덮어써도 잃을 것이 없다. put 이 upsert 라 몇 번을 돌려도 같은 결과다.
+
+    ★서버가 켜질 때 저절로 돈다(app.py 의 startup). 그래서 관리자가 백필을
+      따로 부를 필요가 없다 — Render 에서 TT_STORE=mirror 로 바꾸기만 하면 된다.
+    ★파일 쓰기는 tmp→replace 라 원자적이다. 그래서 읽는 동안 자물쇠를 걸지 않는다
+      (걸면 동기화가 도는 내내 학생 요청이 막힌다).
+
+    sources: [(kind, Path), …]
+    """
+    if MODE != "mirror":
+        return {"skipped": f"mirror 모드가 아니다(지금 {MODE})"}
+    if not KEY:
+        return {"skipped": "TT_KEY 가 없다"}
+
+    moved, failed = {}, {}
+    for kind, d in sources:
+        n = bad = 0
+        if d and d.exists():
+            for p in sorted(d.glob("*.json")):
+                if p.suffix == ".tmp":
+                    continue
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    bad += 1
+                    continue
+                if _remote("put", kind=kind, sid=p.stem, data=data) is None:
+                    bad += 1
+                else:
+                    n += 1
+        moved[kind], failed[kind] = n, bad
+
+    if db_path is not None:
+        db = _read_file(db_path, DB_DEFAULT)
+        s = _remote("gput", k="students", data=db.get("students") or [])
+        a = _remote("gput", k="assignments", data=db.get("assignments") or [])
+        moved["db"] = int(s is not None) + int(a is not None)
+        failed["db"] = int(s is None) + int(a is None)
+
+    return {"ok": not any(failed.values()), "moved": moved, "failed": failed}
+
+
 def info() -> dict:
     """/api/health 같은 데서 지금 어느 모드인지 확인용."""
     return {"mode": MODE, "api": API, "keyed": bool(KEY), "academy": ACADEMY}

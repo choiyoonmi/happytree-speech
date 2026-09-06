@@ -352,16 +352,49 @@ def login_admin(payload: dict = Body(...)):
     return {"ok": True}
 
 
+def _store_sources():
+    return [("subs", SUB_DIR), ("vocab", VOCAB_DIR), ("exam", EXAM_DIR),
+            ("activity", ACT_DIR), ("push", PUSH_DIR)]
+
+
+# 마지막 동기화 결과 — /api/admin/store-status 에서 확인한다
+_last_sync = {"state": "아직 안 함"}
+
+
+@app.on_event("startup")
+def _mirror_sync_on_boot():
+    """mirror 모드로 켜지면 디스크 내용을 D1 로 저절로 밀어 올린다.
+
+    이걸 두는 이유: 이렇게 안 하면 배포한 뒤 관리자가 백필 엔드포인트를 손으로
+    한 번 불러야 한다. Render 에서 TT_STORE=mirror 로 바꾸는 것만으로 끝나게 한다.
+    부팅을 막지 않도록 뒤에서 돌린다(Render 헬스체크가 기다리지 않게).
+    """
+    if store.MODE != "mirror":
+        _last_sync["state"] = f"{store.MODE} 모드 — 동기화 안 함"
+        return
+
+    def run():
+        _last_sync["state"] = "도는 중"
+        try:
+            _last_sync.update(store.sync_to_remote(_store_sources(), DB_PATH))
+            _last_sync["state"] = "끝"
+        except Exception as e:
+            _last_sync["state"] = f"실패: {e}"
+        print("[store] 시작 동기화:", _last_sync)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 @app.get("/api/admin/store-status")
 def store_status(pw: str = ""):
     """지금 저장소가 어느 모드인지, 디스크에 학생 몇 명분이 있는지."""
     if str(pw) != ADMIN_PASSCODE:
         raise HTTPException(401, "비밀번호가 올바르지 않아요.")
     counts = {}
-    for kind, d in (("subs", SUB_DIR), ("vocab", VOCAB_DIR), ("exam", EXAM_DIR),
-                    ("activity", ACT_DIR), ("push", PUSH_DIR)):
+    for kind, d in _store_sources():
         counts[kind] = len(list(d.glob("*.json"))) if d.exists() else 0
-    return {"ok": True, "store": store.info(), "disk": counts, "db_exists": DB_PATH.exists()}
+    return {"ok": True, "store": store.info(), "disk": counts,
+            "db_exists": DB_PATH.exists(), "sync": _last_sync}
 
 
 @app.post("/api/admin/store-backfill")
@@ -379,31 +412,10 @@ def store_backfill(payload: dict = Body(...)):
     if store.MODE == "d1":
         raise HTTPException(400, "이미 D1 이 원본이다. 백필을 돌리면 최신 기록을 옛 파일로 덮는다.")
 
-    moved, failed = {}, {}
-    for kind, d in (("subs", SUB_DIR), ("vocab", VOCAB_DIR), ("exam", EXAM_DIR),
-                    ("activity", ACT_DIR), ("push", PUSH_DIR)):
-        n, bad = 0, 0
-        if d.exists():
-            for p in d.glob("*.json"):
-                try:
-                    with open(p, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                except Exception:
-                    bad += 1
-                    continue
-                if store._remote("put", kind=kind, sid=p.stem, data=data) is None:
-                    bad += 1
-                else:
-                    n += 1
-        moved[kind], failed[kind] = n, bad
-
-    db = store._read_file(DB_PATH, store.DB_DEFAULT)
-    s = store._remote("gput", k="students", data=db.get("students") or [])
-    a = store._remote("gput", k="assignments", data=db.get("assignments") or [])
-    moved["db"] = int(s is not None) + int(a is not None)
-    failed["db"] = int(s is None) + int(a is None)
-
-    return {"ok": not any(failed.values()), "moved": moved, "failed": failed}
+    r = store.sync_to_remote(_store_sources(), DB_PATH)
+    _last_sync.update(r)
+    _last_sync["state"] = "끝(수동)"
+    return r
 
 
 # ---------- students ----------
