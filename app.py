@@ -287,14 +287,47 @@ def upsert_shared_student(shared: dict) -> dict:
         return dict(student)
 
 
+def _merge_shared_students(shared_list) -> list:
+    """공용 명단 여러 명을 트리톡 DB에 '한 번의' 저장으로 병합한다.
+
+    예전에는 학생마다 upsert_shared_student 가 db 전체를 다시 저장했다.
+    그래서 관리자 화면이 뜰 때마다 학생 수(N)만큼 db 를 재기록 →
+    로딩이 수십 초~1분씩 걸렸다(0.5 CPU). D1/mirror 모드에서는 학생당
+    원격 왕복이 겹쳐 훨씬 더 느려진다. 여기서는 load_db·save_db 를 딱 한 번만 한다.
+    병합 규칙(이름·반·학원·비번)은 upsert_shared_student 와 똑같이 맞춘다."""
+    with _lock:
+        db = load_db()
+        by_id = {str(s.get("id")): s for s in db["students"]}
+        for shared in shared_list:
+            shared = shared or {}
+            sid = str(shared.get("id", "")).strip()
+            name = str(shared.get("name", "")).strip()
+            if not sid or not name:
+                continue  # 명단에 이상한 줄이 있어도 전체 동기화를 멈추지 않는다
+            student = by_id.get(sid)
+            if student is None:
+                student = {"id": sid, "pw": "", "name": name, "className": ""}
+                db["students"].append(student)
+                by_id[sid] = student
+            student["name"] = name
+            student["className"] = str(shared.get("cls", "")).strip()
+            ac = str(shared.get("academy") or "").strip()
+            if ac:
+                student["academy"] = ac
+            elif not student.get("academy"):
+                student["academy"] = ACADEMY_DEFAULT
+            if shared.get("pw") is not None:
+                student["pw"] = str(shared.get("pw", "")).strip()
+        save_db(db)  # ★학생마다가 아니라 여기서 딱 한 번만 저장한다
+        return db["students"]
+
+
 async def sync_shared_roster() -> list:
     """공용 관리자 명단을 트리톡에 병합한다. 트리톡 전용 기록은 삭제하지 않는다."""
     data = await fetch_shared_accounts({"action": "rosterInfo"})
     if not data.get("ok") or not isinstance(data.get("students"), list):
         raise HTTPException(502, "공용 학생명단을 불러오지 못했어요.")
-    for shared in data["students"]:
-        upsert_shared_student(shared or {})
-    return load_db()["students"]
+    return _merge_shared_students(data["students"])
 
 def migrate_submissions_if_needed():
     """예전 db.json 안에 있던 submissions를 학생별 파일로 옮긴다 (최초 1회)."""
