@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydub import AudioSegment
 
 from notify import send_telegram
+# 저장소 계층(파일 ↔ D1). 기본값 TT_STORE=file 이면 지금까지와 완전히 같게 동작한다.
+import store
 
 AZURE_KEY = os.environ.get("AZURE_SPEECH_KEY")
 AZURE_REGION = os.environ.get("AZURE_SPEECH_REGION", "eastus")
@@ -91,22 +93,11 @@ def _push_path(sid: str) -> Path:
 
 
 def load_push_subs(sid: str) -> list:
-    p = _push_path(sid)
-    if not p.exists():
-        return []
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return []
+    return store.get("push", _safe_id(sid), _push_path(sid), [])
 
 
 def save_push_subs(sid: str, subs: list):
-    p = _push_path(sid)
-    tmp = p.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(subs, f, ensure_ascii=False)
-    tmp.replace(p)
+    store.put("push", _safe_id(sid), _push_path(sid), subs)
 
 
 def send_push_to_student(sid: str, title: str, body: str, url: str = "/") -> int:
@@ -162,26 +153,15 @@ def _sub_path(student_id: str) -> Path:
 
 def load_student_subs(student_id: str) -> dict:
     """한 학생의 제출 기록 전체 {assignment_id: submission}."""
-    p = _sub_path(student_id)
-    if not p.exists():
-        return {}
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return store.get("subs", _safe_id(student_id), _sub_path(student_id), {})
 
 
 def save_student_subs(student_id: str, data: dict):
-    p = _sub_path(student_id)
-    tmp = p.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-    tmp.replace(p)
+    store.put("subs", _safe_id(student_id), _sub_path(student_id), data)
 
 
 def all_student_ids() -> list:
-    return [p.stem for p in SUB_DIR.glob("*.json")]
+    return store.ids("subs", SUB_DIR)
 
 
 # ---------- 단어 자습 저장소 (학생별 파일, assignment_id별 기록) ----------
@@ -190,26 +170,15 @@ def _vocab_path(student_id: str) -> Path:
 
 
 def load_vocab(student_id: str) -> dict:
-    p = _vocab_path(student_id)
-    if not p.exists():
-        return {}
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return store.get("vocab", _safe_id(student_id), _vocab_path(student_id), {})
 
 
 def save_vocab(student_id: str, data: dict):
-    p = _vocab_path(student_id)
-    tmp = p.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-    tmp.replace(p)
+    store.put("vocab", _safe_id(student_id), _vocab_path(student_id), data)
 
 
 def all_vocab_student_ids() -> list:
-    return [p.stem for p in VOCAB_DIR.glob("*.json")]
+    return store.ids("vocab", VOCAB_DIR)
 
 
 # ---------- 권말 진급 시험 저장소 (학생별 파일, exam assignment_id별 최고 기록) ----------
@@ -222,26 +191,15 @@ def _exam_path(student_id: str) -> Path:
 
 
 def load_exam(student_id: str) -> dict:
-    p = _exam_path(student_id)
-    if not p.exists():
-        return {}
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return store.get("exam", _safe_id(student_id), _exam_path(student_id), {})
 
 
 def save_exam(student_id: str, data: dict):
-    p = _exam_path(student_id)
-    tmp = p.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-    tmp.replace(p)
+    store.put("exam", _safe_id(student_id), _exam_path(student_id), data)
 
 
 def all_exam_student_ids() -> list:
-    return [p.stem for p in EXAM_DIR.glob("*.json")]
+    return store.ids("exam", EXAM_DIR)
 
 
 # ---------- 실시간 학습 활동 (학생별, 활동종류별 최근 1건) ----------
@@ -250,26 +208,15 @@ def _act_path(student_id: str) -> Path:
 
 
 def load_activity(student_id: str) -> dict:
-    p = _act_path(student_id)
-    if not p.exists():
-        return {}
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return store.get("activity", _safe_id(student_id), _act_path(student_id), {})
 
 
 def save_activity(student_id: str, data: dict):
-    p = _act_path(student_id)
-    tmp = p.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-    tmp.replace(p)
+    store.put("activity", _safe_id(student_id), _act_path(student_id), data)
 
 
 def all_activity_student_ids() -> list:
-    return [p.stem for p in ACT_DIR.glob("*.json")]
+    return store.ids("activity", ACT_DIR)
 
 
 def get_submission_record(assignment_id: str, student_id: str) -> dict:
@@ -277,23 +224,11 @@ def get_submission_record(assignment_id: str, student_id: str) -> dict:
 
 
 def load_db():
-    if not DB_PATH.exists():
-        return json.loads(json.dumps(DEFAULT_DB))
-    try:
-        with open(DB_PATH, "r", encoding="utf-8") as f:
-            db = json.load(f)
-        for k, v in DEFAULT_DB.items():
-            db.setdefault(k, v)
-        return db
-    except Exception:
-        return json.loads(json.dumps(DEFAULT_DB))
+    return store.load_db(DB_PATH)
 
 
 def save_db(db):
-    tmp = DB_PATH.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False)
-    tmp.replace(DB_PATH)
+    store.save_db(DB_PATH, db)
 
 
 
@@ -415,6 +350,60 @@ def login_admin(payload: dict = Body(...)):
     if str(payload.get("pw", "")) not in (ADMIN_PASSCODE, TEST_ADMIN_PASSCODE):
         raise HTTPException(401, "비밀번호가 올바르지 않아요.")
     return {"ok": True}
+
+
+@app.get("/api/admin/store-status")
+def store_status(pw: str = ""):
+    """지금 저장소가 어느 모드인지, 디스크에 학생 몇 명분이 있는지."""
+    if str(pw) != ADMIN_PASSCODE:
+        raise HTTPException(401, "비밀번호가 올바르지 않아요.")
+    counts = {}
+    for kind, d in (("subs", SUB_DIR), ("vocab", VOCAB_DIR), ("exam", EXAM_DIR),
+                    ("activity", ACT_DIR), ("push", PUSH_DIR)):
+        counts[kind] = len(list(d.glob("*.json"))) if d.exists() else 0
+    return {"ok": True, "store": store.info(), "disk": counts, "db_exists": DB_PATH.exists()}
+
+
+@app.post("/api/admin/store-backfill")
+def store_backfill(payload: dict = Body(...)):
+    """디스크에 있는 옛 기록을 D1 로 한 번에 올린다 (일회성).
+
+    쓰는 법: TT_STORE=mirror 로 배포한 뒤 딱 한 번 부른다.
+      curl -X POST .../api/admin/store-backfill -H 'Content-Type: application/json' \
+           -d '{"pw":"<관리자비번>"}'
+    ★디스크가 원본이므로 몇 번을 불러도 안전하다(D1 을 디스크에 맞춘다).
+    ★TT_STORE=d1 로 전환한 뒤에는 부르지 마라 — 그때부터는 D1 이 원본이다.
+    """
+    if str(payload.get("pw", "")) != ADMIN_PASSCODE:
+        raise HTTPException(401, "비밀번호가 올바르지 않아요.")
+    if store.MODE == "d1":
+        raise HTTPException(400, "이미 D1 이 원본이다. 백필을 돌리면 최신 기록을 옛 파일로 덮는다.")
+
+    moved, failed = {}, {}
+    for kind, d in (("subs", SUB_DIR), ("vocab", VOCAB_DIR), ("exam", EXAM_DIR),
+                    ("activity", ACT_DIR), ("push", PUSH_DIR)):
+        n, bad = 0, 0
+        if d.exists():
+            for p in d.glob("*.json"):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    bad += 1
+                    continue
+                if store._remote("put", kind=kind, sid=p.stem, data=data) is None:
+                    bad += 1
+                else:
+                    n += 1
+        moved[kind], failed[kind] = n, bad
+
+    db = store._read_file(DB_PATH, store.DB_DEFAULT)
+    s = store._remote("gput", k="students", data=db.get("students") or [])
+    a = store._remote("gput", k="assignments", data=db.get("assignments") or [])
+    moved["db"] = int(s is not None) + int(a is not None)
+    failed["db"] = int(s is None) + int(a is None)
+
+    return {"ok": not any(failed.values()), "moved": moved, "failed": failed}
 
 
 # ---------- students ----------
