@@ -694,17 +694,25 @@ def get_assignments(request: Request):
     그러면 다른 학원 학생이 과제를 못 본다. 그래서 학생은 id 를 함께 보내고
     (프런트가 이미 학생 아이디를 갖고 있다) 그 학생의 학원 것을 준다.
     ★id 로 '남의 학원'을 볼 수는 없다 — 그 학생이 실제로 속한 학원만 나오기 때문이다."""
+    db = load_db()   # ★한 번만 읽는다(예전엔 학생 조회 때 load_db 를 두 번 불렀다)
     sid = str(request.query_params.get("student") or "").strip()
-    if is_admin(request):
+    admin = is_admin(request)
+    if admin:
         # ★관리자 열쇠가 있으면 그 열쇠의 학원만 본다. ?student= 는 무시한다.
         #   안 그러면 A학원 관리자가 ?student=<B학원 학생> 을 붙여 B학원 과제를 통째로 읽는다.
         ac = academy_of(request)
     elif sid:
-        st = next((s for s in load_db()["students"] if str(s.get("id")) == sid), None)
+        st = next((s for s in db["students"] if str(s.get("id")) == sid), None)
         ac = academy_of_student(st) if st else ACADEMY_DEFAULT
     else:
         ac = ACADEMY_DEFAULT
-    return _light_assignments(only_academy(load_db()["assignments"], ac))
+    rows = only_academy(db["assignments"], ac)
+    # ★기본은 보관함(published=false) 제외. 학생 화면은 어차피 보관함을 안 쓰므로
+    #   그만큼 응답이 가벼워진다(자료가 쌓여도 학생 로딩이 안 무거워짐).
+    #   관리자가 보관함을 관리할 때만 ?archived=1 로 전체를 받는다.
+    if not (admin and request.query_params.get("archived") == "1"):
+        rows = [a for a in rows if a.get("published") is not False]
+    return _light_assignments(rows)
 
 
 def _light_assignments(lst):

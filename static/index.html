@@ -4218,7 +4218,9 @@ function AdminView({ onLogout }) {
   const voice = useVoice();
 
   const reload = async () => {
-    const [s, a] = await Promise.all([apiGet("/students"), apiGet("/assignments")]);
+    // 관리자는 보관함(published=false)까지 관리하므로 archived=1 로 전체를 받는다.
+    // (학생 화면은 보관함을 안 받아 응답이 가볍다 — 서버 기본이 보관함 제외)
+    const [s, a] = await Promise.all([apiGet("/students"), apiGet("/assignments?archived=1")]);
     setStudents(s); setAssignments(a);
   };
   useEffect(() => { reload().finally(()=>setLoading(false)); }, []);
