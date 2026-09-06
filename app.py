@@ -274,6 +274,13 @@ def upsert_shared_student(shared: dict) -> dict:
 
         student["name"] = name
         student["className"] = str(shared.get("cls", "")).strip()
+        # 학원은 공용 학생계정(Apps Script)이 알려 준 값만 쓴다. 학생이 못 정한다.
+        # 옛 배포는 academy 를 안 보내므로, 그때는 기존 값을 지우지 않고 그대로 둔다.
+        ac = str(shared.get("academy") or "").strip()
+        if ac:
+            student["academy"] = ac
+        elif not student.get("academy"):
+            student["academy"] = ACADEMY_DEFAULT
         if shared.get("pw") is not None:
             student["pw"] = str(shared.get("pw", "")).strip()
         save_db(db)
@@ -330,8 +337,61 @@ app.add_middleware(
 # 학생 화면이 쓰는 조회는 건드리지 않고, '전교생 단위'와 '지우는' 동작에만 문을 단다.
 #
 # 여는 방법 세 가지 — 헤더 x-ht-admin / 쿼리 ?pw= / 서버끼리는 API_ADMIN_KEY
+"""══════════ 학원(테넌트) ══════════════════════════════════════════
+학원이 세 곳이 되면서 필요해진 것들이다.
+
+★관리자 비밀번호가 곧 '어느 학원 사람인지'를 증명한다.
+  ACADEMY_PASSCODES 환경변수에 학원별 비밀번호를 넣는다.
+      {"readingon":"리딩온비번","zestedu":"제스트비번"}
+  기존 ADMIN_PASSCODE 는 해피트리로 친다 — 그래야 지금 화면이 안 깨진다.
+
+★학생의 학원은 학생 자신이 못 정한다.
+  로그인할 때 공용 학생계정(Apps Script)이 알려 주는 값만 쓴다.
+  로그인 응답에 academy 가 없으면(옛 배포) 해피트리로 친다.
+"""
+ACADEMY_DEFAULT = "happytree"
+try:
+    ACADEMY_PASSCODES = json.loads(os.environ.get("ACADEMY_PASSCODES") or "{}")
+    if not isinstance(ACADEMY_PASSCODES, dict):
+        ACADEMY_PASSCODES = {}
+except Exception:
+    print("[학원] ACADEMY_PASSCODES 를 못 읽었다 — 해피트리 단독으로 돈다")
+    ACADEMY_PASSCODES = {}
+
+
 def _admin_secrets():
-    return [s for s in (ADMIN_PASSCODE, TEST_ADMIN_PASSCODE, API_ADMIN_KEY) if s]
+    """비밀번호 → 학원. 지금까지 쓰던 비번들은 전부 해피트리."""
+    out = {}
+    for s in (ADMIN_PASSCODE, TEST_ADMIN_PASSCODE, API_ADMIN_KEY):
+        if s:
+            out.setdefault(s, ACADEMY_DEFAULT)
+    for ac, pw in ACADEMY_PASSCODES.items():
+        ac = str(ac).strip()
+        pw = str(pw or "").strip()
+        # 학원 비번이 기존 관리자 비번과 같으면 학원 구분이 무의미해진다 — 막는다.
+        if ac and pw and pw not in out:
+            out[pw] = ac
+    return out
+
+
+def academy_of(request: Request) -> str:
+    """이 요청을 보낸 관리자가 어느 학원인지. 학생 화면 요청에는 쓰지 않는다."""
+    got = (request.headers.get("x-ht-admin") or request.query_params.get("pw") or "").strip()
+    for pw, ac in _admin_secrets().items():
+        if got and hmac.compare_digest(got, pw):
+            return ac
+    return ACADEMY_DEFAULT
+
+
+def academy_of_student(rec: dict) -> str:
+    """학생·과제 한 건이 어느 학원 것인지. 값이 없으면 해피트리(기존 자료)."""
+    v = str((rec or {}).get("academy") or "").strip()
+    return v or ACADEMY_DEFAULT
+
+
+def only_academy(rows, ac):
+    """그 학원 것만 걸러 준다. 명단·과제를 내보내는 곳은 전부 이걸 거친다."""
+    return [r for r in (rows or []) if academy_of_student(r) == ac]
 
 
 def is_admin(request: Request) -> bool:
@@ -339,7 +399,7 @@ def is_admin(request: Request) -> bool:
     if not got:
         return False
     # compare_digest: 맞는 글자 수만큼 시간이 더 걸리는 것으로 비밀번호를 알아내는 수법을 막는다.
-    return any(hmac.compare_digest(got, s) for s in _admin_secrets())
+    return any(hmac.compare_digest(got, s) for s in _admin_secrets().keys())
 
 
 def require_admin(request: Request):
@@ -473,13 +533,22 @@ def store_backfill(payload: dict = Body(...)):
 
 
 # ---------- students ----------
-@app.get("/api/students")
-async def get_students():
-    try:
-        return await sync_shared_roster()
-    except HTTPException as exc:
-        print("[student-sync] 명단 동기화 실패, 로컬 명단 사용:", exc.detail)
-        return load_db()["students"]
+@app.get("/api/students", dependencies=ADMIN_ONLY)
+async def get_students(request: Request):
+    """★그 학원 학생만 돌려준다. 예전에는 전교생을 다 내줬다(학원이 하나일 땐 무해했다)."""
+    ac = academy_of(request)
+    rows = None
+    if ac == ACADEMY_DEFAULT:
+        # 공용 명단 동기화(rosterInfo)는 선생님 토큰이 없으면 해피트리 것만 준다.
+        # 그래서 다른 학원일 때는 부르지 않는다 — 불러 봤자 다 걸러진다.
+        # (다른 학원 학생은 처음 로그인할 때 login_student 가 academy 와 함께 넣어 준다)
+        try:
+            rows = await sync_shared_roster()
+        except HTTPException as exc:
+            print("[student-sync] 명단 동기화 실패, 로컬 명단 사용:", exc.detail)
+    if rows is None:
+        rows = load_db()["students"]
+    return only_academy(rows, ac)
 
 
 @app.post("/api/students")
@@ -562,16 +631,33 @@ def delete_student(student_id: str):
 
 # ---------- assignments ----------
 @app.get("/api/assignments")
-def get_assignments():
-    return load_db()["assignments"]
+def get_assignments(request: Request):
+    """★그 학원 과제만.
+
+    학생 화면도 이걸 부른다. 학생은 비밀번호가 없으니 해피트리로 떨어지는데,
+    그러면 다른 학원 학생이 과제를 못 본다. 그래서 학생은 id 를 함께 보내고
+    (프런트가 이미 학생 아이디를 갖고 있다) 그 학생의 학원 것을 준다.
+    ★id 로 '남의 학원'을 볼 수는 없다 — 그 학생이 실제로 속한 학원만 나오기 때문이다."""
+    sid = str(request.query_params.get("student") or "").strip()
+    if is_admin(request):
+        # ★관리자 열쇠가 있으면 그 열쇠의 학원만 본다. ?student= 는 무시한다.
+        #   안 그러면 A학원 관리자가 ?student=<B학원 학생> 을 붙여 B학원 과제를 통째로 읽는다.
+        ac = academy_of(request)
+    elif sid:
+        st = next((s for s in load_db()["students"] if str(s.get("id")) == sid), None)
+        ac = academy_of_student(st) if st else ACADEMY_DEFAULT
+    else:
+        ac = ACADEMY_DEFAULT
+    return only_academy(load_db()["assignments"], ac)
 
 
 @app.post("/api/assignments", dependencies=ADMIN_ONLY)
-def add_assignment(payload: dict = Body(...)):
+def add_assignment(request: Request, payload: dict = Body(...)):
     with _lock:
         db = load_db()
         a = {
             "id": "a" + uuid.uuid4().hex[:10],
+            "academy": academy_of(request),
             "title": str(payload.get("title", "")).strip(),
             "book": str(payload.get("book", "")).strip(),
             "type": payload.get("type", "word"),
@@ -605,8 +691,9 @@ def delete_assignment(assignment_id: str):
 
 
 @app.post("/api/assignments/bulk", dependencies=ADMIN_ONLY)
-def add_assignments_bulk(payload: dict = Body(...)):
+def add_assignments_bulk(request: Request, payload: dict = Body(...)):
     """여러 과제를 한 번에 생성 (교재 한 권을 Day별로 나눠서 등록)."""
+    bulk_ac = academy_of(request)
     items = payload.get("assignments") or []
     if not items:
         raise HTTPException(400, "등록할 과제가 없어요.")
@@ -620,6 +707,7 @@ def add_assignments_bulk(payload: dict = Body(...)):
                 continue
             a = {
                 "id": "a" + uuid.uuid4().hex[:10],
+                "academy": bulk_ac,
                 "title": title,
                 "book": str(p.get("book", "")).strip(),
                 "type": p.get("type", "word"),

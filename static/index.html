@@ -670,8 +670,10 @@ function StudentView({ student, onLogout }) {
     reloadVocab();
     (async () => {
       // 과제 목록 + 제출상태를 각각 1번씩만 호출 (과제마다 따로 부르지 않음 → 접속 로딩 대폭 단축)
+      // ?student= 를 붙이는 이유: 서버가 '이 학생이 속한 학원'의 과제만 골라 주기 위해서다.
+      // 학생은 관리자 열쇠가 없어서 이게 없으면 해피트리 과제만 보인다.
       const [list, subs] = await Promise.all([
-        apiGet("/assignments"),
+        apiGet(`/assignments?student=${encodeURIComponent(student.id)}`),
         apiGet(`/student-submissions/${student.id}`).catch(() => ({})),
       ]);
       setAssignments(list);
