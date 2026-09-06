@@ -575,9 +575,10 @@ def add_student(payload: dict = Body(...)):
     return student
 
 
-@app.post("/api/students/bulk")
-def add_students_bulk(payload: dict = Body(...)):
+@app.post("/api/students/bulk", dependencies=ADMIN_ONLY)
+def add_students_bulk(request: Request, payload: dict = Body(...)):
     """엑셀 명단으로 학생 여러 명을 한 번에 등록. body: {students:[{name, className?, id?, pw?}]}"""
+    bulk_stu_ac = academy_of(request)   # 등록하는 사람의 학원으로 새긴다
     items = payload.get("students") or []
     created = []
     with _lock:
@@ -600,6 +601,7 @@ def add_students_bulk(payload: dict = Body(...)):
                 "name": name,
                 "className": str((it or {}).get("className", "")).strip(),
                 "grade": str((it or {}).get("grade", "")).strip(),
+                "academy": bulk_stu_ac,
             }
             db["students"].append(student)
             created.append(student)
@@ -607,14 +609,18 @@ def add_students_bulk(payload: dict = Body(...)):
     return {"created": len(created), "students": created}
 
 
-@app.patch("/api/students/{student_id}")
-def update_student(student_id: str, payload: dict = Body(...)):
+@app.patch("/api/students/{student_id}", dependencies=ADMIN_ONLY)
+def update_student(request: Request, student_id: str, payload: dict = Body(...)):
     """학생 정보 수정 (반, 이름, 학년 등)."""
+    ac = academy_of(request)
     allowed = {"name", "className", "pw", "grade"}
     with _lock:
         db = load_db()
         for s in db["students"]:
             if s["id"] == student_id:
+                # ★남의 학원 학생은 '없는 학생'으로 답한다(있는지 없는지도 알려주지 않는다)
+                if academy_of_student(s) != ac:
+                    raise HTTPException(404, "학생을 찾을 수 없어요.")
                 for k, v in payload.items():
                     if k in allowed:
                         s[k] = str(v).strip()
@@ -623,10 +629,19 @@ def update_student(student_id: str, payload: dict = Body(...)):
     raise HTTPException(404, "학생을 찾을 수 없어요.")
 
 
-@app.delete("/api/students/{student_id}")
-def delete_student(student_id: str):
+@app.delete("/api/students/{student_id}", dependencies=ADMIN_ONLY)
+def delete_student(request: Request, student_id: str):
+    """★2026-09-06 잠금.
+    여태 인증이 아예 없었다 — 아무나 `DELETE /api/students/<아이디>` 로
+    학생을 지울 수 있었다(실측 200). 되돌릴 수 없는 동작이다."""
+    ac = academy_of(request)
     with _lock:
         db = load_db()
+        target = next((s for s in db["students"] if s["id"] == student_id), None)
+        if target is None:
+            raise HTTPException(404, "학생을 찾을 수 없어요.")
+        if academy_of_student(target) != ac:
+            raise HTTPException(404, "학생을 찾을 수 없어요.")
         db["students"] = [s for s in db["students"] if s["id"] != student_id]
         save_db(db)
     return {"ok": True}
@@ -710,9 +725,15 @@ def add_assignment(request: Request, payload: dict = Body(...)):
 
 
 @app.delete("/api/assignments/{assignment_id}", dependencies=ADMIN_ONLY)
-def delete_assignment(assignment_id: str):
+def delete_assignment(request: Request, assignment_id: str):
+    """★관리자 열쇠만으로는 부족하다. 그 과제가 '내 학원' 것이어야 한다.
+    안 그러면 리딩온 열쇠(7330)로 해피트리 과제를 지울 수 있다(실측 200이었다)."""
+    ac = academy_of(request)
     with _lock:
         db = load_db()
+        target = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
+        if target is None or academy_of_student(target) != ac:
+            raise HTTPException(404, "과제를 찾을 수 없어요.")
         db["assignments"] = [a for a in db["assignments"] if a["id"] != assignment_id]
         save_db(db)
     return {"ok": True}
@@ -759,22 +780,28 @@ def add_assignments_bulk(request: Request, payload: dict = Body(...)):
 
 
 @app.post("/api/assignments/delete-all", dependencies=ADMIN_ONLY)
-def delete_all_assignments(payload: dict = Body(...)):
-    """과제 일괄 삭제. scope='published'(배포된 것만) | 'archived'(보관함만) | 'all'(전부)."""
+def delete_all_assignments(request: Request, payload: dict = Body(...)):
+    """과제 일괄 삭제. scope='published'(배포된 것만) | 'archived'(보관함만) | 'all'(전부).
+
+    ★'전부'는 **내 학원 전부**다. 남의 학원 과제는 손대지 않는다.
+      학원이 하나일 땐 같은 말이었지만, 셋이 되면 '전부'가 남의 학원까지 지워 버린다."""
+    ac = academy_of(request)
     scope = str(payload.get("scope") or "published")
+    mine = lambda a: academy_of_student(a) == ac      # 내 학원 것인가
     with _lock:
         db = load_db()
-        before = len(db["assignments"])
+        before = sum(1 for a in db["assignments"] if mine(a))
         if scope == "all":
-            db["assignments"] = []
+            db["assignments"] = [a for a in db["assignments"] if not mine(a)]
         elif scope == "published":
-            db["assignments"] = [a for a in db["assignments"] if not a.get("published", True)]
+            db["assignments"] = [a for a in db["assignments"] if not (mine(a) and a.get("published", True))]
         elif scope == "archived":
-            db["assignments"] = [a for a in db["assignments"] if a.get("published", True)]
+            db["assignments"] = [a for a in db["assignments"] if not (mine(a) and not a.get("published", True))]
         else:
             raise HTTPException(400, "알 수 없는 삭제 범위예요.")
         save_db(db)
-        deleted = before - len(db["assignments"])
+        # before 는 '내 학원 것'만 셌으므로 남은 것도 같은 기준으로 세야 한다
+        deleted = before - sum(1 for a in db["assignments"] if mine(a))
     return {"deleted": deleted}
 
 
@@ -795,7 +822,7 @@ def _has_recording(sub) -> bool:
 
 
 @app.post("/api/assignments/dedupe", dependencies=ADMIN_ONLY)
-def dedupe_assignments(payload: dict = Body(...)):
+def dedupe_assignments(request: Request, payload: dict = Body(...)):
     """중복 과제(같은 책·제목·마감·문항수) 정리. 학생 녹음이 있는 건 보존하고 빈 복사본만 삭제.
     dryRun=true면 삭제하지 않고 몇 개 지울지만 알려준다."""
     dry = bool(payload.get("dryRun"))
@@ -813,7 +840,12 @@ def dedupe_assignments(payload: dict = Body(...)):
         db = load_db()
         from collections import defaultdict
         groups = defaultdict(list)
+        _dd_ac = academy_of(request)
         for a in db["assignments"]:
+            # ★내 학원 과제끼리만 묶는다. 안 그러면 제목이 같다는 이유로
+            #   남의 학원 과제가 '중복'으로 몰려 지워진다.
+            if academy_of_student(a) != _dd_ac:
+                continue
             key = (a.get("book", ""), a.get("title", ""), a.get("dueDate") or "", len(a.get("items") or []))
             groups[key].append(a)
         to_delete = set()
@@ -841,7 +873,7 @@ def dedupe_assignments(payload: dict = Body(...)):
 
 
 @app.post("/api/assignments/dedupe-book", dependencies=ADMIN_ONLY)
-def dedupe_book(payload: dict = Body(...)):
+def dedupe_book(request: Request, payload: dict = Body(...)):
     """지정한 과제(ids) 안에서 같은 '제목'이 여러 번 있으면 하나만 남기고 정리.
     (마감일이 서로 달라도 같은 Day면 중복으로 봄 — 같은 책을 두 번 배정한 경우)
     남길 하나: 녹음이 있는 것 우선, 없으면 마감일이 가장 이른 것.
@@ -850,7 +882,12 @@ def dedupe_book(payload: dict = Body(...)):
     dry = bool(payload.get("dryRun"))
     if not ids:
         raise HTTPException(400, "정리할 과제를 지정해주세요.")
-    idset = set(ids)
+    # ★내 학원 과제만 대상으로 삼는다(남의 학원 id 를 섞어 보내도 건드리지 않는다)
+    _db_ac = academy_of(request)
+    idset = {a["id"] for a in load_db()["assignments"]
+             if a["id"] in set(ids) and academy_of_student(a) == _db_ac}
+    if not idset:
+        raise HTTPException(404, "정리할 과제를 찾을 수 없어요.")
     # 녹음이 있는 과제 id 모으기
     subbed = set()
     for sid in all_student_ids():
@@ -981,12 +1018,17 @@ async def fill_assignment_meanings():
 
 
 @app.post("/api/assignments/delete-many", dependencies=ADMIN_ONLY)
-def delete_assignments(payload: dict = Body(...)):
+def delete_assignments(request: Request, payload: dict = Body(...)):
     ids = set(payload.get("ids") or [])
     if not ids:
         raise HTTPException(400, "삭제할 과제가 없어요.")
+    ac = academy_of(request)
     with _lock:
         db = load_db()
+        # ★받은 id 중 '내 학원' 것만 남긴다. 남의 학원 id 를 섞어 보내도 안 지워진다.
+        ids = {a["id"] for a in db["assignments"] if a["id"] in ids and academy_of_student(a) == ac}
+        if not ids:
+            raise HTTPException(404, "삭제할 과제를 찾을 수 없어요.")
         before = len(db["assignments"])
         db["assignments"] = [a for a in db["assignments"] if a["id"] not in ids]
         save_db(db)
