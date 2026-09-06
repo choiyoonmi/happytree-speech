@@ -447,8 +447,13 @@ async def login_student(payload: dict = Body(...)):
         student = upsert_shared_student({"id": sid, "pw": pw, "name": test["name"], "cls": test["cls"]})
         return {"ok": True, "student": student}
 
-    shared = await fetch_shared_accounts({"action": "login", "id": sid, "pw": pw})
+    # app=treetalk: '이 학원이 트리톡을 쓰기로 했는가'를 공용 학생계정이 판단하게 한다.
+    # 안 밝히면 검사를 건너뛰므로, 안 산 학원 학생도 그냥 들어온다.
+    shared = await fetch_shared_accounts({"action": "login", "id": sid, "pw": pw, "app": "treetalk"})
     if not shared.get("ok"):
+        # 학원이 트리톡을 안 쓰는 경우는 비밀번호 문제가 아니므로 그대로 알려 준다.
+        if shared.get("code") == "APP_NOT_SUBSCRIBED":
+            raise HTTPException(403, shared.get("msg") or "우리 학원에서 사용하지 않는 앱이에요.")
         raise HTTPException(401, "아이디 또는 비밀번호가 일치하지 않아요.")
     shared["id"] = sid
     shared["pw"] = pw
