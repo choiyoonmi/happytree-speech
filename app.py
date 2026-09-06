@@ -1,7 +1,9 @@
 import os
 import io
 import math
+import re
 import asyncio
+import hmac
 import json
 import base64
 import uuid
@@ -9,7 +11,8 @@ import threading
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, UploadFile, Form, HTTPException, File, Body, WebSocket, WebSocketDisconnect
+from fastapi import (FastAPI, UploadFile, Form, HTTPException, File, Body, WebSocket,
+                     WebSocketDisconnect, Depends, Request)
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,9 +24,19 @@ import store
 
 AZURE_KEY = os.environ.get("AZURE_SPEECH_KEY")
 AZURE_REGION = os.environ.get("AZURE_SPEECH_REGION", "eastus")
-ADMIN_PASSCODE = os.environ.get("ADMIN_PASSCODE", "happytree")
-# 상시 테스트용 관리자 비밀번호 — 만료일이 없고, 몇 명이 동시에 들어와도 상관없다.
-TEST_ADMIN_PASSCODE = os.environ.get("TEST_ADMIN_PASSCODE", "test0000")
+
+# ── 관리자 인증 ────────────────────────────────────────────────
+# ★기본값을 두지 않는다. 예전에는 os.environ.get("ADMIN_PASSCODE", "happytree") 였다 —
+#   환경변수를 안 넣은 인스턴스가 하나라도 생기면 관리자 암호가 공개 저장소에 적힌 그 값이 된다.
+#   없으면 관리자 기능만 잠기고(503), 학생 낭독은 그대로 돌아간다.
+ADMIN_PASSCODE = (os.environ.get("ADMIN_PASSCODE") or "").strip()
+# 상시 테스트용 관리자 비밀번호 — 넣었을 때만 동작한다(기본값 없음).
+TEST_ADMIN_PASSCODE = (os.environ.get("TEST_ADMIN_PASSCODE") or "").strip()
+# 서버끼리 부를 때 쓰는 키(Apps Script 학생등록, 단어 일괄업로드 스크립트 등).
+# 사람 비밀번호와 분리해 두면 나중에 한쪽만 바꿀 수 있다.
+API_ADMIN_KEY = (os.environ.get("API_ADMIN_KEY") or "").strip()
+# on: 막는다(기본) · log: 막지 않고 누가 걸렸을지 로그만 · off: 검사 안 함(비상 복귀)
+API_AUTH = (os.environ.get("API_AUTH") or "on").strip().lower()
 # 상시 테스트 학생 계정 — 공용 학생계정 서버를 거치지 않고 바로 통과시킨다(기간 제한·중복 로그인 제한 없음).
 TEST_STUDENTS = {
     "test0000": {"pw": "test0000", "name": "테스트학생", "cls": "테스트"},
@@ -310,6 +323,44 @@ app.add_middleware(
 )
 
 
+# ---------- 관리자 게이트 ----------
+# 왜 필요한가: 이 서버의 API 54개는 여태 아무 검사도 하지 않았다.
+# 특히 `GET /api/backup` 은 전교생 명단·과제·제출기록 전부를 아무나 받아갈 수 있었고
+# (실측 2026-09-06: 인증 없이 200, 5.3MB), `POST /api/restore` 는 그걸 아무나 덮어쓸 수 있었다.
+# 학생 화면이 쓰는 조회는 건드리지 않고, '전교생 단위'와 '지우는' 동작에만 문을 단다.
+#
+# 여는 방법 세 가지 — 헤더 x-ht-admin / 쿼리 ?pw= / 서버끼리는 API_ADMIN_KEY
+def _admin_secrets():
+    return [s for s in (ADMIN_PASSCODE, TEST_ADMIN_PASSCODE, API_ADMIN_KEY) if s]
+
+
+def is_admin(request: Request) -> bool:
+    got = (request.headers.get("x-ht-admin") or request.query_params.get("pw") or "").strip()
+    if not got:
+        return False
+    # compare_digest: 맞는 글자 수만큼 시간이 더 걸리는 것으로 비밀번호를 알아내는 수법을 막는다.
+    return any(hmac.compare_digest(got, s) for s in _admin_secrets())
+
+
+def require_admin(request: Request):
+    """관리자 전용 엔드포인트에 건다. 학생 화면이 쓰는 경로에는 절대 걸지 않는다."""
+    if API_AUTH == "off":
+        return
+    if not _admin_secrets():
+        # 비밀번호가 아예 없는 서버 = 아무나 들어올 수 있는 상태다. 열어 두느니 잠근다.
+        raise HTTPException(503, "서버에 ADMIN_PASSCODE 가 설정되지 않았어요. 관리자 기능을 잠급니다.")
+    if is_admin(request):
+        return
+    if API_AUTH == "log":
+        # 켜기 전에 '누가 막혔을지' 먼저 보고 싶을 때 쓴다(막지 않고 로그만).
+        print(f"[auth] 막힐 요청(log 모드): {request.method} {request.url.path}")
+        return
+    raise HTTPException(401, "관리자 권한이 필요해요.")
+
+
+ADMIN_ONLY = [Depends(require_admin)]
+
+
 @app.get("/api/health")
 def health():
     db = load_db()
@@ -347,8 +398,13 @@ async def login_student(payload: dict = Body(...)):
 
 @app.post("/api/login/admin")
 def login_admin(payload: dict = Body(...)):
-    if str(payload.get("pw", "")) not in (ADMIN_PASSCODE, TEST_ADMIN_PASSCODE):
+    if not _admin_secrets():
+        raise HTTPException(503, "서버에 ADMIN_PASSCODE 가 설정되지 않았어요.")
+    got = str(payload.get("pw", ""))
+    if not any(hmac.compare_digest(got, s) for s in _admin_secrets()):
         raise HTTPException(401, "비밀번호가 올바르지 않아요.")
+    # 화면을 여는 것뿐 아니라, 이 비밀번호가 관리자 API 를 여는 열쇠이기도 하다.
+    # 프런트는 이걸 x-ht-admin 헤더로 다시 보낸다(static/index.html 의 api()).
     return {"ok": True}
 
 
@@ -385,11 +441,10 @@ def _mirror_sync_on_boot():
     threading.Thread(target=run, daemon=True).start()
 
 
-@app.get("/api/admin/store-status")
+@app.get("/api/admin/store-status", dependencies=ADMIN_ONLY)
 def store_status(pw: str = ""):
     """지금 저장소가 어느 모드인지, 디스크에 학생 몇 명분이 있는지."""
-    if str(pw) != ADMIN_PASSCODE:
-        raise HTTPException(401, "비밀번호가 올바르지 않아요.")
+    # 비밀번호 검사는 require_admin(ADMIN_ONLY) 이 이미 했다. ?pw= 도 거기서 받는다.
     counts = {}
     for kind, d in _store_sources():
         counts[kind] = len(list(d.glob("*.json"))) if d.exists() else 0
@@ -397,7 +452,7 @@ def store_status(pw: str = ""):
             "db_exists": DB_PATH.exists(), "sync": _last_sync}
 
 
-@app.post("/api/admin/store-backfill")
+@app.post("/api/admin/store-backfill", dependencies=ADMIN_ONLY)
 def store_backfill(payload: dict = Body(...)):
     """디스크에 있는 옛 기록을 D1 로 한 번에 올린다 (일회성).
 
@@ -407,8 +462,7 @@ def store_backfill(payload: dict = Body(...)):
     ★디스크가 원본이므로 몇 번을 불러도 안전하다(D1 을 디스크에 맞춘다).
     ★TT_STORE=d1 로 전환한 뒤에는 부르지 마라 — 그때부터는 D1 이 원본이다.
     """
-    if str(payload.get("pw", "")) != ADMIN_PASSCODE:
-        raise HTTPException(401, "비밀번호가 올바르지 않아요.")
+    # 비밀번호 검사는 require_admin(ADMIN_ONLY) 이 이미 했다.
     if store.MODE == "d1":
         raise HTTPException(400, "이미 D1 이 원본이다. 백필을 돌리면 최신 기록을 옛 파일로 덮는다.")
 
@@ -512,7 +566,7 @@ def get_assignments():
     return load_db()["assignments"]
 
 
-@app.post("/api/assignments")
+@app.post("/api/assignments", dependencies=ADMIN_ONLY)
 def add_assignment(payload: dict = Body(...)):
     with _lock:
         db = load_db()
@@ -541,7 +595,7 @@ def add_assignment(payload: dict = Body(...)):
     return a
 
 
-@app.delete("/api/assignments/{assignment_id}")
+@app.delete("/api/assignments/{assignment_id}", dependencies=ADMIN_ONLY)
 def delete_assignment(assignment_id: str):
     with _lock:
         db = load_db()
@@ -550,7 +604,7 @@ def delete_assignment(assignment_id: str):
     return {"ok": True}
 
 
-@app.post("/api/assignments/bulk")
+@app.post("/api/assignments/bulk", dependencies=ADMIN_ONLY)
 def add_assignments_bulk(payload: dict = Body(...)):
     """여러 과제를 한 번에 생성 (교재 한 권을 Day별로 나눠서 등록)."""
     items = payload.get("assignments") or []
@@ -588,7 +642,7 @@ def add_assignments_bulk(payload: dict = Body(...)):
     return {"created": len(created), "assignments": created}
 
 
-@app.post("/api/assignments/delete-all")
+@app.post("/api/assignments/delete-all", dependencies=ADMIN_ONLY)
 def delete_all_assignments(payload: dict = Body(...)):
     """과제 일괄 삭제. scope='published'(배포된 것만) | 'archived'(보관함만) | 'all'(전부)."""
     scope = str(payload.get("scope") or "published")
@@ -624,7 +678,7 @@ def _has_recording(sub) -> bool:
     return False
 
 
-@app.post("/api/assignments/dedupe")
+@app.post("/api/assignments/dedupe", dependencies=ADMIN_ONLY)
 def dedupe_assignments(payload: dict = Body(...)):
     """중복 과제(같은 책·제목·마감·문항수) 정리. 학생 녹음이 있는 건 보존하고 빈 복사본만 삭제.
     dryRun=true면 삭제하지 않고 몇 개 지울지만 알려준다."""
@@ -670,7 +724,7 @@ def dedupe_assignments(payload: dict = Body(...)):
     return {"deleted": deleted, "keptConflict": kept_conflict}
 
 
-@app.post("/api/assignments/dedupe-book")
+@app.post("/api/assignments/dedupe-book", dependencies=ADMIN_ONLY)
 def dedupe_book(payload: dict = Body(...)):
     """지정한 과제(ids) 안에서 같은 '제목'이 여러 번 있으면 하나만 남기고 정리.
     (마감일이 서로 달라도 같은 Day면 중복으로 봄 — 같은 책을 두 번 배정한 경우)
@@ -715,7 +769,7 @@ def dedupe_book(payload: dict = Body(...)):
     return {"deleted": deleted}
 
 
-@app.post("/api/students/{sid}/clean-books")
+@app.post("/api/students/{sid}/clean-books", dependencies=ADMIN_ONLY)
 def clean_student_books(sid: str, payload: dict = Body(...)):
     """한 학생의 교재 정리.
     body {keep: '책이름'}  → 그 책만 남기고 이 학생이 받는 나머지 책을 뺌
@@ -767,7 +821,7 @@ def clean_student_books(sid: str, payload: dict = Body(...)):
     return {"unassigned": unassigned + converted, "deleted": deleted}
 
 
-@app.post("/api/assignments/fill-meanings")
+@app.post("/api/assignments/fill-meanings", dependencies=ADMIN_ONLY)
 async def fill_assignment_meanings():
     """기존 과제에서 비어 있는 한글 뜻만 자동 번역해 채운다."""
     with _lock:
@@ -810,7 +864,7 @@ async def fill_assignment_meanings():
     }
 
 
-@app.post("/api/assignments/delete-many")
+@app.post("/api/assignments/delete-many", dependencies=ADMIN_ONLY)
 def delete_assignments(payload: dict = Body(...)):
     ids = set(payload.get("ids") or [])
     if not ids:
@@ -881,7 +935,7 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
     raise HTTPException(404, "과제를 찾을 수 없어요.")
 
 
-@app.post("/api/assignments/reschedule")
+@app.post("/api/assignments/reschedule", dependencies=ADMIN_ONLY)
 def reschedule(payload: dict = Body(...)):
     """일정 일괄 조정.
     mode='shift'  : ids 목록의 마감일을 days 만큼 뒤로 미룸
@@ -1178,11 +1232,20 @@ def delete_submission(assignment_id: str, student_id: str):
     return {"ok": True, "deleted": had}
 
 
+MAX_AUDIO_BYTES = 25 * 1024 * 1024   # 한 번 녹음이 25MB 를 넘을 일은 없다
+
+
 @app.post("/api/audio")
 async def upload_audio(audio: UploadFile = File(...)):
+    """학생 녹음 저장.
+    ★여기는 학생이 부르는 곳이라 관리자 문을 달 수 없다. 지금은 세션이라는 게 없어서
+      '누가 올렸는지' 를 서버가 확인할 방법이 아직 없다(2단계 인증 이전에서 함께 해결).
+      그때까지는 최소한 디스크를 채우는 장난은 막아 둔다. """
     raw = await audio.read()
     if not raw:
         raise HTTPException(400, "빈 오디오 파일이에요.")
+    if len(raw) > MAX_AUDIO_BYTES:
+        raise HTTPException(413, "녹음 파일이 너무 커요.")
     name = uuid.uuid4().hex + ".webm"
     with open(AUDIO_DIR / name, "wb") as f:
         f.write(raw)
@@ -1195,17 +1258,26 @@ AUDIO_TYPES = {
     ".aac": "audio/aac",
 }
 
+# 이 서버가 직접 만든 파일 이름만 (<uuid>.webm / ex_<uuid>.mp3 / tts_<uuid>.mp3)
+AUDIO_NAME = re.compile(r"^(ex_|tts_)?[0-9a-f]{32}\.[a-z0-9]{2,4}$")
+
 
 @app.get("/api/audio/{name}")
 def get_audio(name: str):
+    # 파일 이름은 이 서버가 만든 모양(<uuid>.webm, ex_…, tts_…)만 받는다.
+    # 폴더에 다른 파일이 섞여 들어와도 그건 내보내지 않는다.
+    if not AUDIO_NAME.match(name):
+        raise HTTPException(404, "not found")
     path = AUDIO_DIR / name
     if not path.exists():
         raise HTTPException(404, "not found")
     ext = os.path.splitext(name)[1].lower()
-    return FileResponse(path, media_type=AUDIO_TYPES.get(ext, "audio/webm"))
+    # 녹음은 검색엔진에 올라가면 안 된다.
+    return FileResponse(path, media_type=AUDIO_TYPES.get(ext, "audio/webm"),
+                        headers={"X-Robots-Tag": "noindex, noimageindex"})
 
 
-@app.post("/api/assignments/{assignment_id}/example-audio")
+@app.post("/api/assignments/{assignment_id}/example-audio", dependencies=ADMIN_ONLY)
 async def set_example_audio(assignment_id: str, index: int = Form(...), audio: UploadFile = File(...)):
     """과제 한 항목(예: 알파벳)에 선생님 발음/음가 음원 파일을 올려 붙인다."""
     raw = await audio.read()
@@ -1234,7 +1306,7 @@ async def set_example_audio(assignment_id: str, index: int = Form(...), audio: U
     raise HTTPException(404, "과제를 찾을 수 없어요.")
 
 
-@app.post("/api/assignments/{assignment_id}/tts-audio")
+@app.post("/api/assignments/{assignment_id}/tts-audio", dependencies=ADMIN_ONLY)
 def gen_tts_audio(assignment_id: str, payload: dict = Body(...)):
     """적어준 텍스트를 Azure TTS로 음원 생성해 항목에 붙인다. body: {index, text, voice?}"""
     if not AZURE_KEY:
@@ -1282,7 +1354,7 @@ def gen_tts_audio(assignment_id: str, payload: dict = Body(...)):
     raise HTTPException(404, "과제를 찾을 수 없어요.")
 
 
-@app.delete("/api/assignments/{assignment_id}/example-audio/{index}")
+@app.delete("/api/assignments/{assignment_id}/example-audio/{index}", dependencies=ADMIN_ONLY)
 def clear_example_audio(assignment_id: str, index: int):
     with _lock:
         db = load_db()
@@ -1801,7 +1873,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     }
 
 
-@app.get("/api/diag")
+@app.get("/api/diag", dependencies=ADMIN_ONLY)
 async def diag():
     """발음평가가 왜 안 되는지 확인하는 진단."""
     import shutil, subprocess
@@ -2092,7 +2164,7 @@ def get_vocab(student_id: str):
     return load_vocab(student_id)
 
 
-@app.get("/api/vocab-all")
+@app.get("/api/vocab-all", dependencies=ADMIN_ONLY)
 def get_vocab_all():
     """선생님 대시보드용: 모든 학생의 단어 자습 기록 {student_id: {aid: record}}."""
     return {sid: load_vocab(sid) for sid in all_vocab_student_ids()}
@@ -2221,7 +2293,7 @@ def exam_report(assignment_id: str, student_id: str):
     }
 
 
-@app.get("/api/exam-all")
+@app.get("/api/exam-all", dependencies=ADMIN_ONLY)
 def exam_all():
     """선생님 대시보드용: 모든 학생의 권말 시험 기록 {student_id: {aid: record}}."""
     return {sid: load_exam(sid) for sid in all_exam_student_ids()}
@@ -2246,7 +2318,7 @@ def ping_activity(student_id: str, payload: dict = Body(...)):
     return {"ok": True}
 
 
-@app.get("/api/activity-all")
+@app.get("/api/activity-all", dependencies=ADMIN_ONLY)
 def get_activity_all():
     """선생님 실시간 현황판용: {student_id: {kind: {at, ts, title}}}."""
     return {sid: load_activity(sid) for sid in all_activity_student_ids()}
@@ -2636,7 +2708,7 @@ async def battle_ws(ws: WebSocket, code: str):
 
 
 # ---------- backup ----------
-@app.get("/api/backup")
+@app.get("/api/backup", dependencies=ADMIN_ONLY)
 def backup():
     db = load_db()
     subs = {}
@@ -2649,7 +2721,7 @@ def backup():
     }
 
 
-@app.post("/api/restore")
+@app.post("/api/restore", dependencies=ADMIN_ONLY)
 def restore(payload: dict = Body(...)):
     if not isinstance(payload.get("students"), list) or not isinstance(payload.get("assignments"), list):
         raise HTTPException(400, "백업 파일 형식이 올바르지 않아요.")

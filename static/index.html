@@ -94,6 +94,32 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs
 
 const TAKES = 3;
 
+/* 관리자 비밀번호는 관리자 API 를 여는 열쇠이기도 하다.
+   선생님이 로그인할 때 받아 두고, 이후 모든 요청에 x-ht-admin 으로 붙여 보낸다.
+   (전교생 명단·백업·과제 지우기 같은 동작은 서버가 이 헤더를 확인한다.)
+   sessionStorage 라서 탭을 닫으면 사라진다 — 학생 기기에 남지 않는다. */
+let ADMIN_KEY = "";
+try { ADMIN_KEY = sessionStorage.getItem("tt_admin") || ""; } catch (e) {}
+function setAdminKey(pw) {
+  ADMIN_KEY = pw || "";
+  try { pw ? sessionStorage.setItem("tt_admin", pw) : sessionStorage.removeItem("tt_admin"); } catch (e) {}
+}
+
+/* 관리자 화면에는 api() 를 안 거치고 fetch 를 직접 부르는 곳이 여남은 군데 있다
+   (과제 삭제·수정 등). 한 곳씩 고치면 빠뜨리기 쉬워서, /api 로 나가는 요청 전부에
+   여기서 열쇠를 붙인다. 학생 화면은 ADMIN_KEY 가 비어 있으니 아무것도 붙지 않는다. */
+const _fetch = window.fetch.bind(window);
+window.fetch = function (input, init) {
+  try {
+    const u = typeof input === "string" ? input : (input && input.url) || "";
+    if (ADMIN_KEY && u.indexOf("/api") === 0) {
+      init = { ...(init || {}) };
+      init.headers = { ...(init.headers || {}), "x-ht-admin": ADMIN_KEY };
+    }
+  } catch (e) {}
+  return _fetch(input, init);
+};
+
 async function api(path, opts) {
   const res = await fetch("/api" + path, opts);
   if (!res.ok) {
@@ -364,6 +390,7 @@ function Login({ onStudent, onAdmin, onBattle }) {
         onStudent(r.student);
       } else {
         await apiPost("/login/admin", { pw: apw });
+        setAdminKey(apw);   // 이후 관리자 API 호출에 열쇠로 쓴다
         onAdmin();
       }
     } catch (e) { setErr(e.message); }
@@ -5374,7 +5401,7 @@ function App() {
   if (role === "battle") return <BattlePlayer initialCode={battleParam} onExit={()=>setRole(null)} />;
   if (!role) return <Login onStudent={s=>{setStudent(s); setRole("student");}} onAdmin={()=>setRole("admin")} onBattle={()=>setRole("battle")} />;
   if (role === "student") return <StudentView student={student} onLogout={()=>{setRole(null); setStudent(null);}} />;
-  return <AdminView onLogout={()=>setRole(null)} />;
+  return <AdminView onLogout={()=>{ setAdminKey(""); setRole(null); }} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
