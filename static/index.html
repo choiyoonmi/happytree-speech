@@ -4210,8 +4210,16 @@ function AdminSettings({ students, assignments, reload }) {
 }
 
 // ---------- Admin shell ----------
+// 묶은 탭 안에서 섹션을 구분하는 작은 제목
+function SectionLabel({ children }) {
+  return <div style={{ margin:"26px 2px 10px", fontWeight:800, color:"var(--gold)",
+    fontSize:13, letterSpacing:1, borderTop:"1px solid var(--cream-deep)", paddingTop:18 }}>{children}</div>;
+}
+
 function AdminView({ onLogout }) {
-  const [tab, setTab] = useState("vocab");
+  // 7탭 → 4탭 재구성. 기존 화면(컴포넌트)은 그대로 두고 묶기만 한다.
+  //  현황 = 학습현황 + 제출확인 / 과제 / 학생·성적 = 학생관리 + 성적표 / 설정 = 설정 + 배틀
+  const [tab, setTab] = useState("home");
   const [students, setStudents] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4234,17 +4242,30 @@ function AdminView({ onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="tabs">
-        {[["vocab","학습현황"],["students","학생관리"],["assignments","과제관리"],["review","제출확인"],["battle","배틀"],["report","성적표"],["settings","설정"]].map(([id,l]) => (
+        {[["home","📊 현황"],["task","📚 과제"],["people","👥 학생·성적"],["settings","⚙️ 설정"]].map(([id,l]) => (
           <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
         ))}
       </div>
-      {tab==="students" && <AdminStudents students={students} reload={reload} />}
-      {tab==="assignments" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
-      {tab==="review" && <AdminReview students={students} assignments={assignments} reload={reload} />}
-      {tab==="vocab" && <AdminDashboard students={students} assignments={assignments} />}
-      {tab==="battle" && <BattleHost assignments={assignments} />}
-      {tab==="report" && <AdminReport students={students} />}
-      {tab==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
+
+      {tab==="home" && <>
+        <AdminDashboard students={students} assignments={assignments} />
+        <SectionLabel>■ 제출 확인 (녹음 듣기)</SectionLabel>
+        <AdminReview students={students} assignments={assignments} reload={reload} />
+      </>}
+
+      {tab==="task" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
+
+      {tab==="people" && <>
+        <AdminStudents students={students} reload={reload} />
+        <SectionLabel>■ 성적표</SectionLabel>
+        <AdminReport students={students} />
+      </>}
+
+      {tab==="settings" && <>
+        <AdminSettings students={students} assignments={assignments} reload={reload} />
+        <SectionLabel>■ 단어 배틀 (흥미 유발용)</SectionLabel>
+        <BattleHost assignments={assignments} />
+      </>}
     </div>
   );
 }
