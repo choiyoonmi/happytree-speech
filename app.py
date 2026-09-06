@@ -648,7 +648,32 @@ def get_assignments(request: Request):
         ac = academy_of_student(st) if st else ACADEMY_DEFAULT
     else:
         ac = ACADEMY_DEFAULT
-    return only_academy(load_db()["assignments"], ac)
+    return _light_assignments(only_academy(load_db()["assignments"], ac))
+
+
+def _light_assignments(lst):
+    """목록 응답 경량화: 권말 시험(type=exam)의 무거운 문제은행(items/meanings/examples/exampleKo)을
+    빼고 poolSize만 남긴다(응시할 때 /api/assignment/{id}로 전체를 받음). 예문 배열은 전 과제에서 제거."""
+    out = []
+    for a in lst:
+        b = dict(a)
+        if b.get("type") == "exam":
+            b["poolSize"] = len(b.get("items") or [])
+            for k in ("items", "meanings", "examples", "exampleKo"):
+                b[k] = []
+        else:
+            b.pop("examples", None); b.pop("exampleKo", None)
+        out.append(b)
+    return out
+
+
+@app.get("/api/assignment/{assignment_id}")
+def get_one_assignment(assignment_id: str, request: Request):
+    """과제 하나 전체(시험 문제은행 포함) — 시험 응시 화면에서만 호출."""
+    a = next((x for x in load_db()["assignments"] if x.get("id") == assignment_id), None)
+    if not a:
+        raise HTTPException(404, "과제를 찾을 수 없어요.")
+    return a
 
 
 @app.post("/api/assignments", dependencies=ADMIN_ONLY)
