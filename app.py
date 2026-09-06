@@ -566,6 +566,9 @@ def add_student(payload: dict = Body(...)):
             "name": str(payload.get("name", "")).strip(),
             "className": str(payload.get("className", "")).strip(),
             "grade": str(payload.get("grade", "")).strip(),
+            # ★학원. 공용 학생계정(Apps Script)이 등록을 밀어 넣을 때 같이 보낸다.
+            #   없으면 해피트리로 친다 — 예전에 등록된 학생들이 그렇다.
+            "academy": str(payload.get("academy") or "").strip() or ACADEMY_DEFAULT,
         }
         db["students"].append(student)
         save_db(db)
