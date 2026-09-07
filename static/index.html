@@ -2292,15 +2292,19 @@ function AssignmentBrowser({ students, assignments, reload }) {
     const groupCard = (g, pinned) => {
       const list = byGroup[g];
       const books = new Set(list.map(a => a.book || a.title));
+      const kids = students.filter(s => s.className === g).map(s => s.name);   // 그 반에 속한 학생
       return (
         <button key={g} className="card" onClick={()=>{setGroup(g); setBook(null);}}
           style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left",
             ...(pinned ? { borderColor:"var(--gold)", borderWidth:2, background:"var(--cream-deep)" } : {}) }}>
-          <div>
+          <div style={{ minWidth:0 }}>
             <div style={{ fontWeight:700, fontSize:15 }}>{g}</div>
-            <div className="muted" style={{ marginTop:3 }}>교재 {books.size}권 · 과제 {list.length}개</div>
+            <div className="muted" style={{ marginTop:3 }}>교재 {books.size}권 · 과제 {list.length}개{kids.length ? ` · 학생 ${kids.length}명` : ""}</div>
+            {kids.length > 0 && (
+              <div style={{ marginTop:4, fontSize:12, color:"var(--navy-soft)" }}>{kids.join(", ")}</div>
+            )}
           </div>
-          <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+          <span style={{ color:"var(--navy-soft)", fontSize:20, flexShrink:0, marginLeft:8 }}>›</span>
         </button>
       );
     };
