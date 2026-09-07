@@ -4244,6 +4244,38 @@ function PeoplePanel({ students, reload }) {
   );
 }
 
+// 현황 탭: 학습현황과 제출확인을 소탭으로 (제출확인이 스크롤 아래 묻혀 '없어진 줄' 오해 방지)
+function HomePanel({ students, assignments, reload }) {
+  const [sub, setSub] = useState("dash");
+  return (
+    <>
+      <div className="tabs" style={{ marginBottom:14 }}>
+        {[["dash","📊 학습현황"],["review","🎤 제출확인"]].map(([id,l]) => (
+          <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
+        ))}
+      </div>
+      {sub==="dash" && <AdminDashboard students={students} assignments={assignments} />}
+      {sub==="review" && <AdminReview students={students} assignments={assignments} reload={reload} />}
+    </>
+  );
+}
+
+// 설정 탭: 설정과 배틀을 소탭으로 (배틀이 설정 아래 묻히지 않게)
+function SettingsPanel({ students, assignments, reload }) {
+  const [sub, setSub] = useState("settings");
+  return (
+    <>
+      <div className="tabs" style={{ marginBottom:14 }}>
+        {[["settings","⚙️ 설정"],["battle","🥊 단어 배틀"]].map(([id,l]) => (
+          <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
+        ))}
+      </div>
+      {sub==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
+      {sub==="battle" && <BattleHost assignments={assignments} />}
+    </>
+  );
+}
+
 function AdminView({ onLogout }) {
   // 7탭 → 4탭 재구성. 기존 화면(컴포넌트)은 그대로 두고 묶기만 한다.
   //  현황 = 학습현황 + 제출확인 / 과제 / 학생·성적 = 학생관리 + 성적표 / 설정 = 설정 + 배틀
@@ -4275,21 +4307,13 @@ function AdminView({ onLogout }) {
         ))}
       </div>
 
-      {tab==="home" && <>
-        <AdminDashboard students={students} assignments={assignments} />
-        <SectionLabel>■ 제출 확인 (녹음 듣기)</SectionLabel>
-        <AdminReview students={students} assignments={assignments} reload={reload} />
-      </>}
+      {tab==="home" && <HomePanel students={students} assignments={assignments} reload={reload} />}
 
       {tab==="task" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
 
       {tab==="people" && <PeoplePanel students={students} reload={reload} />}
 
-      {tab==="settings" && <>
-        <AdminSettings students={students} assignments={assignments} reload={reload} />
-        <SectionLabel>■ 단어 배틀 (흥미 유발용)</SectionLabel>
-        <BattleHost assignments={assignments} />
-      </>}
+      {tab==="settings" && <SettingsPanel students={students} assignments={assignments} reload={reload} />}
     </div>
   );
 }
