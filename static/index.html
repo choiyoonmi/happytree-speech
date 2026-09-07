@@ -4228,6 +4228,22 @@ function SectionLabel({ children }) {
     fontSize:13, letterSpacing:1, borderTop:"1px solid var(--cream-deep)", paddingTop:18 }}>{children}</div>;
 }
 
+// 학생·성적 탭: 명단과 성적표를 소탭으로 분리 (긴 학생 목록에 성적표가 묻히지 않게)
+function PeoplePanel({ students, reload }) {
+  const [sub, setSub] = useState("students");
+  return (
+    <>
+      <div className="tabs" style={{ marginBottom:14 }}>
+        {[["students","👥 학생 명단"],["report","📊 성적표"]].map(([id,l]) => (
+          <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
+        ))}
+      </div>
+      {sub==="students" && <AdminStudents students={students} reload={reload} />}
+      {sub==="report" && <AdminReport students={students} />}
+    </>
+  );
+}
+
 function AdminView({ onLogout }) {
   // 7탭 → 4탭 재구성. 기존 화면(컴포넌트)은 그대로 두고 묶기만 한다.
   //  현황 = 학습현황 + 제출확인 / 과제 / 학생·성적 = 학생관리 + 성적표 / 설정 = 설정 + 배틀
@@ -4267,11 +4283,7 @@ function AdminView({ onLogout }) {
 
       {tab==="task" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
 
-      {tab==="people" && <>
-        <AdminStudents students={students} reload={reload} />
-        <SectionLabel>■ 성적표</SectionLabel>
-        <AdminReport students={students} />
-      </>}
+      {tab==="people" && <PeoplePanel students={students} reload={reload} />}
 
       {tab==="settings" && <>
         <AdminSettings students={students} assignments={assignments} reload={reload} />
