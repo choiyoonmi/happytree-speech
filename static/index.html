@@ -2411,6 +2411,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [dupBusy, setDupBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
   const [audioAsg, setAudioAsg] = useState(null);
+  const [previewAsg, setPreviewAsg] = useState(null);        // 문제 미리보기 펼친 과제 id
   const [audioBusy, setAudioBusy] = useState(null);
   const [ttsText, setTtsText] = useState({});
   const [ttsBusy, setTtsBusy] = useState(null);
@@ -3241,6 +3242,8 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:8, alignItems:"flex-end", flexShrink:0 }}>
               <button onClick={()=>delOne(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
+              <button onClick={()=>{ setPreviewAsg(previewAsg===a.id ? null : a.id); setAudioAsg(null); setSplitting(null); }}
+                title="문제 미리보기 (단어/문장 보기)" style={{ background:"none", fontSize:16 }}>👁</button>
               <button onClick={()=>setAudioAsg(audioAsg===a.id ? null : a.id)} title="발음/음가 음원 관리"
                 style={{ background:"none", fontSize:16 }}>🎵</button>
               <button onClick={()=>{ splitting===a.id ? setSplitting(null) : openSplit(a); setAudioAsg(null); }}
@@ -3248,6 +3251,22 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
                 style={{ background:"none", fontSize:16, opacity:(a.items||[]).length<2 ? 0.35 : 1 }}>✂️</button>
             </div>
           </div>
+
+          {previewAsg === a.id && (
+            <div style={{ marginTop:10, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+              <div className="muted" style={{ marginBottom:8, fontSize:12 }}>👁 문제 미리보기 — {a.type==="sentence" ? "문장" : "단어"} {(a.items||[]).length}개 (학생에게 나가는 내용)</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                {(a.items||[]).map((it, i) => (
+                  <div key={i} style={{ display:"flex", gap:8, fontSize:13, lineHeight:1.5 }}>
+                    <span style={{ color:"var(--navy-soft)", fontVariantNumeric:"tabular-nums", flexShrink:0 }}>{i+1}.</span>
+                    <span style={{ fontWeight:700, color:"var(--navy)" }}>{it}</span>
+                    {(a.meanings||[])[i] ? <span className="muted">— {(a.meanings||[])[i]}</span> : null}
+                  </div>
+                ))}
+                {!(a.items||[]).length && <div className="muted" style={{ fontSize:12 }}>등록된 문제가 없어요.</div>}
+              </div>
+            </div>
+          )}
 
           {audioAsg === a.id && (
             <div style={{ marginTop:10, borderTop:"1px solid var(--line)", paddingTop:10 }}>
