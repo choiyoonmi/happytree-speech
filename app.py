@@ -1601,6 +1601,96 @@ def decode_audio(raw: bytes):
     raise HTTPException(400, "오디오를 읽을 수 없어요. " + " | ".join(errors[:3]))
 
 
+def _pa_words(pa):
+    out = []
+    try:
+        for w in (pa.words or []):
+            out.append({"word": w.word, "accuracy": w.accuracy_score, "errorType": w.error_type})
+    except Exception:
+        pass
+    return out
+
+
+def _assess_once(recognizer):
+    """짧은 발화(단어·문장 하나): recognize_once. 반환 (kind, payload) — kind='ok'|'nomatch'|'cancel'."""
+    import azure.cognitiveservices.speech as speechsdk
+    result = recognizer.recognize_once()
+    if result.reason == speechsdk.ResultReason.Canceled:
+        det = result.cancellation_details
+        return ("cancel", f"{det.reason} {det.error_details or ''}")
+    if result.reason != speechsdk.ResultReason.RecognizedSpeech:
+        return ("nomatch", str(result.reason).split(".")[-1])
+    pa = speechsdk.PronunciationAssessmentResult(result)
+    raw = result.properties.get(speechsdk.PropertyId.SpeechServiceResponse_JsonResult) or "{}"
+    return ("ok", {
+        "ok": pa.pronunciation_score is not None, "status": "Success",
+        "text": result.text or "", "pron": pa.pronunciation_score,
+        "accuracy": pa.accuracy_score, "fluency": pa.fluency_score,
+        "completeness": pa.completeness_score, "words": _pa_words(pa), "raw": raw,
+    })
+
+
+def _assess_continuous(recognizer, reference):
+    """긴 지문(통문장): 연속 인식으로 전체를 듣고 조각별 점수를 합친다. 반환 (kind, payload).
+    recognize_once 는 ~15초 단일 발화용이라 지문 전체는 앞부분만 인식된다 → 통문장은 이 경로로 채점."""
+    import azure.cognitiveservices.speech as speechsdk
+    import time as _t
+    results = []
+    state = {"done": False, "cancel_raw": None, "cancel_err": False}
+
+    def on_recognized(evt):
+        if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            results.append(evt.result)
+
+    def on_canceled(evt):
+        try:
+            state["cancel_err"] = (evt.reason == speechsdk.CancellationReason.Error)
+            state["cancel_raw"] = f"{evt.reason} {getattr(evt, 'error_details', '') or ''}"
+        except Exception:
+            state["cancel_raw"] = "Canceled"
+        state["done"] = True
+
+    def on_stopped(evt):
+        state["done"] = True
+
+    recognizer.recognized.connect(on_recognized)
+    recognizer.canceled.connect(on_canceled)
+    recognizer.session_stopped.connect(on_stopped)
+    recognizer.start_continuous_recognition()
+    waited = 0.0
+    while not state["done"] and waited < 120:
+        _t.sleep(0.1); waited += 0.1
+    try:
+        recognizer.stop_continuous_recognition()
+    except Exception:
+        pass
+
+    if not results:
+        if state["cancel_err"]:
+            return ("cancel", state["cancel_raw"] or "Canceled")
+        return ("nomatch", "NoMatch")
+
+    segs, all_words = [], []
+    for res in results:
+        pa = speechsdk.PronunciationAssessmentResult(res)
+        ws = _pa_words(pa)
+        all_words += ws
+        segs.append((pa.pronunciation_score, pa.accuracy_score, pa.fluency_score, len(ws) or 1))
+    totw = sum(s[3] for s in segs) or 1
+    def wavg(i):
+        return sum((s[i] or 0) * s[3] for s in segs) / totw
+    ref_n = len(reference.replace("\n", " ").split()) or 1
+    spoken = len([w for w in all_words if (w.get("errorType") or "None") != "Omission"])
+    completeness = min(100.0, spoken / ref_n * 100.0)
+    return ("ok", {
+        "ok": True, "status": "Success",
+        "text": " ".join(w["word"] for w in all_words),
+        "pron": round(wavg(0), 1), "accuracy": round(wavg(1), 1),
+        "fluency": round(wavg(2), 1), "completeness": round(completeness, 1),
+        "words": all_words, "raw": "",
+    })
+
+
 def assess_with_sdk(wav_path: str, reference: str):
     """Azure Speech SDK로 발음평가. REST API는 점수를 누락하는 알려진 문제가 있어 SDK를 사용."""
     import azure.cognitiveservices.speech as speechsdk
@@ -1615,54 +1705,29 @@ def assess_with_sdk(wav_path: str, reference: str):
         enable_miscue=len(reference.strip().split()) > 2,
     )
 
+    # 통문장(긴 지문)이면 연속 인식으로 채점한다. recognize_once 는 ~15초 단일 발화용이라
+    # 지문 전체(여러 문장)는 앞부분만 인식돼 점수가 안 나온다 → 통문장 채점이 '안 되던' 원인.
+    is_long = ("\n" in reference) or (len(reference.split()) > 20)
+
     # 채점이 몰리면(Canceled=주로 Azure 속도제한) 바로 실패시키지 않고 짧게 쉬며 재시도한다.
-    # 여러 학생이 동시에 녹음할 때 점수가 '가끔 안 뜨던' 원인을 줄인다.
-    # (무음·NoMatch 같은 '진짜 인식 실패'는 재시도 안 하고 그대로 안내 — 아래 분기에서 처리)
+    # (무음·NoMatch 같은 '진짜 인식 실패'는 재시도 안 하고 그대로 안내)
     import time as _time
-    result = None
     for attempt in range(3):
         audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
         recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
         pa_config.apply_to(recognizer)
-        result = recognizer.recognize_once()
-        if result.reason != speechsdk.ResultReason.Canceled:
-            break
-        det = result.cancellation_details
-        raw = f"{det.reason} {det.error_details or ''}"
-        print(f"[assess] canceled (attempt {attempt+1}/3): {raw}")   # 원본 기술 에러는 서버 로그에만
-        if attempt < 2:
-            _time.sleep(0.8 * (attempt + 1))   # 0.8s → 1.6s 백오프 후 재시도
-            continue
-        raise HTTPException(502, "지금 발음 채점이 잠시 몰려서 안 돼요. 녹음은 저장됐으니 그대로 제출하면 돼요 🙂")
 
-    if result.reason != speechsdk.ResultReason.RecognizedSpeech:
-        return {"ok": False, "status": str(result.reason).split(".")[-1], "text": ""}
+        kind, payload = _assess_continuous(recognizer, reference) if is_long else _assess_once(recognizer)
 
-    pa = speechsdk.PronunciationAssessmentResult(result)
-    raw = result.properties.get(speechsdk.PropertyId.SpeechServiceResponse_JsonResult) or "{}"
-
-    words = []
-    try:
-        for w in (pa.words or []):
-            words.append({
-                "word": w.word,
-                "accuracy": w.accuracy_score,
-                "errorType": w.error_type,
-            })
-    except Exception:
-        pass
-
-    return {
-        "ok": pa.pronunciation_score is not None,
-        "status": "Success",
-        "text": result.text or "",
-        "pron": pa.pronunciation_score,
-        "accuracy": pa.accuracy_score,
-        "fluency": pa.fluency_score,
-        "completeness": pa.completeness_score,
-        "words": words,
-        "raw": raw,
-    }
+        if kind == "cancel":
+            print(f"[assess] canceled (attempt {attempt+1}/3, long={is_long}): {payload}")   # 원본 기술 에러는 서버 로그에만
+            if attempt < 2:
+                _time.sleep(0.8 * (attempt + 1))   # 0.8s → 1.6s 백오프 후 재시도
+                continue
+            raise HTTPException(502, "지금 발음 채점이 잠시 몰려서 안 돼요. 녹음은 저장됐으니 그대로 제출하면 돼요 🙂")
+        if kind == "nomatch":
+            return {"ok": False, "status": payload, "text": ""}
+        return payload   # ok
 
 
 @app.post("/api/assess")
