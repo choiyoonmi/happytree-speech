@@ -1607,7 +1607,6 @@ def assess_with_sdk(wav_path: str, reference: str):
 
     speech_config = speechsdk.SpeechConfig(subscription=AZURE_KEY, region=AZURE_REGION)
     speech_config.speech_recognition_language = "en-US"
-    audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
 
     pa_config = speechsdk.PronunciationAssessmentConfig(
         reference_text=reference,
@@ -1616,14 +1615,24 @@ def assess_with_sdk(wav_path: str, reference: str):
         enable_miscue=len(reference.strip().split()) > 2,
     )
 
-    recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
-    pa_config.apply_to(recognizer)
-    result = recognizer.recognize_once()
-
-    if result.reason == speechsdk.ResultReason.Canceled:
+    # 채점이 몰리면(Canceled=주로 Azure 속도제한) 바로 실패시키지 않고 짧게 쉬며 재시도한다.
+    # 여러 학생이 동시에 녹음할 때 점수가 '가끔 안 뜨던' 원인을 줄인다.
+    # (무음·NoMatch 같은 '진짜 인식 실패'는 재시도 안 하고 그대로 안내 — 아래 분기에서 처리)
+    import time as _time
+    result = None
+    for attempt in range(3):
+        audio_config = speechsdk.audio.AudioConfig(filename=wav_path)
+        recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+        pa_config.apply_to(recognizer)
+        result = recognizer.recognize_once()
+        if result.reason != speechsdk.ResultReason.Canceled:
+            break
         det = result.cancellation_details
         raw = f"{det.reason} {det.error_details or ''}"
-        print("[assess] canceled:", raw)   # 원본 기술 에러는 서버 로그에만
+        print(f"[assess] canceled (attempt {attempt+1}/3): {raw}")   # 원본 기술 에러는 서버 로그에만
+        if attempt < 2:
+            _time.sleep(0.8 * (attempt + 1))   # 0.8s → 1.6s 백오프 후 재시도
+            continue
         raise HTTPException(502, "지금 발음 채점이 잠시 몰려서 안 돼요. 녹음은 저장됐으니 그대로 제출하면 돼요 🙂")
 
     if result.reason != speechsdk.ResultReason.RecognizedSpeech:
