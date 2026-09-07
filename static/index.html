@@ -2022,6 +2022,7 @@ function AdminAssignments({ students, assignments, reload, voice }) {
   const [title, setTitle] = useState(""); const [type, setType] = useState("word");
   const [list, setList] = useState(""); const [due, setDue] = useState("");
   const [rounds, setRounds] = useState(3);
+  const [recordMode, setRecordMode] = useState("each");   // 문장 녹음 방식: each(문장별) | whole(통문장)
   const [mode, setMode] = useState("hidden");   // 기본값: 보관함(실수로 전체 배포 방지)
   const [classes, setClasses] = useState([]); const [ids, setIds] = useState([]);
   const [err, setErr] = useState(""); const [pdfBusy, setPdfBusy] = useState(false);
@@ -2091,9 +2092,10 @@ function AdminAssignments({ students, assignments, reload, voice }) {
     try {
       await apiPost("/assignments", {
         title, type, items, meanings, dueDate: mode==="hidden" ? null : (due || null), rounds, assignedIds,
-        assignedClasses: mode==="class" ? classes : [], published: mode!=="hidden"
+        assignedClasses: mode==="class" ? classes : [], published: mode!=="hidden",
+        recordMode: type==="sentence" ? recordMode : "each"
       });
-      setTitle(""); setList(""); setDue(""); setRounds(3); setMode("all"); setClasses([]); setIds([]);
+      setTitle(""); setList(""); setDue(""); setRounds(3); setRecordMode("each"); setMode("all"); setClasses([]); setIds([]);
       setShow(false); setErr("");
       await reload();
     } catch (e) { setErr(e.message); }
@@ -2137,36 +2139,35 @@ function AdminAssignments({ students, assignments, reload, voice }) {
         <BulkUpload students={students} reload={reload} onClose={()=>setShowBulk(false)} />
       ) : (
         <div className="card">
-          <label className="label">과제 제목</label>
-          <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: Unit 3 단어" />
-          <div style={{height:10}} />
-          <label className="label">마감일 (선택)</label>
-          <input className="field" type="date" value={due} onChange={e=>setDue(e.target.value)} />
-          <div style={{height:10}} />
-          <label className="label">유형</label>
+          <div className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:6 }}>① 무엇을 낼까요?</div>
           <div className="seg" style={{marginTop:0}}>
-            {[["word","단어"],["sentence","문장"]].map(([v,l]) => (
+            {[["word","📚 단어"],["sentence","📝 문장"]].map(([v,l]) => (
               <button key={v} className={type===v?"on":""} onClick={()=>setType(v)}>{l}</button>
             ))}
           </div>
-          <div style={{height:10}} />
-          <label className="label">녹음 횟수 (전체를 몇 번 반복할지)</label>
-          <div className="seg" style={{marginTop:0}}>
-            {[1,2,3].map(n => (
-              <button key={n} className={rounds===n?"on":""} onClick={()=>setRounds(n)}>{n}회</button>
-            ))}
-          </div>
-          <div style={{height:14}} />
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
-            <span className="label" style={{marginBottom:0}}>목록 (한 줄에 하나씩)</span>
+          {type==="sentence" && (
+            <>
+              <div style={{height:10}} />
+              <label className="label">문장 녹음 방식</label>
+              <div className="seg" style={{marginTop:0}}>
+                <button className={recordMode==="each"?"on":""} onClick={()=>setRecordMode("each")}>문장별 끊어읽기</button>
+                <button className={recordMode==="whole"?"on":""} onClick={()=>setRecordMode("whole")}>통문장 말하기</button>
+              </div>
+              <div className="muted" style={{ fontSize:11, marginTop:4 }}>{recordMode==="whole" ? "통문장을 한 번에 읽고 하나의 점수로 평가해요 (고학년용)" : "문장을 하나씩 녹음·채점해요 (저학년용)"}</div>
+            </>
+          )}
+
+          <div style={{height:18}} />
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom:6 }}>
+            <span className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:0 }}>② 목록 넣기</span>
             <div className="row" style={{gap:6}}>
               <label className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}>
-                엑셀 업로드
+                📊 엑셀 업로드
                 <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
                   onChange={e=>{ const f=e.target.files[0]; if(f) readExcel(f); e.target.value=""; }} />
               </label>
               <label className="btn-ghost" style={{ fontSize:12, padding:"6px 10px", opacity: pdfBusy?0.5:1 }}>
-                {pdfBusy ? "분석 중..." : "PDF 업로드"}
+                {pdfBusy ? "분석 중..." : "📄 PDF 업로드"}
                 <input type="file" accept=".pdf" style={{display:"none"}} disabled={pdfBusy}
                   onChange={e=>{ const f=e.target.files[0]; if(f) readPdf(f); e.target.value=""; }} />
               </label>
@@ -2176,7 +2177,7 @@ function AdminAssignments({ students, assignments, reload, voice }) {
               </button>
             </div>
           </div>
-          <div style={{height:6}} />
+          <div className="muted" style={{ fontSize:11, marginBottom:6 }}>📄 책 파일을 올리면 목록이 자동으로 채워져요 · 또는 아래에 직접 입력 (한 줄에 하나)</div>
           <textarea className="field" rows={6} value={list} onChange={e=>setList(e.target.value)}
             placeholder={"apple / 사과\nbanana / 바나나\n\n한글 뜻은 '/' 뒤에 쓰거나, 영어만 넣고 '한글뜻 자동'을 누르세요."} />
           {list.trim() && (
@@ -2199,7 +2200,9 @@ function AdminAssignments({ students, assignments, reload, voice }) {
               </div>
             </div>
           )}
-          <div style={{height:14}} />
+
+          <div style={{height:18}} />
+          <div className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:6 }}>③ 누구에게 · 언제까지</div>
           <label className="label">배정 대상</label>
           <div className="seg" style={{marginTop:0}}>
             {[["hidden","📦 보관함"],["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
@@ -2230,6 +2233,22 @@ function AdminAssignments({ students, assignments, reload, voice }) {
               ))}
             </div>
           )}
+
+          <div style={{height:18}} />
+          <div className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:6 }}>④ 제목 · 마감 · 녹음 횟수</div>
+          <label className="label">과제 제목</label>
+          <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: Unit 3 단어 · Day 12" />
+          <div style={{height:10}} />
+          <label className="label">마감일 (선택)</label>
+          <input className="field" type="date" value={due} onChange={e=>setDue(e.target.value)} />
+          <div style={{height:10}} />
+          <label className="label">녹음 횟수 (전체를 몇 번 반복할지)</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[1,2,3].map(n => (
+              <button key={n} className={rounds===n?"on":""} onClick={()=>setRounds(n)}>{n}회</button>
+            ))}
+          </div>
+
           {err && <div className="err">{err}</div>}
           <div className="row" style={{ marginTop:14 }}>
             <button className="btn-ghost" onClick={()=>{setShow(false); setErr("");}}>취소</button>
@@ -4938,6 +4957,21 @@ function AdminDashboard({ students, assignments }) {
     return ACT_COLS.some(([k]) => a[k] && isLive(a[k].ts));
   }).length;
 
+  // ★하는 학생(현재 학습 중)을 맨 위로. 그다음 최근 활동순, 나머지는 이름순.
+  const actMaxTs = (id) => {
+    const a = act[id] || {};
+    let mx = 0;
+    ACT_COLS.forEach(([k]) => { if (a[k] && a[k].ts && a[k].ts > mx) mx = a[k].ts; });
+    return mx;
+  };
+  const sortedStudents = [...students].sort((x, y) => {
+    const tx = actMaxTs(x.id), ty = actMaxTs(y.id);
+    const lx = (tx && isLive(tx)) ? 1 : 0, ly = (ty && isLive(ty)) ? 1 : 0;
+    if (lx !== ly) return ly - lx;         // 학습 중이 먼저
+    if (ty !== tx) return ty - tx;         // 최근 활동이 위로
+    return (x.name || "").localeCompare(y.name || "");
+  });
+
   return <div className="body">
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
       <div className="muted">실시간 학습 현황 · 7초마다 자동 갱신</div>
@@ -4957,10 +4991,11 @@ function AdminDashboard({ students, assignments }) {
           </tr>
         </thead>
         <tbody>
-          {students.map(s => {
+          {sortedStudents.map(s => {
             const a = act[s.id] || {};
+            const rowLive = ACT_COLS.some(([k]) => a[k] && isLive(a[k].ts));
             return (
-              <tr key={s.id} style={{ borderBottom:"1px solid var(--line)", cursor:"pointer" }} onClick={()=>setSid(s.id)}>
+              <tr key={s.id} style={{ borderBottom:"1px solid var(--line)", cursor:"pointer", background: rowLive ? "#F0F8F3" : "transparent" }} onClick={()=>setSid(s.id)}>
                 <td style={{ padding:"8px 8px", fontWeight:700, whiteSpace:"nowrap", position:"sticky", left:0, background:"var(--cream)" }}>
                   {s.name}
                 </td>
