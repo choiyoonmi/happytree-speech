@@ -1691,7 +1691,7 @@ def _assess_continuous(recognizer, reference):
     })
 
 
-def assess_with_sdk(wav_path: str, reference: str):
+def assess_with_sdk(wav_path: str, reference: str, debug: bool = False):
     """Azure Speech SDK로 발음평가. REST API는 점수를 누락하는 알려진 문제가 있어 SDK를 사용."""
     import azure.cognitiveservices.speech as speechsdk
 
@@ -1724,7 +1724,10 @@ def assess_with_sdk(wav_path: str, reference: str):
             if attempt < 2:
                 _time.sleep(0.8 * (attempt + 1))   # 0.8s → 1.6s 백오프 후 재시도
                 continue
-            raise HTTPException(502, "지금 발음 채점이 잠시 몰려서 안 돼요. 녹음은 저장됐으니 그대로 제출하면 돼요 🙂")
+            msg = "지금 발음 채점이 잠시 몰려서 안 돼요. 녹음은 저장됐으니 그대로 제출하면 돼요 🙂"
+            if debug:
+                msg += f" [DEBUG cancel: {payload}]"
+            raise HTTPException(502, msg)
         if kind == "nomatch":
             return {"ok": False, "status": payload, "text": ""}
         return payload   # ok
@@ -1763,7 +1766,7 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: st
     }
 
     try:
-        r = await asyncio.to_thread(assess_with_sdk, wav_path, text)
+        r = await asyncio.to_thread(assess_with_sdk, wav_path, text, bool(debug))
     finally:
         try:
             os.unlink(wav_path)
