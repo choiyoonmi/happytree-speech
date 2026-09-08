@@ -4760,12 +4760,15 @@ function ExamQuiz({ assignment, student, onClose }) {
   /* ★저학년은 타이핑 대신 **알파벳 타일**을 눌러 철자를 세운다(원장 요청 2026-09-08).
      초2·초3에게 영어 자판은 문제가 아니라 장벽이다 — 철자를 아는지 묻는 자리에서
      자판을 못 찾아 틀리면 무엇을 잰 것인지 알 수 없다.
-       초2(LV2) : 그 낱말의 글자만큼만 준다. 차례를 아는지 묻는다.
-       초3(LV3) : 딴 글자 2개를 섞는다. 어떤 글자가 드는지도 알아야 한다.
+       초2(LV2) : 그 낱말의 글자만큼만 준다(5). 차례를 아는지 묻는다.
+       초3(LV3) : 딴 글자 2개를 섞는다(7). 어떤 글자가 드는지도 알아야 한다.
+       초4(LV4) : 딴 글자 4개(9). 타일에서 자판으로 곧장 건너뛰면 계단이 너무 급하다.
+       LV5 이상 : 자판으로 친다.
      과제에 spellMode·spellDecoys 가 있으면 그대로 따르고, 없으면 책 이름의 LV로 어림잡는다. */
   const lvNo = (() => { const m = String(a.book || "").match(/LV\s*(\d+)/i); return m ? +m[1] : null; })();
-  const tileMode = a.spellMode === "tiles" || (a.spellMode == null && lvNo != null && lvNo <= 3);
-  const nDecoy = (typeof a.spellDecoys === "number") ? a.spellDecoys : (lvNo === 3 ? 2 : 0);
+  const tileMode = a.spellMode === "tiles" || (a.spellMode == null && lvNo != null && lvNo <= 4);
+  const nDecoy = (typeof a.spellDecoys === "number") ? a.spellDecoys
+               : (lvNo === 3 ? 2 : lvNo === 4 ? 4 : 0);
   const ALPHA = "abcdefghijklmnopqrstuvwxyz".split("");
   const tilesOf = (en) => {
     const have = new Set(en.toLowerCase().split(""));
