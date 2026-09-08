@@ -4757,6 +4757,21 @@ function ExamQuiz({ assignment, student, onClose }) {
   })).filter(p => p.en && p.ko);
   const pass = a.passScore || 70;
   const NQ = Math.min(40, pool.length);
+  /* ★저학년은 타이핑 대신 **알파벳 타일**을 눌러 철자를 세운다(원장 요청 2026-09-08).
+     초2·초3에게 영어 자판은 문제가 아니라 장벽이다 — 철자를 아는지 묻는 자리에서
+     자판을 못 찾아 틀리면 무엇을 잰 것인지 알 수 없다.
+       초2(LV2) : 그 낱말의 글자만큼만 준다. 차례를 아는지 묻는다.
+       초3(LV3) : 딴 글자 2개를 섞는다. 어떤 글자가 드는지도 알아야 한다.
+     과제에 spellMode·spellDecoys 가 있으면 그대로 따르고, 없으면 책 이름의 LV로 어림잡는다. */
+  const lvNo = (() => { const m = String(a.book || "").match(/LV\s*(\d+)/i); return m ? +m[1] : null; })();
+  const tileMode = a.spellMode === "tiles" || (a.spellMode == null && lvNo != null && lvNo <= 3);
+  const nDecoy = (typeof a.spellDecoys === "number") ? a.spellDecoys : (lvNo === 3 ? 2 : 0);
+  const ALPHA = "abcdefghijklmnopqrstuvwxyz".split("");
+  const tilesOf = (en) => {
+    const have = new Set(en.toLowerCase().split(""));
+    const decoy = shuffleArr(ALPHA.filter(c => !have.has(c))).slice(0, Math.max(0, nDecoy));
+    return shuffleArr(en.split("").concat(decoy));   /* 딴 글자는 그 낱말에 없는 것만 — 헷갈리라고 넣는 게 아니다 */
+  };
   const norm = s => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
   const cloze = (ex, en) => {
     if (!ex) return null;
@@ -4775,12 +4790,12 @@ function ExamQuiz({ assignment, student, onClose }) {
         const opts = shuffleArr([p.ko, ...shuffleArr(pool.filter(x => x.ko !== p.ko)).slice(0, 3).map(x => x.ko)]);
         return { type: "choice", prompt: p.en, answer: p.ko, options: opts, p };
       }
-      if (t === "write") return { type: "write", prompt: p.ko, answer: p.en, p };
+      if (t === "write") return { type: "write", prompt: p.ko, answer: p.en, tiles: tilesOf(p.en), p };
       if (t === "clozeChoice") {
         const opts = shuffleArr([p.en, ...shuffleArr(pool.filter(x => x.en !== p.en)).slice(0, 3).map(x => x.en)]);
         return { type: "clozeChoice", prompt: cz, sub: p.exKo, answer: p.en, options: opts, p };
       }
-      return { type: "clozeWrite", prompt: cz, sub: p.exKo, answer: p.en, p };
+      return { type: "clozeWrite", prompt: cz, sub: p.exKo, answer: p.en, tiles: tilesOf(p.en), p };
     });
   });
   const t0 = useRef(Date.now());
@@ -4792,8 +4807,18 @@ function ExamQuiz({ assignment, student, onClose }) {
   const [phase, setPhase] = useState("q");
   const [report, setReport] = useState(null);
   const [wrong, setWrong] = useState([]);
+  const [used, setUsed] = useState([]);
   const q = qs[i];
   const isChoice = q && (q.type === "choice" || q.type === "clozeChoice");
+  const useTiles = tileMode && q && !isChoice && (q.tiles || []).length > 0;
+  const tapTile = (k) => {
+    if (picked != null) return;
+    const u = [...used, k]; setUsed(u); setVal(u.map(j => q.tiles[j]).join(""));
+  };
+  const undoTile = () => {
+    if (picked != null) return;
+    const u = used.slice(0, -1); setUsed(u); setVal(u.map(j => q.tiles[j]).join(""));
+  };
 
   useEffect(() => { pingActivity(student.id, "test", a.title); }, []);
 
@@ -4815,7 +4840,7 @@ function ExamQuiz({ assignment, student, onClose }) {
     if (!ok) setWrong(w => [...w, q]);
     setTimeout(() => {
       if (i + 1 >= qs.length) finish(nc, bt);
-      else { setI(i + 1); setVal(""); setPicked(null); }
+      else { setI(i + 1); setVal(""); setPicked(null); setUsed([]); }
     }, isChoice ? 480 : 260);
   };
   const choose = (opt) => { if (picked != null) return; setPicked(opt); advance(opt === q.answer); };
@@ -4850,11 +4875,45 @@ function ExamQuiz({ assignment, student, onClose }) {
       </div>
     ) : (
       <>
-        <input className="field" value={val} onChange={e => setVal(e.target.value)} autoFocus
-          onKeyDown={e => { if (e.key === "Enter") submitWrite(); }} placeholder="영어 단어 입력" disabled={picked != null}
-          style={{ marginTop: 10, borderColor: picked === "ok" ? "#8FC7AA" : picked === "no" ? "#E8C4BC" : undefined }} />
-        {picked === "no" && <div style={{ marginTop: 6, color: "var(--danger)", fontSize: 13 }}>정답: <b>{q.answer}</b></div>}
-        <button className="btn full" style={{ marginTop: 10 }} onClick={submitWrite} disabled={picked != null}>확인</button>
+        {useTiles ? (
+          <>
+            {/* 세운 철자 — 빈 칸이 몇 개 남았는지 눈에 보이게 한다 */}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12, minHeight: 44 }}>
+              {q.answer.split("").map((_, k) => (
+                <span key={k} style={{
+                  width: 34, height: 42, display: "flex", alignItems: "center", justifyContent: "center",
+                  borderBottom: `2px solid ${picked === "ok" ? "#8FC7AA" : picked === "no" ? "#E8C4BC" : "var(--line, #ddd)"}`,
+                  fontSize: 22, fontWeight: 700, fontFamily: "Georgia, serif"
+                }}>{val[k] || ""}</span>))}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 14 }}>
+              {q.tiles.map((c, k) => (
+                <button key={k} onClick={() => tapTile(k)} disabled={picked != null || used.includes(k)}
+                  style={{
+                    width: 42, height: 46, borderRadius: 10, fontSize: 20, fontWeight: 700,
+                    fontFamily: "Georgia, serif",
+                    border: "1px solid var(--line, #ddd)",
+                    background: used.includes(k) ? "transparent" : "#fff",
+                    color: used.includes(k) ? "transparent" : "inherit"
+                  }}>{c}</button>))}
+            </div>
+            {picked === "no" && <div style={{ marginTop: 8, color: "var(--danger)", fontSize: 13 }}>정답: <b>{q.answer}</b></div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button className="btn" style={{ flex: "0 0 96px" }} onClick={undoTile}
+                disabled={picked != null || !used.length}>← 지우기</button>
+              <button className="btn" style={{ flex: 1 }} onClick={submitWrite}
+                disabled={picked != null || !val}>확인</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <input className="field" value={val} onChange={e => setVal(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === "Enter") submitWrite(); }} placeholder="영어 단어 입력" disabled={picked != null}
+              style={{ marginTop: 10, borderColor: picked === "ok" ? "#8FC7AA" : picked === "no" ? "#E8C4BC" : undefined }} />
+            {picked === "no" && <div style={{ marginTop: 6, color: "var(--danger)", fontSize: 13 }}>정답: <b>{q.answer}</b></div>}
+            <button className="btn full" style={{ marginTop: 10 }} onClick={submitWrite} disabled={picked != null}>확인</button>
+          </>
+        )}
       </>
     )}
   </>;

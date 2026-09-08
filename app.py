@@ -760,6 +760,10 @@ def add_assignment(request: Request, payload: dict = Body(...)):
             "assignedIds": payload.get("assignedIds", []),
             "assignedClasses": payload.get("assignedClasses", []),
             "exampleAudio": payload.get("exampleAudio", []),
+            # 권말 시험의 철자 입력 방식. tiles = 알파벳 타일을 눌러 세운다(저학년),
+            # type = 자판으로 친다. 없으면 학생 앱이 책 이름의 LV로 어림잡는다(LV3 이하 타일).
+            "spellMode": (payload.get("spellMode") or None),
+            "spellDecoys": payload.get("spellDecoys"),
             "recordMode": ("whole" if payload.get("recordMode") == "whole" else "each"),
             "published": bool(payload.get("published", True)),
         }
@@ -816,6 +820,8 @@ def add_assignments_bulk(request: Request, payload: dict = Body(...)):
                 "assignedIds": p.get("assignedIds", []),
                 "assignedClasses": p.get("assignedClasses", []),
                 "exampleAudio": p.get("exampleAudio", []),
+                "spellMode": (p.get("spellMode") or None),
+                "spellDecoys": p.get("spellDecoys"),
                 "recordMode": ("whole" if p.get("recordMode") == "whole" else "each"),
                 "published": bool(p.get("published", True)),
             }
@@ -1111,7 +1117,7 @@ def _sync_exam_dates(db):
 @app.patch("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: str, payload: dict = Body(...)):
     """과제 하나 수정 (마감일, 제목, 녹음 횟수, 배정 대상 등)."""
-    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio", "recordMode", "examples", "exampleKo", "passScore"}
+    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio", "recordMode", "examples", "exampleKo", "passScore", "spellMode", "spellDecoys"}
     with _lock:
         db = load_db()
         for a in db["assignments"]:
