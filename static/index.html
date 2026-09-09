@@ -3371,15 +3371,18 @@ function AdminReview({ students, assignments, reload }) {
       </div>
 
       {classNames.map(c => {
-        const n = students.filter(s => s.className === c).length;
+        const kids = students.filter(s => s.className === c).map(s => s.name);
         return (
           <button key={c} className="card" onClick={() => setCls(c)}
             style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
-            <div>
+            <div style={{ minWidth:0 }}>
               <div style={{ fontWeight:700, fontSize:15 }}>{c}</div>
-              <div className="muted" style={{ marginTop:2 }}>학생 {n}명</div>
+              <div className="muted" style={{ marginTop:2 }}>학생 {kids.length}명</div>
+              {kids.length > 0 && (
+                <div style={{ marginTop:4, fontSize:12, color:"var(--navy-soft)" }}>{kids.join(", ")}</div>
+              )}
             </div>
-            <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+            <span style={{ color:"var(--navy-soft)", fontSize:20, flexShrink:0, marginLeft:8 }}>›</span>
           </button>
         );
       })}
