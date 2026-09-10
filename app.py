@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import (FastAPI, UploadFile, Form, HTTPException, File, Body, WebSocket,
-                     WebSocketDisconnect, Depends, Request)
+                     WebSocketDisconnect, Depends, Request, BackgroundTasks)
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -1267,6 +1267,20 @@ def _avg_score_from_items(items):
     return round(sum(scores) / len(scores)) if scores else None
 
 
+def _avg_score_from_sub(sub):
+    """items(항목별) + whole(통문장) 양쪽 take 점수를 모두 모아 평균낸다.
+    ★통문장 녹음은 점수가 sub['whole'] 에 저장되므로 items 만 보면 통문장이 통째로 누락됐다."""
+    scores = []
+    for takes in ((sub or {}).get("items") or []):
+        for t in (takes or []):
+            if t and t.get("score") is not None:
+                scores.append(t["score"])
+    for t in ((sub or {}).get("whole") or []):
+        if t and t.get("score") is not None:
+            scores.append(t["score"])
+    return round(sum(scores) / len(scores)) if scores else None
+
+
 # ---------- 트리톡 알림: 오늘의 4활동(단어녹음·문장녹음·단어자습·문장자습) 현황 ----------
 BOT_NOTIFY_URL = os.environ.get("BOT_NOTIFY_URL",
     "https://script.google.com/macros/s/AKfycbwHxEXK4Lz80L8A9zDiqIE8CNzNKSSiFCk6HYevmRdhde5eSRmSVATwHuRxsHBnv7Uh/exec")
@@ -1291,7 +1305,7 @@ def _treetalk_today_status(student_id):
             continue
         if not (is_today(sub.get("submittedAt")) or is_today(sub.get("completedAt"))):
             continue
-        avg = _avg_score_from_items(sub.get("items"))
+        avg = _avg_score_from_sub(sub)
         if avg is None:
             continue
         if atype.get(aid, "word") == "sentence":
@@ -1338,7 +1352,7 @@ def _treetalk_done_ids_today() -> set:
                 continue
             if not (is_today(sub.get("submittedAt")) or is_today(sub.get("completedAt"))):
                 continue
-            if _avg_score_from_items(sub.get("items")) is not None:
+            if _avg_score_from_sub(sub) is not None:
                 done.add(sid)
                 break
     # (2) 단어/문장 자습
@@ -1405,7 +1419,7 @@ def _notify_reading_submission(student_id, assignment_id, sub):
     title = (assignment or {}).get("title") or "과제"
     who = "%s (%s)" % (name, cls) if cls else name
     lines = ["🎤 <b>%s</b> 낭독 제출 완료" % who, "과제: %s" % title]
-    avg = _avg_score_from_items(sub.get("items"))
+    avg = _avg_score_from_sub(sub)
     if avg is not None:
         lines.append("평균 점수: %s점" % avg)
     if sub.get("submittedAt"):
@@ -1792,15 +1806,8 @@ def assess_with_sdk(wav_path: str, reference: str, debug: bool = False):
         return payload   # ok
 
 
-@app.post("/api/assess")
-async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: str = Form("")):
-    if not AZURE_KEY:
-        raise HTTPException(500, "서버에 AZURE_SPEECH_KEY가 설정되어 있지 않아요.")
-
-    raw_bytes = await audio.read()
-    if not raw_bytes:
-        raise HTTPException(400, "오디오 파일이 비어있어요.")
-
+def _run_assessment(raw_bytes: bytes, text: str, debug: bool = False) -> dict:
+    """오디오 bytes → 발음평가 결과(out dict). /api/assess 와 백그라운드 채점(score-take)이 함께 쓴다."""
     seg, decoder = decode_audio(raw_bytes)
     orig_dbfs = seg.dBFS
     orig_ms = len(seg)
@@ -1820,12 +1827,12 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: st
         "dBFS": None if orig_dbfs == float("-inf") else round(orig_dbfs, 1),
         "bytesIn": len(raw_bytes),
         "decoder": decoder,
-        "contentType": audio.content_type,
+        "contentType": None,
         "engine": "sdk",
     }
 
     try:
-        r = await asyncio.to_thread(assess_with_sdk, wav_path, text, bool(debug))
+        r = assess_with_sdk(wav_path, text, debug)
     finally:
         try:
             os.unlink(wav_path)
@@ -1867,6 +1874,96 @@ async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: st
     if debug:
         out["raw"] = (r.get("raw") or "")[:1500]
     return out
+
+
+@app.post("/api/assess")
+async def assess(text: str = Form(...), audio: UploadFile = File(...), debug: str = Form("")):
+    if not AZURE_KEY:
+        raise HTTPException(500, "서버에 AZURE_SPEECH_KEY가 설정되어 있지 않아요.")
+    raw_bytes = await audio.read()
+    if not raw_bytes:
+        raise HTTPException(400, "오디오 파일이 비어있어요.")
+    ct = audio.content_type
+    out = await asyncio.to_thread(_run_assessment, raw_bytes, text, bool(debug))
+    if isinstance(out, dict) and isinstance(out.get("audio"), dict):
+        out["audio"]["contentType"] = ct
+    return out
+
+
+def _take_from_assessment(out: dict) -> dict:
+    """assess 결과(out)를 프런트 take 모양(score/detail/recognized/…)으로 바꾼다.
+    점수가 없으면 scoring=False + assessError 로 채운다. 항상 scoring 을 끈다."""
+    pron = (out or {}).get("pronScore")
+    d = (out or {}).get("audio") or {}
+    if pron is not None:
+        rnd = lambda v: None if v is None else round(v)
+        return {
+            "score": round(pron),
+            "detail": {"accuracy": rnd(out.get("accuracyScore")),
+                       "fluency": rnd(out.get("fluencyScore")),
+                       "completeness": rnd(out.get("completenessScore"))},
+            "recognized": out.get("recognizedText") or None,
+            "words": out.get("words") or None,
+            "durationMs": d.get("durationMs"),
+            "scoring": False, "assessError": None, "assessDebug": None,
+        }
+    dbg = " · ".join([x for x in [
+        (f"상태 {out.get('status')}" if (out or {}).get("status") else None),
+        (f"길이 {d['durationMs']/1000:.1f}초" if d.get("durationMs") is not None else None),
+        (f"음량 {d['dBFS']}dB" if d.get("dBFS") is not None else None),
+    ] if x])
+    return {"score": None, "scoring": False,
+            "assessError": (out or {}).get("note") or "채점에 실패했어요. 다시 녹음해 주세요.",
+            "assessDebug": dbg or None}
+
+
+def _score_take_bg(aid: str, sid: str, raw_bytes: bytes, text: str, rnd: int, mode: str, index: int):
+    """백그라운드에서 채점한 뒤 그 학생 제출의 해당 take 에 점수를 써넣는다(학생은 안 기다림)."""
+    try:
+        patch = _take_from_assessment(_run_assessment(raw_bytes, text, False))
+    except Exception as e:
+        print("[score-take] 채점 실패:", str(e)[:150])
+        patch = {"score": None, "scoring": False, "assessError": "채점이 지연됐어요. 다시 녹음해 주세요."}
+    try:
+        with _sub_lock(sid):
+            subs = load_student_subs(sid)
+            sub = subs.get(aid) or {}
+            if mode == "whole":
+                whole = list(sub.get("whole") or [])
+                while len(whole) <= rnd:
+                    whole.append(None)
+                take = dict(whole[rnd] or {}); take.update(patch); whole[rnd] = take
+                sub["whole"] = whole
+            else:
+                items = [list(x or []) for x in (sub.get("items") or [])]
+                while len(items) <= index:
+                    items.append([])
+                row = items[index]
+                while len(row) <= rnd:
+                    row.append(None)
+                take = dict(row[rnd] or {}); take.update(patch); row[rnd] = take
+                items[index] = row
+                sub["items"] = items
+            subs[aid] = sub
+            save_student_subs(sid, subs)
+    except Exception as e:
+        print("[score-take] 저장 실패:", str(e)[:150])
+
+
+@app.post("/api/score-take/{assignment_id}/{student_id}")
+async def score_take(assignment_id: str, student_id: str, background: BackgroundTasks,
+                     audio: UploadFile = File(...), text: str = Form(...),
+                     round: int = Form(0), mode: str = Form("whole"), index: int = Form(0)):
+    """오래 걸리는 채점(통문장 등)을 백그라운드로 돌린다. 즉시 반환하고, 끝나면
+    그 학생 제출의 whole[round](또는 items[index][round]) take 에 점수를 써넣는다."""
+    if not AZURE_KEY:
+        raise HTTPException(500, "서버에 AZURE_SPEECH_KEY가 설정되어 있지 않아요.")
+    raw_bytes = await audio.read()
+    if not raw_bytes:
+        raise HTTPException(400, "오디오가 비어 있어요.")
+    background.add_task(_score_take_bg, assignment_id, student_id, raw_bytes, text,
+                        int(round), (mode or "whole"), int(index))
+    return {"ok": True, "scoring": True}
 
 
 @app.post("/api/suggest-comment/{assignment_id}/{student_id}")
