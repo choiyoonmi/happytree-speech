@@ -446,7 +446,7 @@ function Login({ onStudent, onAdmin, onBattle }) {
 }
 
 // ---------- Recorder ----------
-function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl, label }) {
+function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl, label, bgScore, aid, sid, mode }) {
   const [rec, setRec] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -472,6 +472,23 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
           fd.append("audio", blob, "take.webm");
           const up = await fetch("/api/audio", { method: "POST", body: fd });
           const upJson = await up.json();
+
+          // 백그라운드 채점(통문장처럼 오래 걸리는 것): 녹음은 '채점 중'으로 즉시 저장하고
+          // 서버에 채점을 맡긴 뒤 바로 끝낸다. 학생은 기다리지 않고, 점수는 뒤에서 채워진다.
+          if (bgScore) {
+            onSaved(index, round, { audio: upJson.url, score: null, scoring: true });
+            try {
+              const sf = new FormData();
+              sf.append("audio", blob, "take.webm");
+              sf.append("text", text);
+              sf.append("round", String(round));
+              sf.append("mode", mode || "whole");
+              sf.append("index", String(index));
+              fetch(`/api/score-take/${aid}/${sid}`, { method: "POST", body: sf }).catch(()=>{});
+            } catch (e) {}
+            setBusy(false);
+            return;
+          }
 
           let score = null, recognized = null, detail = null, words = null, durationMs = null, assessError = null, assessDebug = null;
           // 채점이 몰려서(502) 실패하면 저장된 녹음으로 잠깐 쉬었다 다시 채점 요청(최대 3회).
@@ -607,7 +624,14 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
           )}
         </div>
       )}
-      {take && take.score == null && take.assessError && (
+      {take && take.score == null && take.scoring && (
+        <div style={{ marginTop:10, background:"var(--cream)", borderRadius:9, padding:"9px 12px",
+          fontSize:12.5, color:"var(--navy)", display:"flex", alignItems:"center", gap:8 }}>
+          <span className="spin" style={{ width:14, height:14, borderWidth:2, flexShrink:0 }} />
+          <span>채점 중이에요 ⏳ 통문장은 조금 걸려요 — <b>다음 걸 계속하셔도</b> 점수는 자동으로 떠요!</span>
+        </div>
+      )}
+      {take && take.score == null && !take.scoring && take.assessError && (
         <div style={{ marginTop:10, fontSize:12, color:"var(--danger)" }}>⚠ {take.assessError}</div>
       )}
       {err && <div className="err">{err}</div>}
@@ -723,6 +747,27 @@ function StudentView({ student, onLogout }) {
     setRound(r);
   };
 
+  // 백그라운드 채점 대기: '채점 중'인 take 가 있으면 8초마다 제출을 다시 받아 점수가 채워졌는지 확인.
+  const hasScoringTake = !!sub && (
+    (sub.whole || []).some(t => t && t.scoring) ||
+    (sub.items || []).some(row => (row || []).some(t => t && t.scoring)));
+  useEffect(() => {
+    if (!open || !hasScoringTake) return;
+    const id = setInterval(async () => {
+      try {
+        const s = await apiGet(`/submission/${open.id}/${student.id}`);
+        const n = open.rounds || 3;
+        setSub(prev => {
+          if (!prev) return prev;
+          const whole = Array.from({ length: n }, (_, k) => (s.whole || [])[k] || prev.whole[k] || null);
+          const items = (prev.items || []).map((_, i) => normalizeTakes((s.items || [])[i]));
+          return { ...prev, whole, items };
+        });
+      } catch (e) {}
+    }, 8000);
+    return () => clearInterval(id);
+  }, [open, hasScoringTake]);
+
   const onSaved = (idx, take, val) => {
     setSub(prev => {
       const items = prev.items.map(x => x.slice());
@@ -823,7 +868,8 @@ function StudentView({ student, onLogout }) {
               <Recorder key={`whole-${round}`} index={0} label="통문장 말하기"
                 text={open.items.join("\n")}
                 take={(sub.whole||[])[round]} round={round}
-                onSaved={(_,r,v)=>onSavedWhole(r,v)} voice={voice} />
+                onSaved={(_,r,v)=>onSavedWhole(r,v)} voice={voice}
+                bgScore={true} aid={open.id} sid={student.id} mode="whole" />
             </>
           ) : (
             open.items.map((t,i) => (
