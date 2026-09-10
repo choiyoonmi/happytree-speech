@@ -1331,34 +1331,48 @@ def _treetalk_today_status(student_id):
 
 
 def _treetalk_done_ids_today() -> set:
-    """오늘(KST) 트리톡을 한 학생 id 집합. 기준은 _treetalk_today_status 와 같다 —
-    녹음 제출(오늘·점수 있음) 또는 단어/문장 자습(오늘 손댐 + 누적 50%↑) 중 하나라도 있으면 '함'.
-    관리자 대시보드의 '오늘 밀린 학습' 계산용. db 는 한 번만 읽는다(학생 수만큼 다시 안 읽음)."""
+    """오늘(KST) 트리톡을 '다 한' 학생 id 집합. 관리자 '오늘 밀린 학습(트리톡)' 계산용.
+
+    ★단어녹음만 하고 문장녹음을 안 하면 완료가 아니다(문장녹음 하는 학년 대비, 2026-09-10 원장님).
+      완료 기준 = 그 학생이 '평소 하는 녹음 유형'을 오늘 다 녹음했는가.
+      - 평소 유형 = 지금까지 녹음해 본 유형(단어/문장). 문장녹음을 해온 학생이면 오늘도 문장녹음까지 해야 완료.
+      - 녹음 이력이 아직 없는 학생(유형을 알 수 없음)은 예전처럼 오늘 녹음이나 자습이 하나라도 있으면 완료로 본다.
+    db·제출·자습 파일은 학생당 한 번씩만 읽는다."""
     from datetime import datetime, timezone, timedelta
     d = datetime.now(timezone.utc) + timedelta(hours=9)
     today = "%d/%d" % (d.month, d.day)
     is_today = lambda ts: str(ts or "").split(" ")[0] == today
     db = load_db()
     atype = {a.get("id"): a.get("type", "word") for a in db.get("assignments", [])}
-    done = set()
-    # (1) 녹음 제출
+
+    # (1) 녹음: 학생별로 오늘 녹음한 유형(rec_*) + 지금까지 녹음해 온 유형(ever_*)
+    recinfo = {}
     for sid in all_student_ids():
         try:
             subs = load_student_subs(sid) or {}
         except Exception:
             continue
+        rec_w = rec_s = ever_w = ever_s = False
         for aid, sub in subs.items():
             if (sub or {}).get("status") not in ("submitted", "reviewed"):
                 continue
-            if not (is_today(sub.get("submittedAt")) or is_today(sub.get("completedAt"))):
+            if _avg_score_from_sub(sub) is None:
                 continue
-            if _avg_score_from_sub(sub) is not None:
-                done.add(sid)
-                break
-    # (2) 단어/문장 자습
+            is_sent = (atype.get(aid, "word") == "sentence")
+            if is_sent:
+                ever_s = True
+            else:
+                ever_w = True
+            if is_today(sub.get("submittedAt")) or is_today(sub.get("completedAt")):
+                if is_sent:
+                    rec_s = True
+                else:
+                    rec_w = True
+        recinfo[sid] = (rec_w, rec_s, ever_w, ever_s)
+
+    # (2) 오늘 자습한 학생(녹음 이력이 없는 학생의 완료 판정에만 쓴다)
+    studied = set()
     for sid in all_vocab_student_ids():
-        if sid in done:
-            continue
         try:
             vocab = load_vocab(sid) or {}
         except Exception:
@@ -1369,8 +1383,20 @@ def _treetalk_done_ids_today() -> set:
                 continue
             stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
             if sum(1 for s in stages if by.get(s)) / len(stages) >= 0.5:
-                done.add(sid)
+                studied.add(sid)
                 break
+
+    done = set()
+    for sid in set(recinfo) | studied:
+        rec_w, rec_s, ever_w, ever_s = recinfo.get(sid, (False, False, False, False))
+        if ever_w or ever_s:
+            # 녹음 하는 학생: 평소 하는 녹음 유형을 오늘 다 해야 완료(문장녹음 빠지면 미완료)
+            if (rec_w or rec_s) and (not ever_w or rec_w) and (not ever_s or rec_s):
+                done.add(sid)
+        else:
+            # 녹음 이력 없음: 오늘 녹음이든 자습이든 하나라도 있으면 완료(옛 기준)
+            if rec_w or rec_s or (sid in studied):
+                done.add(sid)
     return done
 
 
