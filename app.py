@@ -1315,6 +1315,59 @@ def _treetalk_today_status(student_id):
                 res["word_study"] = True
     return res
 
+
+def _treetalk_done_ids_today() -> set:
+    """오늘(KST) 트리톡을 한 학생 id 집합. 기준은 _treetalk_today_status 와 같다 —
+    녹음 제출(오늘·점수 있음) 또는 단어/문장 자습(오늘 손댐 + 누적 50%↑) 중 하나라도 있으면 '함'.
+    관리자 대시보드의 '오늘 밀린 학습' 계산용. db 는 한 번만 읽는다(학생 수만큼 다시 안 읽음)."""
+    from datetime import datetime, timezone, timedelta
+    d = datetime.now(timezone.utc) + timedelta(hours=9)
+    today = "%d/%d" % (d.month, d.day)
+    is_today = lambda ts: str(ts or "").split(" ")[0] == today
+    db = load_db()
+    atype = {a.get("id"): a.get("type", "word") for a in db.get("assignments", [])}
+    done = set()
+    # (1) 녹음 제출
+    for sid in all_student_ids():
+        try:
+            subs = load_student_subs(sid) or {}
+        except Exception:
+            continue
+        for aid, sub in subs.items():
+            if (sub or {}).get("status") not in ("submitted", "reviewed"):
+                continue
+            if not (is_today(sub.get("submittedAt")) or is_today(sub.get("completedAt"))):
+                continue
+            if _avg_score_from_items(sub.get("items")) is not None:
+                done.add(sid)
+                break
+    # (2) 단어/문장 자습
+    for sid in all_vocab_student_ids():
+        if sid in done:
+            continue
+        try:
+            vocab = load_vocab(sid) or {}
+        except Exception:
+            continue
+        for aid, rec in vocab.items():
+            by = (rec or {}).get("byMode") or {}
+            if not any(is_today(((bm or {}).get("last") or {}).get("at")) for bm in by.values()):
+                continue
+            stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
+            if sum(1 for s in stages if by.get(s)) / len(stages) >= 0.5:
+                done.add(sid)
+                break
+    return done
+
+
+@app.get("/api/practiced-today")
+def practiced_today():
+    """오늘(KST) 트리톡을 한 학생 id 목록만 돌려준다(이름·점수 등 개인정보 없음).
+    관리자 대시보드가 '오늘 밀린 학습(트리톡)'을 계산할 때 쓴다.
+    CORS 로 admin.happytreeacademy.com 브라우저만 접근할 수 있고, 내용은 불투명한 아이디뿐이다."""
+    return {"ok": True, "date": _today_kr(), "ids": sorted(_treetalk_done_ids_today())}
+
+
 def _notify_treetalk(student_id, lesson=""):
     """트리톡 활동 완료 시 담당쌤(학년별, 입력봇이 결정)+원장께 4활동 현황 알림. best-effort."""
     try:
