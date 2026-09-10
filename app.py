@@ -1333,44 +1333,44 @@ def _treetalk_today_status(student_id):
 def _treetalk_done_ids_today() -> set:
     """오늘(KST) 트리톡을 '다 한' 학생 id 집합. 관리자 '오늘 밀린 학습(트리톡)' 계산용.
 
-    ★단어녹음만 하고 문장녹음을 안 하면 완료가 아니다(문장녹음 하는 학년 대비, 2026-09-10 원장님).
-      완료 기준 = 그 학생이 '평소 하는 녹음 유형'을 오늘 다 녹음했는가.
-      - 평소 유형 = 지금까지 녹음해 본 유형(단어/문장). 문장녹음을 해온 학생이면 오늘도 문장녹음까지 해야 완료.
-      - 녹음 이력이 아직 없는 학생(유형을 알 수 없음)은 예전처럼 오늘 녹음이나 자습이 하나라도 있으면 완료로 본다.
+    ★단어녹음만 하고 문장녹음을 안 하면 완료가 아니다 — 단, '지금 문장녹음을 하는 학생'만 그렇다(2026-09-10 원장님).
+      '지금 문장 하는 학생' = 최근(14일 내)~예정 마감의 published 문장 과제가 배정된 학생.
+      · 그래서 지금 문장반(예: 초6)은 오늘 문장녹음까지 해야 완료 · 옛날에 한 번 문장 해본 학생(김의진 초5, 8월 초)은 제외.
+      · 커리큘럼이 바뀌어 다른 학년이 문장을 시작/중단하면 과제 마감일로 자동 반영된다(학년 하드코딩 아님).
+      문장 안 하는 학생은 오늘 녹음이든 자습이든 하나라도 있으면 완료.
     db·제출·자습 파일은 학생당 한 번씩만 읽는다."""
-    from datetime import datetime, timezone, timedelta
-    d = datetime.now(timezone.utc) + timedelta(hours=9)
-    today = "%d/%d" % (d.month, d.day)
+    from datetime import datetime, timezone, timedelta, date
+    now_kr = datetime.now(timezone.utc) + timedelta(hours=9)
+    today = "%d/%d" % (now_kr.month, now_kr.day)
     is_today = lambda ts: str(ts or "").split(" ")[0] == today
+    cutoff = now_kr.date() - timedelta(days=14)   # 이보다 오래된 문장 과제는 '지금 하는 것' 아님
+    def _iso(s):
+        try:
+            y, m, dd = str(s).split("-"); return date(int(y), int(m), int(dd))
+        except Exception:
+            return None
     db = load_db()
     atype = {a.get("id"): a.get("type", "word") for a in db.get("assignments", [])}
 
-    # (1) 녹음: 학생별로 오늘 녹음한 유형(rec_*) + 지금까지 녹음해 온 유형(ever_*)
-    recinfo = {}
-    for sid in all_student_ids():
-        try:
-            subs = load_student_subs(sid) or {}
-        except Exception:
+    # (1) '지금 문장녹음을 하는' 학생 id 집합 — 최근~예정 문장 과제가 배정된 학생(리포트와 같은 매칭: assignedIds).
+    sent_all = False
+    sent_ids = set()
+    for a in db.get("assignments", []):
+        if a.get("type") != "sentence" or a.get("published", True) is False:
             continue
-        rec_w = rec_s = ever_w = ever_s = False
-        for aid, sub in subs.items():
-            if (sub or {}).get("status") not in ("submitted", "reviewed"):
+        due = a.get("dueDate")
+        if due:
+            dd = _iso(due)
+            if dd is not None and dd < cutoff:   # 오래된 문장 과제는 건너뜀
                 continue
-            if _avg_score_from_sub(sub) is None:
-                continue
-            is_sent = (atype.get(aid, "word") == "sentence")
-            if is_sent:
-                ever_s = True
-            else:
-                ever_w = True
-            if is_today(sub.get("submittedAt")) or is_today(sub.get("completedAt")):
-                if is_sent:
-                    rec_s = True
-                else:
-                    rec_w = True
-        recinfo[sid] = (rec_w, rec_s, ever_w, ever_s)
+        ids = a.get("assignedIds") or []
+        if not ids:
+            sent_all = True          # 전체 배정
+        else:
+            sent_ids.update(str(x) for x in ids)
+    need_sent = lambda sid: sent_all or (sid in sent_ids)
 
-    # (2) 오늘 자습한 학생(녹음 이력이 없는 학생의 완료 판정에만 쓴다)
+    # (2) 오늘 자습한 학생(문장 안 하는 학생의 완료 판정용)
     studied = set()
     for sid in all_vocab_student_ids():
         try:
@@ -1386,17 +1386,37 @@ def _treetalk_done_ids_today() -> set:
                 studied.add(sid)
                 break
 
+    # (3) 오늘 녹음 유형(rec_w/rec_s) → 완료 판정
     done = set()
-    for sid in set(recinfo) | studied:
-        rec_w, rec_s, ever_w, ever_s = recinfo.get(sid, (False, False, False, False))
-        if ever_w or ever_s:
-            # 녹음 하는 학생: 평소 하는 녹음 유형을 오늘 다 해야 완료(문장녹음 빠지면 미완료)
-            if (rec_w or rec_s) and (not ever_w or rec_w) and (not ever_s or rec_s):
+    seen = set()
+    for sid in all_student_ids():
+        seen.add(sid)
+        try:
+            subs = load_student_subs(sid) or {}
+        except Exception:
+            subs = {}
+        rec_w = rec_s = False
+        for aid, sub in subs.items():
+            if (sub or {}).get("status") not in ("submitted", "reviewed"):
+                continue
+            if _avg_score_from_sub(sub) is None:
+                continue
+            if not (is_today(sub.get("submittedAt")) or is_today(sub.get("completedAt"))):
+                continue
+            if atype.get(aid, "word") == "sentence":
+                rec_s = True
+            else:
+                rec_w = True
+        if need_sent(sid):
+            if rec_s:                                  # 문장반: 오늘 문장녹음까지 해야 완료
                 done.add(sid)
         else:
-            # 녹음 이력 없음: 오늘 녹음이든 자습이든 하나라도 있으면 완료(옛 기준)
-            if rec_w or rec_s or (sid in studied):
+            if rec_w or rec_s or (sid in studied):     # 문장 불필요: 녹음이든 자습이든 하나라도
                 done.add(sid)
+    # 제출 파일이 없고 자습만 한 학생(문장 불필요)도 완료 처리
+    for sid in studied:
+        if sid not in seen and not need_sent(sid):
+            done.add(sid)
     return done
 
 
