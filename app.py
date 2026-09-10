@@ -1717,7 +1717,7 @@ def _assess_continuous(recognizer, reference):
     recognizer.session_stopped.connect(on_stopped)
     recognizer.start_continuous_recognition()
     waited = 0.0
-    while not state["done"] and waited < 120:
+    while not state["done"] and waited < 240:   # 긴 지문(천천히 읽으면 2~3분)도 안 잘리게
         _t.sleep(0.1); waited += 0.1
     try:
         recognizer.stop_continuous_recognition()

@@ -570,6 +570,14 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
         {take && <audio controls src={take.audio} />}
       </div>
 
+      {busy && !rec && (
+        <div style={{ marginTop:10, background:"var(--cream)", borderRadius:9, padding:"9px 12px",
+          fontSize:12.5, color:"var(--navy)", display:"flex", alignItems:"center", gap:8 }}>
+          <span className="spin" style={{ width:14, height:14, borderWidth:2, flexShrink:0 }} />
+          <span>발음 채점 중이에요… <b>통문장은 길면 1분까지</b> 걸려요. 화면을 닫지 말고 잠깐 기다려 주세요!</span>
+        </div>
+      )}
+
       {take && take.score != null && (
         <div style={{ marginTop:12, background:"var(--cream)", borderRadius:10, padding:12 }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
