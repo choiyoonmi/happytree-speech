@@ -1428,6 +1428,37 @@ def practiced_today():
     return {"ok": True, "date": _today_kr(), "ids": sorted(_treetalk_done_ids_today())}
 
 
+@app.get("/api/due-today")
+def due_today():
+    """오늘(KST) 마감인 트리톡 숙제가 있는데 아직 다 제출하지 않은 학생 id 목록(notDone).
+    '오늘 마감 숙제 안 한 사람'만 명단에 띄우려는 것 — 오늘 마감 숙제가 없는 학생은 안 나온다.
+    한 학생에게 오늘 마감 과제가 여럿이면(단어+문장) 하나라도 미제출이면 '안 함'(=문장녹음 규칙도 자연 처리).
+    id 만 돌려주므로 개인정보 없음. 리포트와 같은 배정 매칭(assignedIds, 비면 전체)."""
+    from datetime import datetime, timezone, timedelta
+    today = (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y-%m-%d")
+    db = load_db()
+    due = [a for a in db.get("assignments", [])
+           if a.get("published", True) and a.get("dueDate") == today and a.get("type") in ("word", "sentence")]
+    all_ids = [str(s.get("id")) for s in db.get("students", [])]
+    by_student = {}
+    for a in due:
+        ids = a.get("assignedIds") or []
+        targets = [str(x) for x in ids] if ids else all_ids     # 비면 전체 배정
+        for sid in targets:
+            by_student.setdefault(sid, []).append(a["id"])
+    not_done = []
+    for sid, aids in by_student.items():
+        try:
+            subs = load_student_subs(sid) or {}
+        except Exception:
+            subs = {}
+        for aid in aids:
+            if (subs.get(aid) or {}).get("status") not in ("submitted", "reviewed"):
+                not_done.append(sid)          # 오늘 마감분 하나라도 미제출 → '안 함'
+                break
+    return {"ok": True, "date": today, "notDone": sorted(not_done)}
+
+
 def _notify_treetalk(student_id, lesson=""):
     """트리톡 활동 완료 시 담당쌤(학년별, 입력봇이 결정)+원장께 4활동 현황 알림. best-effort."""
     try:
