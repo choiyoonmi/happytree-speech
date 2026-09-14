@@ -1459,6 +1459,84 @@ def due_today():
     return {"ok": True, "date": today, "notDone": sorted(not_done)}
 
 
+@app.get("/api/points")
+def treetalk_points(ym: str = ""):
+    """이번 달(또는 ym=YYYY-MM) 트리톡 4활동 포인트 합계(학생별). 학년별 랭킹 집계용 — id만 반환.
+    활동(회차)마다: 1점 + (만점 +5 · 80점↑ +3), 만점이면 +5만.
+    - 녹음(단어/문장): 제출/완료된 submission 마다 1회, 점수=발음 평균(_avg_score_from_sub).
+    - 자습(단어/문장): 완료(스테이지 50%↑)된 과제마다 1회, 점수=best(없으면 기본 1점)."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc) + timedelta(hours=9)
+    cur_ym = ym.strip() if ym else now.strftime("%Y-%m")
+    try:
+        cur_mon = int(cur_ym.split("-")[1])
+    except Exception:
+        cur_mon = now.month
+
+    def mon_of(ts):
+        s = str(ts or "").split(" ")[0]
+        if "/" not in s:
+            return None
+        try:
+            return int(s.split("/")[0])
+        except Exception:
+            return None
+
+    def pts(score):
+        if score is None:
+            return 1
+        if score >= 100:
+            return 6            # 1 + 만점 5
+        if score >= 80:
+            return 4            # 1 + 80점 3
+        return 1
+
+    db = load_db()
+    atype = {a.get("id"): a.get("type", "word") for a in db.get("assignments", [])}
+    out = {}
+    ids = set(all_student_ids()) | set(all_vocab_student_ids())
+    for sid in ids:
+        p = 0
+        # 녹음(단어/문장)
+        try:
+            subs = load_student_subs(sid) or {}
+        except Exception:
+            subs = {}
+        for aid, sub in subs.items():
+            if (sub or {}).get("status") not in ("submitted", "reviewed"):
+                continue
+            m = mon_of(sub.get("submittedAt"))
+            if m is None:
+                m = mon_of(sub.get("completedAt"))
+            if m != cur_mon:
+                continue
+            avg = _avg_score_from_sub(sub)
+            if avg is None:
+                continue
+            p += pts(avg)
+        # 자습(단어/문장)
+        try:
+            vocab = load_vocab(sid) or {}
+        except Exception:
+            vocab = {}
+        for aid, rec in vocab.items():
+            by = (rec or {}).get("byMode") or {}
+            if not any(mon_of(((bm or {}).get("last") or {}).get("at")) == cur_mon for bm in by.values()):
+                continue
+            stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
+            if sum(1 for s in stages if by.get(s)) / len(stages) < 0.5:
+                continue
+            best = None
+            for bm in by.values():
+                b = (bm or {}).get("best")
+                if isinstance(b, (int, float)):
+                    best = b if best is None else max(best, b)
+            p += pts(best)
+        if p:
+            out[sid] = p
+    return {"ok": True, "ym": cur_ym, "points": out}
+
+
 def _notify_treetalk(student_id, lesson=""):
     """트리톡 활동 완료 시 담당쌤(학년별, 입력봇이 결정)+원장께 4활동 현황 알림. best-effort."""
     try:
