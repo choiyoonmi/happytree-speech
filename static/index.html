@@ -901,6 +901,9 @@ function StudentView({ student, onLogout }) {
               <button className="btn full" onClick={()=>{ setDone(false); setOpen(null); setSub(null); }}>
                 확인
               </button>
+              <a href={STUDENT_PORTAL} className="btn full" style={{ display:"block", marginTop:10, background:"var(--navy)", color:"#fff", textDecoration:"none" }}>
+                🏠 학생 메인으로 — 다른 학습 하러 가기
+              </a>
             </div>
           </div>
         )}
@@ -4646,6 +4649,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
           <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginTop:8 }}>자습 4단계 완료!</div>
           <div className="muted" style={{ marginTop:8, fontSize:14 }}>카드암기·뜻고르기·스펠링·미니테스트를 모두 마쳤어요. 기록이 저장됐어요. 정말 잘했어요! 👏</div>
           <button className="btn full" style={{ marginTop:16 }} onClick={()=>setDoneMsg(false)}>확인</button>
+          <a href={STUDENT_PORTAL} className="btn full" style={{ display:"block", marginTop:10, background:"var(--navy)", color:"#fff", textDecoration:"none" }}>🏠 학생 메인으로 — 다른 학습 하러 가기</a>
         </div>
       </div>
     )}
