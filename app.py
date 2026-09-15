@@ -356,7 +356,9 @@ migrate_submissions_if_needed()
 app = FastAPI(title="HappyTree Reading Homework")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://admin.happytreeacademy.com"],
+    allow_origins=["https://admin.happytreeacademy.com",
+                   "https://student.happytreeacademy.com",
+                   "https://happytree-kiosk.white21040.workers.dev"],
     allow_credentials=False,
     allow_methods=["GET"],
     allow_headers=["*"],
