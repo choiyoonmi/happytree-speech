@@ -1462,8 +1462,9 @@ def due_today():
 
 
 @app.get("/api/points")
-def treetalk_points(ym: str = ""):
+def treetalk_points(ym: str = "", days: str = ""):
     """이번 달(또는 ym=YYYY-MM) 트리톡 4활동 포인트 합계(학생별). 학년별 랭킹 집계용 — id만 반환.
+    days='9/15,9/16,...' 를 주면 그 날짜들(주간)만 집계(월별 대신). 주간 랭킹용.
     활동(회차)마다: 1점 + (만점 +5 · 80점↑ +3), 만점이면 +5만.
     - 녹음(단어/문장): 제출/완료된 submission 마다 1회, 점수=발음 평균(_avg_score_from_sub).
     - 자습(단어/문장): 완료(스테이지 50%↑)된 과제마다 1회, 점수=best(없으면 기본 1점)."""
@@ -1474,6 +1475,28 @@ def treetalk_points(ym: str = ""):
         cur_mon = int(cur_ym.split("-")[1])
     except Exception:
         cur_mon = now.month
+
+    # 주간 모드: days 파라미터가 있으면 'M/D' 집합으로 날짜별 필터
+    def _norm_md(s):
+        s = str(s or "").split(" ")[0]
+        if "/" not in s:
+            return None
+        try:
+            m, d = s.split("/")[:2]
+            return f"{int(m)}/{int(d)}"
+        except Exception:
+            return None
+    dayset = set(x for x in (_norm_md(p) for p in days.split(",")) if x) if days.strip() else None
+
+    def in_period(ts):
+        if dayset is not None:
+            md = _norm_md(ts)
+            return md in dayset
+        s = str(ts or "").split(" ")[0]
+        try:
+            return ("/" in s) and (int(s.split("/")[0]) == cur_mon)
+        except Exception:
+            return False
 
     def mon_of(ts):
         s = str(ts or "").split(" ")[0]
@@ -1507,10 +1530,7 @@ def treetalk_points(ym: str = ""):
         for aid, sub in subs.items():
             if (sub or {}).get("status") not in ("submitted", "reviewed"):
                 continue
-            m = mon_of(sub.get("submittedAt"))
-            if m is None:
-                m = mon_of(sub.get("completedAt"))
-            if m != cur_mon:
+            if not (in_period(sub.get("submittedAt")) or in_period(sub.get("completedAt"))):
                 continue
             avg = _avg_score_from_sub(sub)
             if avg is None:
@@ -1523,7 +1543,7 @@ def treetalk_points(ym: str = ""):
             vocab = {}
         for aid, rec in vocab.items():
             by = (rec or {}).get("byMode") or {}
-            if not any(mon_of(((bm or {}).get("last") or {}).get("at")) == cur_mon for bm in by.values()):
+            if not any(in_period(((bm or {}).get("last") or {}).get("at")) for bm in by.values()):
                 continue
             stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
             if sum(1 for s in stages if by.get(s)) / len(stages) < 0.5:
