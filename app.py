@@ -41,9 +41,13 @@ API_AUTH = (os.environ.get("API_AUTH") or "on").strip().lower()
 TEST_STUDENTS = {
     "test0000": {"pw": "test0000", "name": "테스트학생", "cls": "테스트"},
 }
+# ★로그인·명단 조회를 빠른 D1 워커(happytree-math-proxy)로 보낸다.
+#   구글 직통은 수업시작 때 1.5~2초+동시몰림 폭주 → 로딩 길고 재로그인 튕김(2026-09-18 원장 제보).
+#   워커는 로그인을 D1 로 처리(~0.8초)하고, 로그인 아닌 액션(rosterInfo 등)은 캐시/구글로 넘긴다.
+#   기존 구글 주소로 되돌리려면 Render 환경변수 STUDENT_ACCOUNT_API 를 그 exec 주소로 세팅.
 STUDENT_ACCOUNT_API = os.environ.get(
     "STUDENT_ACCOUNT_API",
-    "https://script.google.com/macros/s/AKfycbzRqfFTJeLfcV2_UOgnB6MCGtB7C9peTQCpj3RkR9qH85j1PwudvnF_HR6fpLVCKstb/exec",
+    "https://happytree-math-proxy.white21040.workers.dev/",
 )
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
