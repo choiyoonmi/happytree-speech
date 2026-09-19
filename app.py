@@ -1894,7 +1894,7 @@ def _assess_continuous(recognizer, reference):
     import azure.cognitiveservices.speech as speechsdk
     import time as _t
     results = []
-    state = {"done": False, "cancel_raw": None, "cancel_err": False}
+    state = {"stopped": False, "cancel_raw": None, "cancel_err": False, "eos_at": None}
 
     def on_recognized(evt):
         if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
@@ -1904,28 +1904,50 @@ def _assess_continuous(recognizer, reference):
         try:
             state["cancel_err"] = (evt.reason == speechsdk.CancellationReason.Error)
             state["cancel_raw"] = f"{evt.reason} {getattr(evt, 'error_details', '') or ''}"
+            if evt.reason == speechsdk.CancellationReason.EndOfStream:
+                # ★ EndOfStream 은 '오디오를 끝까지 읽었다'는 뜻일 뿐 '채점이 끝났다'가 아니다.
+                #   여기서 바로 빠져나가면 아직 도착 안 한 마지막 조각들이 버려진다.
+                #   session_stopped 를 조금 더 기다린다(아래 grace).
+                state["eos_at"] = _t.monotonic()
         except Exception:
             state["cancel_raw"] = "Canceled"
-        state["done"] = True
+        if state["cancel_err"]:
+            state["stopped"] = True
 
     def on_stopped(evt):
-        state["done"] = True
+        state["stopped"] = True
 
     recognizer.recognized.connect(on_recognized)
     recognizer.canceled.connect(on_canceled)
     recognizer.session_stopped.connect(on_stopped)
     recognizer.start_continuous_recognition()
     waited = 0.0
-    while not state["done"] and waited < 240:   # 긴 지문(천천히 읽으면 2~3분)도 안 잘리게
+    EOS_GRACE = 10.0     # 오디오를 다 읽은 뒤 마지막 조각이 도착할 여유
+    while waited < 240:   # 긴 지문(천천히 읽으면 2~3분)도 안 잘리게
+        if state["stopped"]:
+            break
+        if state["eos_at"] is not None and (_t.monotonic() - state["eos_at"]) > EOS_GRACE:
+            break
         _t.sleep(0.1); waited += 0.1
+    timed_out = (not state["stopped"]) and state["eos_at"] is None
     try:
         recognizer.stop_continuous_recognition()
     except Exception:
         pass
 
+    # ★ 부분 결과를 '채점 완료'로 취급하지 않는다.
+    #   조각이 하나라도 있으면 성공으로 돌려주던 탓에, 앞부분만 인식된 채 끝나면
+    #   나머지 지문이 통째로 Omission 이 되어 말도 안 되게 낮은 점수가 저장됐다.
+    #   (2026-09-19 확인: 9/2~9/6 통문장 기록 17건이 그런 상태였다. 같은 오디오를
+    #    지금 다시 채점하면 19점→57점, 23→66, 35→83 으로 나온다.)
+    #   깨끗이 끝나지 않았으면 cancel 로 올려 호출부의 재시도를 태우고, 그래도 안 되면
+    #   틀린 점수 대신 "지금 채점이 안 된다"고 학생에게 알린다.
+    if state["cancel_err"] or timed_out:
+        why = "timeout" if timed_out else (state["cancel_raw"] or "Canceled")
+        print(f"[assess] 연속인식이 끝까지 못 갔다 ({why}) — 조각 {len(results)}개, 부분 점수는 버린다")
+        return ("cancel", why)
+
     if not results:
-        if state["cancel_err"]:
-            return ("cancel", state["cancel_raw"] or "Canceled")
         return ("nomatch", "NoMatch")
 
     segs, all_words = [], []
