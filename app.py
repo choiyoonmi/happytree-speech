@@ -1856,6 +1856,22 @@ def decode_audio(raw: bytes):
     raise HTTPException(400, "오디오를 읽을 수 없어요. " + " | ".join(errors[:3]))
 
 
+def _pa_scores(result):
+    """인식 결과에서 발음평가 객체를 꺼낸다. 없으면 None.
+
+    ★거의 무음인 녹음은 인식 조각은 생기는데 그 안에 발음평가 데이터가 없다.
+      그대로 pa.pronunciation_score 를 읽으면 SDK 가 AttributeError 를 던져
+      채점 전체가 죽고, 학생에겐 엉뚱하게 "채점이 지연됐어요"가 나갔다.
+      (2026-09-19: 7초·8초짜리 빈 녹음 2건이 이 상태였다.)"""
+    import azure.cognitiveservices.speech as speechsdk
+    try:
+        pa = speechsdk.PronunciationAssessmentResult(result)
+        pa.pronunciation_score   # 데이터가 없으면 여기서 터진다
+        return pa
+    except Exception:
+        return None
+
+
 def _pa_words(pa):
     """단어별 채점 결과. ★이 errorType 이 '아이가 실제로 뭘 읽었나'의 유일하게 믿을 수 있는 신호다.
     Omission=아예 안 읽음 / Mispronunciation=읽었지만 발음이 틀림 / Insertion=참조에 없는 말.
@@ -1878,7 +1894,9 @@ def _assess_once(recognizer):
         return ("cancel", f"{det.reason} {det.error_details or ''}")
     if result.reason != speechsdk.ResultReason.RecognizedSpeech:
         return ("nomatch", str(result.reason).split(".")[-1])
-    pa = speechsdk.PronunciationAssessmentResult(result)
+    pa = _pa_scores(result)
+    if pa is None:
+        return ("nomatch", "NoAssessment")
     raw = result.properties.get(speechsdk.PropertyId.SpeechServiceResponse_JsonResult) or "{}"
     return ("ok", {
         "ok": pa.pronunciation_score is not None, "status": "Success",
@@ -1952,10 +1970,14 @@ def _assess_continuous(recognizer, reference):
 
     segs, all_words = [], []
     for res in results:
-        pa = speechsdk.PronunciationAssessmentResult(res)
+        pa = _pa_scores(res)
+        if pa is None:
+            continue          # 발음평가 데이터가 없는 조각(거의 무음)은 건너뛴다
         ws = _pa_words(pa)
         all_words += ws
         segs.append((pa.pronunciation_score, pa.accuracy_score, pa.fluency_score, len(ws) or 1))
+    if not segs:
+        return ("nomatch", "NoAssessment")
     totw = sum(s[3] for s in segs) or 1
     def wavg(i):
         return sum((s[i] or 0) * s[3] for s in segs) / totw
@@ -2065,7 +2087,7 @@ def _run_assessment(raw_bytes: bytes, text: str, debug: bool = False) -> dict:
             note = "녹음이 완전히 무음이에요. 마이크가 켜져 있는지 확인해주세요."
         elif dur < 500:
             note = f"녹음이 너무 짧아요 ({dur/1000:.1f}초). 조금 더 길게 읽어볼까요?"
-        elif status == "NoMatch":
+        elif status in ("NoMatch", "NoAssessment"):
             note = "읽은 내용이 잘 인식되지 않았어요. 다시 한번 또박또박 읽어볼까요?"
         else:
             note = f"인식되지 않았어요 ({status}). 다시 녹음해볼까요?"
