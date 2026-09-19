@@ -446,6 +446,92 @@ function Login({ onStudent, onAdmin, onBattle }) {
 }
 
 // ---------- Recorder ----------
+// ── 읽은 결과 표시 ───────────────────────────────────────────────────────
+// Azure 발음평가가 돌려주는 recognizedText 는 '아이가 말한 것'이 아니라
+// '참조문장에 맞춰 정렬된 값'이다. 아이가 안 읽은 단어까지 그대로 들어간다.
+// (실측 2026-09-19: 학생 녹음 89건에서 저장된 recognized 의 56%가 참조문장과 글자까지 동일.
+//  발음점수 33점짜리 녹음도 참조문장이 그대로 찍혔다. 점수가 낮을수록 더 심하다.)
+// 그래서 그 문장을 "이렇게 들렸어요"로 보여주면 안 읽은 단어가 읽은 것처럼 보인다.
+// 대신 단어별 errorType 을 쓴다 — 이건 정렬과 무관하게 정확하다.
+function readStats(words) {
+  const ws = (words || []).filter(w => w && w.word);
+  if (!ws.length) return null;
+  const omitted  = ws.filter(w => w.errorType === "Omission");
+  const badPron  = ws.filter(w => w.errorType === "Mispronunciation");
+  const inserted = ws.filter(w => w.errorType === "Insertion");
+  return { ws, omitted, badPron, inserted, refCount: ws.length - inserted.length };
+}
+
+function ReadMarks({ words, showScores }) {
+  const st = readStats(words);
+  if (!st) return null;
+  const style = (w) => {
+    if (w.errorType === "Omission")
+      return { color:"#AAA49A", textDecoration:"line-through" };
+    if (w.errorType === "Insertion")
+      return { color:"#8A6D0F", borderBottom:"2px dotted #8A6D0F" };
+    if (w.errorType === "Mispronunciation")
+      return { color:"var(--danger)", fontWeight:700 };
+    return { color:"var(--navy)" };
+  };
+  const bits = [];
+  if (st.omitted.length) bits.push(`안 읽은 단어 ${st.omitted.length}개`);
+  if (st.badPron.length) bits.push(`발음 주의 ${st.badPron.length}개`);
+  if (st.inserted.length) bits.push(`더 말한 단어 ${st.inserted.length}개`);
+
+  return (
+    <div style={{ marginTop:8 }}>
+      <div style={{ fontSize:11, color:"var(--navy-soft)", marginBottom:3 }}>읽은 결과</div>
+      <div style={{ lineHeight:1.8, fontSize:14, wordBreak:"keep-all" }}>
+        {st.ws.map((w, i) => (
+          <span key={i}>
+            <span style={style(w)}
+              title={w.accuracy != null ? `정확도 ${Math.round(w.accuracy)}` : ""}>{w.word}</span>
+            {i < st.ws.length - 1 ? " " : ""}
+          </span>
+        ))}
+      </div>
+      <div className="muted" style={{ marginTop:4, fontSize:11.5 }}>
+        {bits.length
+          ? `${st.refCount}단어 중 ` + bits.join(" · ")
+          : `${st.refCount}단어 모두 또박또박 읽었어요 👍`}
+      </div>
+      {(st.omitted.length > 0 || st.badPron.length > 0) && (
+        <div style={{ marginTop:2, fontSize:10.5, color:"var(--navy-soft)" }}>
+          {st.omitted.length > 0 && <span style={{ textDecoration:"line-through", color:"#AAA49A" }}>취소선</span>}
+          {st.omitted.length > 0 && <span>=안 읽음</span>}
+          {st.omitted.length > 0 && st.badPron.length > 0 && <span> · </span>}
+          {st.badPron.length > 0 && <span style={{ color:"var(--danger)", fontWeight:700 }}>빨강</span>}
+          {st.badPron.length > 0 && <span>=발음 주의</span>}
+        </div>
+      )}
+      {showScores && st.badPron.length > 0 && (
+        <div className="row" style={{ marginTop:5, gap:5, flexWrap:"wrap" }}>
+          {st.badPron.filter(w => w.accuracy != null).sort((a,b)=>a.accuracy-b.accuracy).slice(0,8).map((w, wi)=>(
+            <span key={wi} style={{ fontSize:11, padding:"2px 8px", borderRadius:999,
+              background:"#F3D9D2", color:"var(--danger)", fontWeight:600 }}>
+              {w.word} {Math.round(w.accuracy)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// words 가 없는 옛 기록용. 정렬된 값이라는 걸 반드시 같이 알린다.
+function AlignedFallback({ recognized }) {
+  if (!recognized) return null;
+  return (
+    <div style={{ marginTop:8 }}>
+      <div className="muted">정렬된 인식값: "{recognized}"</div>
+      <div style={{ fontSize:10.5, color:"var(--navy-soft)", marginTop:2 }}>
+        ※ 참조문장에 맞춰 정렬된 값이라 실제 발음과 다를 수 있어요. 녹음을 직접 들어보세요.
+      </div>
+    </div>
+  );
+}
+
 function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl, label, bgScore, aid, sid, mode }) {
   const [rec, setRec] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -519,7 +605,7 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
                     d.status ? `상태 ${d.status}` : null,
                     d.audio ? `길이 ${(d.audio.durationMs/1000).toFixed(1)}초` : null,
                     d.audio && d.audio.dBFS != null ? `음량 ${d.audio.dBFS}dB` : null,
-                    d.recognizedText ? `들린 내용 "${d.recognizedText}"` : null,
+                    d.recognizedText ? `정렬된 인식값 "${d.recognizedText}"` : null,
                   ].filter(Boolean).join(" · ");
                 }
                 break;   // 200 = 서버가 판정 끝냄 → 재시도 안 함
@@ -619,9 +705,9 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
               </div>
             )}
           </div>
-          {take.recognized && (
-            <div className="muted" style={{ marginTop:8 }}>이렇게 들렸어요: "{take.recognized}"</div>
-          )}
+          {take.words && take.words.length > 0
+            ? <ReadMarks words={take.words} />
+            : <AlignedFallback recognized={take.recognized} />}
         </div>
       )}
       {take && take.score == null && take.scoring && (
@@ -3725,7 +3811,6 @@ function SubmissionDetail({ student, assignment, onBack }) {
                             <div style={{ fontSize:9, color:"var(--navy-soft)" }}>{l}</div>
                           </div>
                         ))}
-                        {t.recognized && <span className="muted">"{t.recognized}"</span>}
                       </div>
                     ) : t.assessError ? (
                       <div style={{ marginLeft:34, marginTop:6 }}>
@@ -3733,15 +3818,11 @@ function SubmissionDetail({ student, assignment, onBack }) {
                         {t.assessDebug && <div style={{ fontSize:10, color:"var(--navy-soft)", marginTop:2 }}>{t.assessDebug}</div>}
                       </div>
                     ) : null}
-                    {t.words && t.words.filter(w=>w.accuracy!=null && w.accuracy<70).length > 0 && (
-                      <div className="row" style={{ marginLeft:34, marginTop:6, gap:5 }}>
-                        <span className="muted">약한 단어:</span>
-                        {t.words.filter(w=>w.accuracy!=null && w.accuracy<70).map((w,wi)=>(
-                          <span key={wi} style={{ fontSize:11, padding:"2px 8px", borderRadius:999,
-                            background:"#F3D9D2", color:"var(--danger)", fontWeight:600 }}>
-                            {w.word} {Math.round(w.accuracy)}
-                          </span>
-                        ))}
+                    {t.score != null && (
+                      <div style={{ marginLeft:34 }}>
+                        {t.words && t.words.length > 0
+                          ? <ReadMarks words={t.words} showScores />
+                          : <AlignedFallback recognized={t.recognized} />}
                       </div>
                     )}
                   </div>
@@ -4245,7 +4326,9 @@ function AdminSettings({ students, assignments, reload }) {
               )}
               {testResult.data.status && <div>Azure 상태: <b>{testResult.data.status}</b></div>}
               {testResult.data.recognizedText != null &&
-                <div>들린 내용: <b>"{testResult.data.recognizedText || "(없음)"}"</b></div>}
+                <div>정렬된 인식값: <b>"{testResult.data.recognizedText || "(없음)"}"</b>
+                  <span style={{ fontSize:10.5, color:"var(--navy-soft)", marginLeft:6 }}>
+                    (참조문장에 맞춰 정렬된 값 — 실제 발음과 다를 수 있음)</span></div>}
             </div>
             {testResult.data.raw && (
               <details style={{ marginTop:8 }}>
