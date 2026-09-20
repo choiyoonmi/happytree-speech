@@ -3434,4 +3434,25 @@ def index_html():
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+@app.get("/admin.html")
+def admin_html():
+    return FileResponse(STATIC_DIR / "admin.html", headers={"Cache-Control": "no-cache"})
+
+
+class FreshStatic(StaticFiles):
+    """화면 코드는 '매번 최신인지 물어보게' 한다(no-cache).
+
+    ★화면을 index.html 한 덩어리에서 common.js / student.js / admin.js 로 가르고 나니,
+      index.html 만 no-cache 여도 소용이 없어졌다. 진짜 코드는 이제 .js 안에 있고,
+      StaticFiles 는 Cache-Control 을 안 붙여서 브라우저가 제멋대로 며칠씩 들고 있다.
+      = 배포해도 아이 화면만 옛날 것인 상태. no-cache 는 '안 받는다'가 아니라
+      '바뀌었는지 물어본다' 라서, 안 바뀌었으면 304 로 끝나 비용이 거의 없다."""
+
+    def file_response(self, full_path, *args, **kwargs):
+        resp = super().file_response(full_path, *args, **kwargs)
+        if str(full_path).endswith((".js", ".css", ".html")):
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/", FreshStatic(directory=STATIC_DIR, html=True), name="static")

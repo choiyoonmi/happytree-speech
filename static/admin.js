@@ -1,0 +1,3773 @@
+// 자동 생성 — tools/split_admin.py. 선생님 화면.
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+function splitMeaning(line) {
+  // "apple / 사과" 또는 "apple - 사과" 형태를 분리
+  const m = line.split(/\s+[/|\-–]\s+/);
+  if (m.length >= 2) return { text: m[0].trim(), meaning: m.slice(1).join(" ").trim() };
+  return { text: line.trim(), meaning: "" };
+}
+
+// ---------- 문장 다루기 ----------
+// 문장 끝처럼 보이지만 아닌 것들(Mr. Dr. e.g. U.S. …)
+
+const SENT_ABBR = /(?:^|[\s("'“‘])(?:mr|mrs|ms|dr|prof|st|mt|sgt|jr|sr|vs|etc|e\.g|i\.e|a\.m|p\.m|u\.s|u\.k|fig|no|vol|approx|inc|ltd|ave|dept)$/i;
+
+// PDF·문서에서 줄바꿈으로 잘린 문장을 다시 이어 붙인다. (빈 줄 = 문단 경계)
+
+function reflowLines(text) {
+  const out = [];
+  String(text || "").replace(/\r/g, "").split("\n").forEach(raw => {
+    const line = raw.trim();
+    if (!line) { out.push(""); return; }
+    const prev = out.length ? out[out.length - 1] : "";
+    // 앞 줄이 문장부호로 끝나지 않았으면 = 문장이 이어지는 중
+    const cont = prev && !/[.!?…:;][")\]'”’]?$/.test(prev);
+    // 단, 앞 줄이 짧은 제목처럼 보이고(8단어 이하) 다음 줄이 대문자로 새 문장을 시작하면 → 제목이므로 붙이지 않음
+    const headingBreak = cont && prev.split(/\s+/).length <= 8 && /^["'“‘(\[]?[A-Z]/.test(line);
+    if (cont && !headingBreak) out[out.length - 1] = (prev + " " + line).replace(/\s{2,}/g, " ");
+    else out.push(line);
+  });
+  return out.filter(Boolean).join("\n");
+}
+
+// 글을 문장 단위로 자른다. (한 줄에 여러 문장 / 여러 줄에 한 문장 모두 처리)
+
+function splitSentences(text) {
+  const out = [];
+  reflowLines(text).split("\n").forEach(para => {
+    let buf = "";
+    for (let i = 0; i < para.length; i++) {
+      const ch = para[i];
+      buf += ch;
+      if (ch !== "." && ch !== "!" && ch !== "?" && ch !== "…") continue;
+      let j = i + 1;
+      while (j < para.length && /["')\]”’]/.test(para[j])) { buf += para[j]; j++; }   // 닫는 따옴표까지
+      const rest = para.slice(j);
+      i = j - 1;
+      if (rest && !/^\s/.test(rest)) continue;                       // 3.5 / Level 5.1 → 문장 끝 아님
+      if (ch === ".") {
+        const before = buf.replace(/["')\]”’]*$/, "").slice(0, -1);
+        if (SENT_ABBR.test(before)) continue;                        // Mr. Dr. etc.
+        if (/(?:^|\s)[A-Z]$/.test(before)) continue;                 // 이니셜 J. K.
+      }
+      if (rest && !/^\s+["'“‘(\[]?[A-Z0-9가-힣]/.test(rest)) continue; // 다음이 새 문장처럼 안 보이면 계속
+      if (buf.trim()) out.push(buf.trim());
+      buf = "";
+    }
+    if (buf.trim()) out.push(buf.trim());
+  });
+  return out;
+}
+
+// 문장 + 한글 뜻 분리. 문장 안의 '-' 는 건드리지 않는다. (첫 한글 글자에서 자름)
+
+function splitSentenceMeaning(line) {
+  const s = String(line || "").trim();
+  const idx = s.search(/[가-힣]/);
+  if (idx <= 0) return { text: s, meaning: "" };
+  const text = s.slice(0, idx).replace(/[\s/|·]+$/, "").trim();      // 끝의 구분자만 정리 (마침표는 유지)
+  if (!/[a-zA-Z]/.test(text)) return { text: s, meaning: "" };
+  return { text, meaning: s.slice(idx).trim() };
+}
+
+// 문장 단위로 다시 나눌지 판단.
+// ① 문장이 줄보다 많아지거나(한 줄에 여러 문장), ② 줄을 이어 붙였고 결과가 모두 문장부호로 끝날 때만 다시 나눈다.
+// (마침표 없이 한 줄에 하나씩 쓴 목록은 그대로 둔다)
+
+function sentencesOrLines(text) {
+  const lines = String(text || "").split("\n").map(s => s.trim()).filter(Boolean);
+  const sents = splitSentences(text);
+  if (!sents.length) return lines;
+  if (sents.length > lines.length) return sents;
+  const merged = reflowLines(text).split("\n").filter(Boolean).length < lines.length;
+  const allEnd = sents.every(t => /[.!?…][")\]'”’]?$/.test(t));
+  return (merged && allEnd) ? sents : lines;
+}
+
+// 과제 목록 텍스트 → [{text, meaning}]
+// 문장 유형은 문장 단위로(sentencesOrLines), 단어 유형은 지금처럼 줄 단위로 읽는다.
+
+function parseItemList(text, type) {
+  const lines = String(text || "").split("\n").map(s => s.trim()).filter(Boolean);
+  if (type !== "sentence") return lines.map(splitMeaning);
+  return sentencesOrLines(text).map(splitSentenceMeaning);
+}
+
+// 페이지마다 되풀이되는 줄 = 머리말/꼬리말(교재명·레벨·페이지) → 제거.
+// 반복된 단어(복습 유닛)까지 지워지지 않도록 '전체 페이지의 절반 이상'에 나올 때만 버린다.
+
+function dropRunningHeaders(lines, pages) {
+  const need = Math.max(3, Math.ceil((pages || 0) * 0.5));
+  const count = {};
+  lines.forEach(l => { count[l] = (count[l] || 0) + 1; });
+  return lines.filter(l => !(count[l] >= need && l.length <= 60));
+}
+
+// PDF 한 줄 안의 조각들을 붙인다. 글자 사이 간격이 벌어진 곳에만 공백을 넣는다.
+// (그냥 공백으로 이으면 "sunglass es", 그냥 붙이면 단어가 들러붙는다)
+
+function joinPdfItems(items) {
+  let line = "", prevEnd = null;
+  items.slice().sort((a, b) => a.transform[4] - b.transform[4]).forEach(it => {
+    const s = it.str;
+    if (!s) return;
+    const x = it.transform[4];
+    if (prevEnd !== null) {
+      const size = Math.abs(it.transform[0]) || it.height || 10;
+      if (x - prevEnd > size * 0.2 && !/\s$/.test(line) && !/^\s/.test(s)) line += " ";
+    }
+    line += s;
+    prevEnd = x + (it.width || 0);
+  });
+  return line.replace(/\s+/g, " ").trim();
+}
+
+// PDF 전체를 줄 배열로 (모든 업로드 경로가 이걸 씀)
+async function pdfToLines(file) {
+  const buf = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  const lines = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const content = await (await doc.getPage(p)).getTextContent();
+    const byRow = {};
+    content.items.forEach(it => { const y = Math.round(it.transform[5]); (byRow[y] = byRow[y] || []).push(it); });
+    Object.keys(byRow).map(Number).sort((a, b) => b - a).forEach(y => {
+      const line = joinPdfItems(byRow[y]);
+      if (line) lines.push(line);
+    });
+  }
+  return { lines, pages: doc.numPages };
+}
+
+const SCHOOL_GRADES = ["초1","초2","초3","초4","초5","초6","중1","중2","중3"];
+
+function AdminStudents({ students, reload }) {
+  const [name, setName] = useState(""); const [cls, setCls] = useState("");
+  const [id, setId] = useState(""); const [pw, setPw] = useState(""); const [grade, setGrade] = useState("");
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null); const [bulkBusy, setBulkBusy] = useState(false);
+  const [editSid, setEditSid] = useState(null); const [editCls, setEditCls] = useState(""); const [editGrade, setEditGrade] = useState("");
+
+  const saveClass = async (sid) => {
+    try {
+      await fetch("/api/students/" + sid, { method:"PATCH", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ className: editCls, grade: editGrade }) });
+      setEditSid(null); await reload();
+    } catch (e) { setErr(e.message); }
+  };
+
+  const readStudentsFile = async (file) => {
+    if (!file) return;
+    setErr(""); setPreview(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      const rows = [];
+      const idxOf = (h, keys) => h.findIndex(v => keys.some(k => v.replace(/\s/g,"").toLowerCase().includes(k)));
+      for (const sh of wb.SheetNames) {
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[sh], { header:1 });
+        if (!raw.length) continue;
+        let cName = 0, cClass = 1, cId = -1, cPw = -1, start = 0;
+        const h = (raw[0] || []).map(x => String(x ?? "").trim());
+        const ni = idxOf(h, ["이름","name","성명","학생"]);
+        if (ni >= 0) { cName = ni; start = 1;
+          const ci = idxOf(h, ["반","class","클래스"]); if (ci>=0) cClass = ci;
+          const ii = idxOf(h, ["아이디","id"]); if (ii>=0) cId = ii;
+          const pi = idxOf(h, ["비밀","비번","pw","password"]); if (pi>=0) cPw = pi;
+        }
+        for (let r = start; r < raw.length; r++) {
+          const row = raw[r] || [];
+          const nm = String(row[cName] ?? "").trim();
+          if (!nm) continue;
+          rows.push({ name: nm, className: String(row[cClass] ?? "").trim(),
+            id: cId>=0 ? String(row[cId] ?? "").trim() : "", pw: cPw>=0 ? String(row[cPw] ?? "").trim() : "" });
+        }
+      }
+      if (!rows.length) return setErr("파일에서 학생 이름을 찾지 못했어요. (첫 열에 이름, 둘째 열에 반)");
+      setPreview(rows);
+    } catch (e) { setErr("엑셀을 읽는 데 실패했어요."); }
+  };
+  const downloadTemplate = () => {
+    const data = [
+      ["이름","반","아이디","비밀번호"],
+      ["홍길동","초등5반","",""],
+      ["김철수","초등5반","",""],
+      ["이영희","초등3반","",""],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [{ wch:12 },{ wch:12 },{ wch:14 },{ wch:12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "학생명단");
+    XLSX.writeFile(wb, "학생명단_예시.xlsx");
+  };
+
+  const submitBulk = async () => {
+    if (!preview || !preview.length) return;
+    setBulkBusy(true); setErr("");
+    try {
+      const r = await apiPost("/students/bulk", { students: preview });
+      setPreview(null);
+      await reload();
+      alert(`${r.created}명을 등록했어요!`);
+    } catch (e) { setErr(e.message); }
+    setBulkBusy(false);
+  };
+
+  const add = async () => {
+    if (!name.trim()) return setErr("이름을 입력해주세요.");
+    setBusy(true); setErr("");
+    try {
+      await apiPost("/students", { name, className: cls, id, pw, grade });
+      setName(""); setCls(""); setId(""); setPw(""); setGrade("");
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const del = async (sid) => {
+    if (!confirm("이 학생을 삭제할까요?")) return;
+    await apiDelete("/students/" + sid);
+    await reload();
+  };
+
+  return (
+    <div className="body">
+      <datalist id="cls-list">
+        {[...new Set(students.map(s=>s.className).filter(Boolean))].map(c => <option key={c} value={c} />)}
+      </datalist>
+      <div className="card">
+        <div style={{ fontWeight:700, marginBottom:12, color:"var(--navy)" }}>학생 추가</div>
+        <label className="label">이름</label>
+        <input className="field" value={name} onChange={e=>setName(e.target.value)} placeholder="홍길동" />
+        <div style={{height:10}} />
+        <label className="label">반 (선택)</label>
+        <input className="field" value={cls} onChange={e=>setCls(e.target.value)} placeholder="초등3반" />
+        <div style={{height:10}} />
+        <label className="label">학년 (진급시험 동학년 백분위용)</label>
+        <select className="field" value={grade} onChange={e=>setGrade(e.target.value)}>
+          <option value="">학년 선택</option>
+          {SCHOOL_GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <div style={{height:10}} />
+        <label className="label">아이디 (비워두면 자동 발급)</label>
+        <input className="field" value={id} onChange={e=>setId(e.target.value)} placeholder="기존 학원 아이디" />
+        <div style={{height:10}} />
+        <label className="label">비밀번호 (비워두면 자동 발급)</label>
+        <input className="field" value={pw} onChange={e=>setPw(e.target.value)} placeholder="기존 비밀번호" />
+        {err && !preview && <div className="err">{err}</div>}
+        <div style={{height:14}} />
+        <button className="btn" onClick={add} disabled={busy}>아이디 발급</button>
+      </div>
+
+      <div className="card">
+        <div style={{ fontWeight:700, marginBottom:6, color:"var(--navy)" }}>📋 엑셀로 한꺼번에 등록</div>
+        <div className="muted" style={{ marginBottom:10, fontSize:13, lineHeight:1.6 }}>
+          첫 줄 머리글: <b>이름 · 반 · 아이디 · 비밀번호</b> (반·아이디·비번은 없어도 됨 → 자동 발급).<br/>
+          머리글이 없으면 <b>1열=이름, 2열=반</b>으로 읽어요.
+        </div>
+        <button className="btn full" style={{ marginBottom:8 }} onClick={downloadTemplate}>📥 예시 엑셀 먼저 받기</button>
+        <div className="muted" style={{ marginBottom:8, fontSize:12 }}>예시 파일을 받아 <b>틀 안에 채운 뒤</b> 아래로 올리면 오류가 없어요.</div>
+        <label className="btn-ghost full" style={{ display:"block", textAlign:"center", cursor:"pointer" }}>
+          📄 학생 명단 엑셀 올리기
+          <input type="file" accept=".xlsx,.xls,.csv" style={{ display:"none" }}
+            onChange={e=>{ const f=e.target.files[0]; if(f) readStudentsFile(f); e.target.value=""; }} />
+        </label>
+        {err && preview===null && <div className="err">{err}</div>}
+        {preview && (
+          <>
+            <div style={{ marginTop:12, marginBottom:8, fontWeight:700, color:"var(--navy)", fontSize:13 }}>
+              미리보기 · <b>{preview.length}명</b>
+            </div>
+            <div style={{ maxHeight:200, overflowY:"auto", border:"1px solid var(--line)", borderRadius:8 }}>
+              {preview.map((s,i) => (
+                <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:8, padding:"7px 10px",
+                  borderBottom: i<preview.length-1 ? "1px solid #F0EBDD" : "none", fontSize:13 }}>
+                  <span style={{ fontWeight:600 }}>{s.name}</span>
+                  <span className="muted">{s.className || "반 미지정"}{s.id ? ` · ${s.id}` : ""}</span>
+                </div>
+              ))}
+            </div>
+            {err && <div className="err">{err}</div>}
+            <div className="row" style={{ marginTop:12, gap:6 }}>
+              <button className="btn" style={{ flex:1 }} onClick={submitBulk} disabled={bulkBusy}>
+                {bulkBusy ? "등록 중..." : `${preview.length}명 등록하기`}
+              </button>
+              <button className="btn-ghost" onClick={()=>setPreview(null)}>취소</button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {(() => {
+        const byClass = {};
+        students.forEach(s => { const c = s.className || "반 미지정"; (byClass[c] = byClass[c] || []).push(s); });
+        const keys = Object.keys(byClass).sort((a,b) => a==="반 미지정" ? 1 : b==="반 미지정" ? -1 : a.localeCompare(b));
+        return keys.map(c => (
+          <div key={c}>
+            <div style={{ fontWeight:800, color:"var(--navy)", margin:"18px 4px 8px", fontSize:15 }}>
+              📚 {c} <span className="muted" style={{ fontWeight:500, fontSize:13 }}>{byClass[c].length}명</span>
+            </div>
+            {byClass[c].slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(s => (
+              <div key={s.id} className="card">
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{s.name}
+                      <span className="muted" style={{ fontWeight:500 }}> · {s.className || "반 미지정"}</span>
+                      {s.grade ? <span style={{ fontWeight:700, fontSize:12, color:"var(--navy)", background:"var(--cream-deep,#f3ecd9)", borderRadius:6, padding:"1px 7px", marginLeft:6 }}>{s.grade}</span>
+                        : <span style={{ fontSize:12, color:"var(--danger)", marginLeft:6 }}>학년 미지정</span>}</div>
+                    <div className="muted" style={{ marginTop:3 }}>
+                      아이디 <b style={{color:"var(--navy)"}}>{s.id}</b> / 비밀번호 <b style={{color:"var(--navy)"}}>{s.pw}</b>
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap:8, flexShrink:0 }}>
+                    <button onClick={()=>{ setEditSid(editSid===s.id?null:s.id); setEditCls(s.className||""); setEditGrade(s.grade||""); }}
+                      title="반·학년 변경" style={{ background:"none", fontSize:16 }}>✏️</button>
+                    <button onClick={()=>del(s.id)} style={{ background:"none", color:"var(--danger)", fontSize:18 }}>🗑</button>
+                  </div>
+                </div>
+                {editSid===s.id && (
+                  <div className="row" style={{ gap:6, marginTop:10, flexWrap:"wrap" }}>
+                    <input className="field" style={{ flex:1, minWidth:110, padding:"7px 10px", fontSize:13 }} value={editCls}
+                      onChange={e=>setEditCls(e.target.value)} placeholder="반 이름 (예: 초등5반)"
+                      list="cls-list" onKeyDown={e=>e.key==="Enter"&&saveClass(s.id)} autoFocus />
+                    <select className="field" style={{ width:96, padding:"7px 8px", fontSize:13 }} value={editGrade} onChange={e=>setEditGrade(e.target.value)}>
+                      <option value="">학년</option>
+                      {SCHOOL_GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                    <button className="btn" style={{ padding:"7px 12px", fontSize:12 }} onClick={()=>saveClass(s.id)}>저장</button>
+                    <button className="btn-ghost" style={{ padding:"7px 12px", fontSize:12 }} onClick={()=>setEditSid(null)}>취소</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ));
+      })()}
+      {!students.length && <div style={{ textAlign:"center", padding:40 }} className="muted">등록된 학생이 없어요.</div>}
+    </div>
+  );
+}
+
+// ---------- Admin: bulk book upload ----------
+
+function BulkUpload({ students, reload, onClose }) {
+  const [rows, setRows] = useState(null);       // [{day, text, meaning}]
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState("word");
+  const [recordMode, setRecordMode] = useState("each");   // 문장 녹음 방식: each | whole
+  const [rounds, setRounds] = useState(3);
+  const [perDay, setPerDay] = useState(20);
+  const [hasDayCol, setHasDayCol] = useState(false);
+  const [startDay, setStartDay] = useState(1);
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
+  const [mode, setMode] = useState("hidden");   // 기본값: 보관함(실수로 전체 배포 방지)
+  const [classes, setClasses] = useState([]);
+  const [ids, setIds] = useState([]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [trBusy, setTrBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiSecs, setAiSecs] = useState(0);
+  const aiTimer = useRef(null);
+  const [needEng, setNeedEng] = useState(false);   // 한글뜻만 있는 파일 → 영어 채워야 함
+  const [engBusy, setEngBusy] = useState(false);
+  const [sentenceFix, setSentenceFix] = useState(true);   // 문장 자동 정리 (줄바꿈으로 잘린 문장 이어붙이기)
+  const [srcKind, setSrcKind] = useState("");             // pdf | excel | ai
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+  const DAYNAMES = ["일","월","화","수","목","금","토"];
+
+  const [unitLabel, setUnitLabel] = useState("Day");   // Day | Unit | Lesson | 과 | 주차
+
+  // Day/Unit/Lesson/과 등 단위 번호를 인식 (표기 다양)
+  const dayNumber = (value) => {
+    const text = String(value ?? "").trim();
+    const match = text.match(/(?:^|[^a-z])(?:day|unit|lesson|lec|chapter)\s*0*(\d+)(?:\D|$)/i)
+      || text.match(/(?:유닛|레슨|단원|챕터)\s*0*(\d+)/)
+      || text.match(/(?:^|\D)0*(\d+)\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)(?:\D|$)/);
+    return match ? Number(match[1]) : null;
+  };
+  // 어떤 단위 표기가 쓰였는지 감지
+  const detectLabel = (text) => {
+    const t = String(text || "");
+    if (/unit/i.test(t) || /유닛/.test(t)) return "Unit";
+    if (/lesson|lec/i.test(t) || /레슨/.test(t)) return "Lesson";
+    if (/chapter|챕터|단원/i.test(t)) return "Unit";
+    if (/주차|강/.test(t)) return "주차";
+    if (/일차|과/.test(t)) return "과";
+    if (/day/i.test(t)) return "Day";
+    return null;
+  };
+
+  // 한 줄에서 영어(단어/구)와 한글 뜻을 분리. 영어가 없으면 null.
+  const extractEng = (line) => {
+    let s = String(line || "").replace(/^\s*\d+\s*[\.\)]?\s*/, "").trim();  // 앞 번호/불릿 제거
+    if (!s) return null;
+    const idx = s.search(/[가-힣]/);
+    let eng = idx >= 0 ? s.slice(0, idx) : s;
+    let kor = idx >= 0 ? s.slice(idx) : "";
+    eng = eng.replace(/\b(n|v|adj|adv|prep|conj|pron|int|pl)\.\s*$/i, "").trim();  // 끝 영어 품사(n. v.) 제거
+    eng = eng.replace(/[\s.\-–]+$/, "").replace(/\s{2,}/g, " ").trim();             // 끝의 … / 공백 정리
+    if (!/[a-zA-Z]/.test(eng)) return null;   // 영어가 없으면 버림
+    // 뜻 앞에 붙은 한글 품사 열(동/명/형/전/부…) 제거
+    kor = kor.replace(/^(?:[동명형부대전접감관수조]|명사|동사|형용사|부사|대명사|전치사|접속사|감탄사|관사|수사|조동사)\s+/, "");
+    return { text: eng, meaning: kor.replace(/\s{2,}/g, " ").trim() };
+  };
+
+  const parseExcel = async (file) => {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:"array" });
+    const parsed = [];
+    let label = null;
+    for (const sheetName of wb.SheetNames) {
+      let currentDay = dayNumber(sheetName);
+      if (currentDay !== null) label = label || detectLabel(sheetName);
+      const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1 });
+      for (const r of raw) {
+        if (!r || !r.length) continue;
+        const c0 = String(r[0] ?? "").trim();
+        const c1 = String(r[1] ?? "").trim();
+        const c2 = String(r[2] ?? "").trim();
+        const rowDay = dayNumber(c0);
+        if (/^(?:no\.?|번호)$/i.test(c0) || /^(?:english\s*word|영어\s*단어)$/i.test(c1)) continue;
+        if (rowDay !== null) {
+          currentDay = rowDay;
+          label = label || detectLabel(c0);
+          if (!c1) continue;
+          parsed.push({ day: currentDay, text: c1, meaning: c2 });
+          continue;
+        }
+        const numberedRow = /^\d+$/.test(c0) && c1;
+        const wordCell = numberedRow ? c1 : (c0 || c1);
+        if (!wordCell) continue;
+        const meaningCell = numberedRow ? c2 : (c0 ? c1 : c2);
+        const sp = splitMeaning(wordCell);
+        parsed.push({ day: currentDay, text: sp.text || wordCell, meaning: sp.meaning || meaningCell });
+      }
+    }
+    return { parsed, label };
+  };
+
+  const parsePdf = async (file) => {
+    const pdf = await pdfToLines(file);
+    const lines = dropRunningHeaders(pdf.lines, pdf.pages);   // 페이지마다 반복되는 교재명·머리말 제거
+    const out = [];
+    let curDay = null;
+    let label = null;
+    let seenWord = false;   // 이번 Day에서 단어 행을 하나라도 봤는지 (머리글 오인 방지)
+    // 표 머리글 줄만 걸러낸다. (예전엔 name·class·date가 들어간 문장까지 통째로 버려졌다 — "My name is Tom.")
+    const isHeaderish = (t) => {
+      const s = String(t || "").trim();
+      if (/^(?:no\.?|번호|english\s*word|영어\s*단어|뜻|meaning|단어|의미|page|\d+)$/i.test(s)) return true;
+      if (/[.!?]$/.test(s)) return false;                  // 문장부호로 끝나면 문장이다
+      if (s.split(/\s+/).length > 6) return false;         // 긴 줄은 머리글이 아니다
+      return /단어|품사|어휘\s*리스트|능률|voca/i.test(s) || /^(?:class|name|date)\b/i.test(s);
+    };
+    lines.forEach(line => {
+      const d = dayNumber(line);
+      if (d !== null) {
+        curDay = d;
+        seenWord = false;
+        label = label || detectLabel(line);
+        const rest = line.replace(/.*(?:day|unit|lesson|lec|chapter)\s*0*\d+/i, "")
+          .replace(/.*\d+\s*(?:일차|유닛|레슨|과|강|주차|챕터|단원)/, "")
+          .replace(/^\s*[.\-–:)·]\s*/, "").trim();       // Unit 번호 뒤에 남은 구두점 정리
+        const e = extractEng(rest);
+        if (e) { out.push({ day: curDay, text: e.text, meaning: e.meaning, raw: rest, titleRow: true }); seenWord = true; }
+        return;
+      }
+      if (isHeaderish(line)) return;
+      const e = extractEng(line);
+      if (e) { out.push({ day: curDay, text: e.text, meaning: e.meaning, raw: line }); seenWord = true; }
+      else if (/[가-힣]/.test(line) && !/[a-zA-Z]/.test(line) && !/^\s*\d/.test(line) && out.length && seenWord) {
+        // 영어 없이 한글만 있는 줄 = 앞 단어 뜻이 다음 줄로 이어진 것 → 이어붙임
+        const last = out[out.length - 1];
+        last.meaning = (last.meaning + " " + line).replace(/\s{2,}/g, " ").trim();
+      }
+    });
+    return { parsed: out, label };
+  };
+
+  // 복잡한 레이아웃(여러 단·표)은 AI 파서(단어시험지 생성기)로 정확히 읽는다.
+  const aiRead = async (file) => {
+    if (!file) return;
+    setErr(""); setRows(null); setAiBusy(true);
+    setSrcKind("ai");
+    setAiSecs(0);
+    if (aiTimer.current) clearInterval(aiTimer.current);
+    aiTimer.current = setInterval(() => setAiSecs(s => s + 1), 1000);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/parse-book", { method:"POST", body: fd });
+      if (!res.ok) { let d = "AI 분석 실패"; try { const j = await res.json(); d = j.detail || d; } catch (_) {} throw new Error(d); }
+      const data = await res.json();
+      const units = data.units || [];
+      const parsed = [];
+      let label = null;
+      units.forEach(u => {
+        const dn = dayNumber(u.unit_title);
+        label = label || detectLabel(u.unit_title);
+        (u.words || []).forEach(w => { if (w.word) parsed.push({ day: dn, text: w.word, meaning: w.kor || "" }); });
+      });
+      if (!parsed.length) { setErr("AI가 단어를 찾지 못했어요."); setAiBusy(false); return; }
+      setHasDayCol(parsed.some(r => r.day != null));
+      setRows(parsed);
+      if (label) setUnitLabel(label);
+      const dd = parsed.map(r=>r.day).filter(d=>d != null);
+      setStartDay(dd.length ? Math.min(...dd) : 1);
+      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+    } catch (e) { setErr("AI 분석 실패: " + e.message + " (생성기 서버가 자는 중이면 잠시 후 다시)"); }
+    if (aiTimer.current) { clearInterval(aiTimer.current); aiTimer.current = null; }
+    setAiBusy(false);
+  };
+
+  // 한글뜻만 있는 파일 → 각 줄(칸)을 '뜻'으로 잡고 영어는 비워서 반환
+  const isHeaderishKor = (t) =>
+    /단어|품사|어휘\s*리스트|능률|voca|class|name|date|번호|의미|^뜻$/i.test(t);
+  const parseKorean = async (file) => {
+    const name = (file.name || "").toLowerCase();
+    let lines = [], label = null;
+    if (name.endsWith(".pdf")) {
+      lines = (await pdfToLines(file)).lines;
+    } else {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      for (const sheetName of wb.SheetNames) {
+        const dn = dayNumber(sheetName);
+        if (dn != null) { lines.push("§DAY§" + dn); label = label || detectLabel(sheetName); }
+        XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1 }).forEach(r => {
+          if (!r || !r.length) return;
+          lines.push(r.map(x => String(x ?? "").trim()).filter(Boolean).join(" "));
+        });
+      }
+    }
+    const out = []; let curDay = null;
+    lines.forEach(line => {
+      if (line.startsWith("§DAY§")) { curDay = Number(line.slice(5)); return; }
+      const d = dayNumber(line);
+      if (d != null) { curDay = d; label = label || detectLabel(line); return; }
+      if (isHeaderishKor(line)) return;
+      const s = line.replace(/^\s*\d+\s*[\.\)]?\s*/, "").trim();   // 앞 번호 제거
+      if (!s || !/[가-힣]/.test(s)) return;                        // 한글이 있어야 뜻
+      out.push({ day: curDay, text: "", meaning: s });
+    });
+    return { parsed: out, label };
+  };
+
+  // rows의 빈 영어(text)를 한글 뜻으로부터 번역해 채운다
+  const fillEnglish = async (src) => {
+    const targets = src.map((r,i) => (r.meaning && !r.text) ? i : null).filter(i => i !== null);
+    if (!targets.length) return src;
+    const { translations } = await apiPost("/translate", { texts: targets.map(i => src[i].meaning), from:"ko", to:"en" });
+    const next = src.map(r => ({...r}));
+    targets.forEach((idx,k) => { next[idx].text = (translations[k] || "").trim(); });
+    return next;
+  };
+
+  const readFile = async (file) => {
+    setErr(""); setRows(null); setNeedEng(false);
+    const name = (file.name || "").toLowerCase();
+    const isPdf = name.endsWith(".pdf");
+    setSrcKind(isPdf ? "pdf" : "excel");
+    try {
+      const res = isPdf ? await parsePdf(file) : await parseExcel(file);
+      // 영어만: 영문자가 들어간 항목만 남김 (머리글·번호·한글전용 줄 제거)
+      const parsed = res.parsed.filter(r => /[a-zA-Z]/.test(r.text || ""));
+      if (parsed.length) {
+        setHasDayCol(parsed.some(r => r.day != null));
+        setRows(parsed);
+        if (res.label) setUnitLabel(res.label);
+        const detectedDays = parsed.map(r=>r.day).filter(d=>d != null);
+        setStartDay(detectedDays.length ? Math.min(...detectedDays) : 1);
+        if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+        return;
+      }
+      // 영어가 하나도 없음 → 한글뜻만 있는 파일로 보고 영어를 자동 생성
+      const kres = await parseKorean(file);
+      if (!kres.parsed.length) return setErr("파일에서 단어를 찾지 못했어요. (엑셀은 A/B열, PDF는 텍스트형인지 확인)");
+      setNeedEng(true);
+      setHasDayCol(kres.parsed.some(r => r.day != null));
+      if (kres.label) setUnitLabel(kres.label);
+      const kd = kres.parsed.map(r=>r.day).filter(d=>d != null);
+      setStartDay(kd.length ? Math.min(...kd) : 1);
+      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ""));
+      setRows(kres.parsed);
+      // 영어 자동 채우기
+      setEngBusy(true);
+      try { setRows(await fillEnglish(kres.parsed)); }
+      catch (e) { setErr("영어 자동 채우기 실패: " + e.message + " (번역 키 확인)"); }
+      setEngBusy(false);
+    } catch (e) { setErr("파일을 읽는 데 실패했어요. (PDF는 스캔 이미지형이면 텍스트 추출이 안 돼요)"); }
+  };
+
+  // 문장 과제: PDF·엑셀의 '줄'을 문장 단위로 다시 나눈다 (줄바꿈으로 잘린 문장 복구)
+  const fixedRows = React.useMemo(() => {
+    if (!rows || type !== "sentence" || !sentenceFix) return rows;
+    const out = [];
+    let bucket = [], bucketDay;
+    const flush = () => {
+      if (!bucket.length) return;
+      // 지문 제목 줄은 문장이 아니니 뒤 문장과 붙이지 않는다
+      while (bucket.length && bucket[0].titleRow) out.push(bucket.shift());
+      if (!bucket.length) return;
+      const raws = bucket.map(r => r.raw || r.text).filter(Boolean);
+      const text = raws.join("\n");
+      // PDF는 '줄'이 문장 경계가 아니니 항상 문장으로 다시 나눈다. 엑셀·AI는 안전하게 판단해서.
+      const sents = srcKind === "pdf" ? splitSentences(text) : sentencesOrLines(text);
+      if (bucket.some(r => r.meaning) || !sents.length) out.push(...bucket);
+      else sents.forEach(t => {
+        const sp = splitSentenceMeaning(t);
+        out.push({ day: bucketDay, text: sp.text, meaning: sp.meaning });
+      });
+      bucket = [];
+    };
+    rows.forEach(r => {
+      if (bucket.length && r.day !== bucketDay) flush();
+      bucketDay = r.day; bucket.push(r);
+    });
+    flush();
+    return out;
+  }, [rows, type, sentenceFix, srcKind]);
+
+  // Day별로 묶기
+  const groups = React.useMemo(() => {
+    if (!fixedRows) return [];
+    if (hasDayCol) {
+      const m = {};
+      fixedRows.filter(r => (r.day ?? 1) >= startDay)
+        .forEach(r => { const d = r.day ?? 1; (m[d] = m[d] || []).push(r); });
+      return Object.keys(m).map(Number).sort((a,b)=>a-b).map(d => ({ day:d, rows:m[d] }));
+    }
+    const out = [];
+    for (let i=0; i<fixedRows.length; i+=perDay) {
+      out.push({ day: out.length+1, rows: fixedRows.slice(i, i+perDay) });
+    }
+    return out;
+  }, [fixedRows, hasDayCol, perDay, startDay]);
+
+  // 선택한 요일에 맞춰 마감일 계산
+  const dueDates = React.useMemo(() => {
+    if (!groups.length || !weekdays.length) return [];
+    const out = [];
+    const [y,m,d] = startDate.split("-").map(Number);
+    let cur = new Date(y, m-1, d);
+    let guard = 0;
+    while (out.length < groups.length && guard < 400) {
+      if (weekdays.includes(cur.getDay())) {
+        out.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
+      }
+      cur.setDate(cur.getDate()+1);
+      guard++;
+    }
+    return out;
+  }, [groups.length, startDate, weekdays]);
+
+  const autoTranslate = async () => {
+    if (!rows) return;
+    const need = rows.map((r,i) => r.meaning ? null : i).filter(i => i !== null);
+    if (!need.length) return setErr("이미 모든 항목에 한글 뜻이 있어요.");
+    setTrBusy(true); setErr("");
+    try {
+      const r = await apiPost("/translate", { texts: need.map(i => rows[i].text) });
+      const next = rows.map(x => ({...x}));
+      need.forEach((idx,k) => { next[idx].meaning = r.translations[k] || ""; });
+      setRows(next);
+    } catch (e) { setErr(e.message); }
+    setTrBusy(false);
+  };
+
+  const submit = async () => {
+    if (!groups.length) return setErr("먼저 파일을 올려주세요.");
+    if (!title.trim()) return setErr("교재 이름을 입력해주세요.");
+    const hidden = mode === "hidden";
+    if (!hidden && !weekdays.length) return setErr("숙제 요일을 하나 이상 선택해주세요.");
+    let assignedIds = [];
+    if (mode === "class") {
+      if (!classes.length) return setErr("반을 선택해주세요.");
+      assignedIds = students.filter(s=>classes.includes(s.className)).map(s=>s.id);
+    } else if (mode === "individual") {
+      if (!ids.length) return setErr("학생을 선택해주세요.");
+      assignedIds = ids;
+    }
+    setBusy(true); setErr("");
+    try {
+      // 뜻이 비어 있는 단어는 과제 등록 전에 자동으로 한글 뜻을 생성해요.
+      const translatedGroups = groups.map(g => ({
+        ...g,
+        rows: g.rows.map(r => ({...r})),
+      }));
+      // 영어(단어)가 비어 있으면 한글 뜻에서 자동 생성
+      const missingEng = [];
+      translatedGroups.forEach((g,gi) => g.rows.forEach((r,ri) => {
+        if (!r.text && r.meaning) missingEng.push({ gi, ri, kor:r.meaning });
+      }));
+      if (missingEng.length) {
+        setEngBusy(true);
+        const te = await apiPost("/translate", { texts:missingEng.map(x=>x.kor), from:"ko", to:"en" });
+        missingEng.forEach((m,k) => { translatedGroups[m.gi].rows[m.ri].text = (te.translations[k] || "").trim(); });
+        setEngBusy(false);
+      }
+      const missing = [];
+      translatedGroups.forEach((g,gi) => g.rows.forEach((r,ri) => {
+        if (!r.meaning) missing.push({ gi, ri, text:r.text });
+      }));
+      if (missing.length) {
+        setTrBusy(true);
+        const tr = await apiPost("/translate", { texts:missing.map(x=>x.text) });
+        missing.forEach((m,k) => {
+          translatedGroups[m.gi].rows[m.ri].meaning = tr.translations[k] || "";
+        });
+        setTrBusy(false);
+      }
+
+      const payload = translatedGroups.map((g,i) => ({
+        title: `${title.trim()} ${unitLabel} ${g.day}`,
+        book: title.trim(),
+        type, rounds, recordMode: type==="sentence" ? recordMode : "each",
+        items: g.rows.map(r=>r.text),
+        meanings: g.rows.map(r=>r.meaning || ""),
+        dueDate: hidden ? null : (dueDates[i] || null),
+        assignedIds,
+        assignedClasses: mode==="class" ? classes : [],
+        published: !hidden,
+      }));
+      const r = await apiPost("/assignments/bulk", { assignments: payload });
+      await reload();
+      alert(`${r.created}개 과제를 등록했어요!`);
+      onClose();
+    } catch (e) { setErr(e.message); setTrBusy(false); }
+    setBusy(false);
+  };
+
+  const toggle = (arr, set, v) => set(arr.includes(v) ? arr.filter(x=>x!==v) : [...arr, v]);
+
+  return (
+    <div className="card">
+      <div style={{ fontWeight:800, color:"var(--navy)", marginBottom:4 }}>교재 한 권 통째로 등록</div>
+      <div className="muted" style={{ marginBottom:12 }}>
+        엑셀·PDF를 올리면 영어만 뽑아 Day별로 여러 과제를 한 번에 만들어요.
+        Day 표시가 있으면 그대로 쓰고, 없으면 정한 개수씩 자동으로 잘라요.
+        <b>한글 뜻만 있는 파일</b>이면 영어를 자동으로 채워줘요.
+      </div>
+
+      <label className="btn full" style={{ display:"block", textAlign:"center", cursor:"pointer" }}>
+        📗 교재 엑셀·PDF 올리기 (빠름)
+        <input type="file" accept=".xlsx,.xls,.csv,.pdf,application/pdf" style={{display:"none"}}
+          onChange={e=>{ const f=e.target.files[0]; if(f) readFile(f); e.target.value=""; }} />
+      </label>
+      <label className="btn-ghost full" style={{ display:"block", textAlign:"center", cursor:"pointer", marginTop:8, opacity: aiBusy?0.6:1 }}>
+        {aiBusy ? `🤖 AI가 읽는 중... ${aiSecs}초 (유닛 많으면 최대 5분, 화면 닫지 마세요)` : "🤖 AI로 정확히 읽기 (여러 단·복잡한 표)"}
+        <input type="file" accept=".xlsx,.xls,.pdf,application/pdf" style={{display:"none"}} disabled={aiBusy}
+          onChange={e=>{ const f=e.target.files[0]; if(f) aiRead(f); e.target.value=""; }} />
+      </label>
+      <div className="muted" style={{ marginTop:8, fontSize:11, lineHeight:1.6 }}>
+        형식 1 — A열: Day1 / B열: 영어 / C열: 한글뜻<br/>
+        형식 2 — A열: 영어 (또는 "apple / 사과") / B열: 한글뜻
+      </div>
+
+      {err && <div className="err">{err}</div>}
+
+      {rows && (
+        <>
+          <div style={{ marginTop:14, padding:10, background:"var(--cream)", borderRadius:8 }}>
+            <b style={{ color:"var(--navy)" }}>{(fixedRows || rows).length}개</b> {type==="sentence" ? "문장" : "단어"}을 읽었어요 ·
+            {hasDayCol ? " 파일의 구분 사용" : ` ${perDay}개씩 나눔`} →
+            <b style={{ color:"var(--navy)" }}> {groups.length}개 과제</b>
+            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 8px", marginLeft:8 }}
+              onClick={autoTranslate} disabled={trBusy}>
+              {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
+            </button>
+            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 8px", marginLeft:6 }}
+              onClick={async()=>{ setEngBusy(true); setErr(""); try { setRows(await fillEnglish(rows)); } catch(e){ setErr("영어 채우기 실패: "+e.message); } setEngBusy(false); }}
+              disabled={engBusy}>
+              {engBusy ? "영어 채우는 중..." : "🔤 영어 자동"}
+            </button>
+            {(needEng || rows.some(r=>!r.text)) && (
+              <div style={{ marginTop:8, padding:"8px 10px", background:"#fff", borderRadius:8, border:"1px solid var(--line)" }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"var(--navy)" }}>
+                  {engBusy ? "🔤 영어를 자동으로 채우는 중..." : "🔤 한글뜻으로 영어를 자동으로 채웠어요"}
+                </div>
+                <div className="muted" style={{ fontSize:11, marginTop:2 }}>자동 번역이라 어색한 게 있으면, 등록 후 과제 카드의 ✏️(단어 목록 수정)에서 고칠 수 있어요.</div>
+                <div style={{ marginTop:6, fontSize:12, color:"var(--navy)", lineHeight:1.7 }}>
+                  {rows.slice(0,8).map((r,i)=>(<div key={i}><b>{r.text || "?"}</b> <span className="muted">— {r.meaning}</span></div>))}
+                  {rows.length>8 && <div className="muted">… 외 {rows.length-8}개</div>}
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize:11, color:"var(--navy-soft)", margin:"8px 0 4px", fontWeight:700 }}>{unitLabel}별 {type==="sentence" ? "문장" : "단어"} 수</div>
+            <div className="row" style={{ flexWrap:"wrap", gap:5 }}>
+              {groups.map(g => {
+                const few = g.rows.length < 5;
+                return <span key={g.day} title={few ? "단어가 적어요" : ""}
+                  style={{ fontSize:11, fontWeight:700, padding:"3px 8px", borderRadius:999,
+                    background: few ? "#F6E1DC" : "#fff", color: few ? "var(--danger)" : "var(--navy)", border:"1px solid var(--line)" }}>
+                  {unitLabel} {g.day} · {g.rows.length}개
+                </span>;
+              })}
+            </div>
+          </div>
+
+          <div style={{height:14}} />
+          <label className="label">교재 이름 (과제 제목에 들어가요)</label>
+          <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: 초등 필수 영단어" />
+          <div className="muted" style={{ marginTop:4 }}>→ "{title || "교재명"} {unitLabel} 1", "{title || "교재명"} {unitLabel} 2" ...</div>
+
+          {!hasDayCol && (
+            <>
+              <div style={{height:12}} />
+              <label className="label">하루에 몇 개씩</label>
+              <input className="field" type="number" min="1" max="100" value={perDay}
+                onChange={e=>setPerDay(Math.max(1, Number(e.target.value)||1))} />
+            </>
+          )}
+
+          {hasDayCol && (
+            <>
+              <div style={{height:12}} />
+              <label className="label">시작 Day</label>
+              <input className="field" type="number" min="1" value={startDay}
+                onChange={e=>setStartDay(Math.max(1, Number(e.target.value)||1))} />
+              <div className="muted" style={{ marginTop:4 }}>
+                중간에 시작하는 학생은 여기에서 첫 학습 Day를 선택하세요. 선택한 Day가 아래 시작일에 배정돼요.
+              </div>
+            </>
+          )}
+
+          <div style={{height:12}} />
+          <label className="label">유형</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["word","단어"],["sentence","문장"]].map(([v,l]) => (
+              <button key={v} className={type===v?"on":""} onClick={()=>setType(v)}>{l}</button>
+            ))}
+          </div>
+
+          {type==="sentence" && <>
+            <div style={{height:12}} />
+            <label className="label">문장 정리</label>
+            <button onClick={()=>setSentenceFix(!sentenceFix)}
+              style={{ width:"100%", textAlign:"left", padding:"10px 12px", borderRadius:8, fontSize:13, fontWeight:700,
+                border:"1px solid var(--line)", background: sentenceFix ? "var(--navy)" : "#fff", color: sentenceFix ? "var(--cream)" : "var(--navy)" }}>
+              {sentenceFix ? "✅" : "⬜"} 줄바꿈으로 잘린 문장 이어 붙이기
+            </button>
+            <div className="muted" style={{ marginTop:4, fontSize:12 }}>
+              PDF는 한 문장이 두 줄로 잘려 있어요. 켜두면 마침표(. ? !)를 기준으로 문장을 온전하게 다시 맞춰요.
+            </div>
+            {groups[0] && (
+              <div style={{ marginTop:8, padding:"8px 10px", background:"#fff", border:"1px solid var(--line)", borderRadius:8 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--navy)" }}>{unitLabel} {groups[0].day} 미리보기 ({groups[0].rows.length}문장)</div>
+                <div style={{ marginTop:4, fontSize:12, color:"var(--navy)", lineHeight:1.7 }}>
+                  {groups[0].rows.slice(0,4).map((r,i)=>(<div key={i}>{i+1}. {r.text}</div>))}
+                  {groups[0].rows.length>4 && <div className="muted">… 외 {groups[0].rows.length-4}문장</div>}
+                </div>
+              </div>
+            )}
+            <div style={{height:12}} />
+            <label className="label">녹음 방식</label>
+            <div className="seg" style={{marginTop:0}}>
+              <button className={recordMode==="each"?"on":""} onClick={()=>setRecordMode("each")}>문장별 끊어읽기</button>
+              <button className={recordMode==="whole"?"on":""} onClick={()=>setRecordMode("whole")}>통문장 말하기</button>
+            </div>
+            <div className="muted" style={{ marginTop:4, fontSize:12 }}>
+              {recordMode==="whole" ? "통문장을 한 번에 읽고 하나의 점수로 평가 (고학년용)" : "문장을 하나씩 녹음·채점 (저학년용)"}
+            </div>
+          </>}
+
+          <div style={{height:12}} />
+          <label className="label">녹음 횟수</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[1,2,3].map(n => (
+              <button key={n} className={rounds===n?"on":""} onClick={()=>setRounds(n)}>{n}회</button>
+            ))}
+          </div>
+
+          <div style={{height:12}} />
+          <label className="label">시작일</label>
+          <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+
+          <div style={{height:12}} />
+          <label className="label">숙제 요일 (선택한 요일에만 마감일이 잡혀요)</label>
+          <div className="row" style={{ gap:5 }}>
+            {DAYNAMES.map((n,i) => (
+              <button key={i} onClick={()=>toggle(weekdays, setWeekdays, i)}
+                style={{ width:40, height:40, borderRadius:"50%", fontSize:14, fontWeight:700,
+                  border:"1px solid var(--navy)",
+                  background: weekdays.includes(i) ? "var(--navy)" : "#fff",
+                  color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>
+                {n}
+              </button>
+            ))}
+          </div>
+
+          <div style={{height:12}} />
+          <label className="label">배정 대상</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["hidden","📦 보관함"],["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
+              <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
+            ))}
+          </div>
+          {mode==="hidden" && <div className="muted" style={{ marginTop:8, fontSize:12 }}>📦 기본은 <b>보관함</b>이에요 — 학생에겐 안 보이고 저장만 돼요. <b>지금 바로 특정 학생에게 내려면</b> 위에서 개별(또는 반별)을 고르세요. 나중에 보관함에서 배정해도 됩니다.</div>}
+          {mode==="class" && (
+            <div className="row" style={{marginTop:10}}>
+              {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
+              {classNames.map(c=>(
+                <button key={c} onClick={()=>toggle(classes,setClasses,c)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: classes.includes(c)?"var(--navy)":"#fff", color: classes.includes(c)?"var(--cream)":"var(--navy)" }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode==="individual" && (
+            <div className="row" style={{marginTop:10}}>
+              {students.map(s=>(
+                <button key={s.id} onClick={()=>toggle(ids,setIds,s.id)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: ids.includes(s.id)?"var(--navy)":"#fff", color: ids.includes(s.id)?"var(--cream)":"var(--navy)" }}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div style={{height:16}} />
+          <label className="label">단위 표기 (제목에 붙어요)</label>
+          <div className="seg" style={{ marginTop:0, marginBottom:12 }}>
+            {["Day","Unit","Lesson","과","주차"].map(l => (
+              <button key={l} className={unitLabel===l?"on":""} onClick={()=>setUnitLabel(l)}>{l}</button>
+            ))}
+          </div>
+          <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:8, fontSize:13 }}>
+            등록 미리보기 ({groups.length}개)
+          </div>
+          <div style={{ maxHeight:200, overflowY:"auto", border:"1px solid var(--line)", borderRadius:8 }}>
+            {groups.map((g,i) => (
+              <div key={g.day} style={{ padding:"8px 10px", borderBottom: i<groups.length-1?"1px solid #F0EBDD":"none",
+                display:"flex", justifyContent:"space-between", gap:8, fontSize:12 }}>
+                <span style={{ fontWeight:600 }}>{title || "교재명"} {unitLabel} {g.day}</span>
+                <span className="muted" style={{ whiteSpace:"nowrap" }}>
+                  {g.rows.length}개 · {dueDates[i] ? `${dueDates[i].slice(5).replace("-","/")} (${DAYNAMES[new Date(dueDates[i]).getDay()]})` : "-"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="row" style={{ marginTop:16 }}>
+            <button className="btn-ghost" onClick={onClose}>취소</button>
+            <button className="btn" onClick={submit} disabled={busy}>
+              {busy ? "등록 중..." : `${groups.length}개 과제 등록하기`}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Admin: assignments ----------
+
+function AdminAssignments({ students, assignments, reload, voice }) {
+  const [show, setShow] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
+  const [title, setTitle] = useState(""); const [type, setType] = useState("word");
+  const [list, setList] = useState(""); const [due, setDue] = useState("");
+  const [rounds, setRounds] = useState(3);
+  const [recordMode, setRecordMode] = useState("each");   // 문장 녹음 방식: each(문장별) | whole(통문장)
+  const [mode, setMode] = useState("hidden");   // 기본값: 보관함(실수로 전체 배포 방지)
+  const [classes, setClasses] = useState([]); const [ids, setIds] = useState([]);
+  const [err, setErr] = useState(""); const [pdfBusy, setPdfBusy] = useState(false);
+  const [trBusy, setTrBusy] = useState(false);
+  const [fillBusy, setFillBusy] = useState(false);
+
+  const autoTranslate = async () => {
+    const parsed = parseItemList(list, type);
+    if (!parsed.length) return setErr("먼저 목록을 입력해주세요.");
+    setTrBusy(true); setErr("");
+    try {
+      const need = parsed.map((p,i) => p.meaning ? null : i).filter(i => i !== null);
+      if (!need.length) { setErr("이미 모든 항목에 한글 뜻이 있어요."); setTrBusy(false); return; }
+      const r = await apiPost("/translate", { texts: need.map(i => parsed[i].text) });
+      need.forEach((idx, k) => { parsed[idx].meaning = r.translations[k] || ""; });
+      setList(parsed.map(p => p.meaning ? `${p.text} / ${p.meaning}` : p.text).join("\n"));
+    } catch (e) { setErr(e.message); }
+    setTrBusy(false);
+  };
+
+  const preview = React.useMemo(() => parseItemList(list, type), [list, type]);
+  const rawLineCount = React.useMemo(() => list.split("\n").map(x=>x.trim()).filter(Boolean).length, [list]);
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+
+  const readExcel = async (file) => {
+    setErr("");
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:"array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1 });
+      const lines = rows.map(r => (r && r.length ? String(r[0] ?? "").trim() : "")).filter(Boolean);
+      if (!lines.length) return setErr("파일에서 읽을 내용이 없어요. A열을 확인해주세요.");
+      setList(p => p.trim() ? p.trim()+"\n"+lines.join("\n") : lines.join("\n"));
+    } catch (e) { setErr("엑셀 파일을 읽는 데 실패했어요."); }
+  };
+
+  const readPdf = async (file) => {
+    setErr(""); setPdfBusy(true);
+    try {
+      const pdf = await pdfToLines(file);
+      let all = dropRunningHeaders(pdf.lines, pdf.pages);
+      // 문장 과제면 PDF의 줄바꿈을 무시하고 문장 단위로 다시 나눈다 (문장이 중간에 잘리는 것 방지)
+      if (type === "sentence") {
+        const sents = splitSentences(all.join("\n"));
+        if (sents.length) all = sents;
+      }
+      if (!all.length) setErr("PDF에서 텍스트를 찾지 못했어요. 스캔 이미지형일 수 있어요.");
+      else setList(p => p.trim() ? p.trim()+"\n"+all.join("\n") : all.join("\n"));
+    } catch (e) { setErr("PDF를 읽는 데 실패했어요."); }
+    setPdfBusy(false);
+  };
+
+  const create = async () => {
+    const parsed = parseItemList(list, type);
+    if (!title.trim() || !parsed.length) return setErr("제목과 목록을 입력해주세요.");
+    const items = parsed.map(p => p.text);
+    const meanings = parsed.map(p => p.meaning);
+    let assignedIds = [];
+    if (mode === "class") {
+      if (!classes.length) return setErr("반을 선택해주세요.");
+      assignedIds = students.filter(s=>classes.includes(s.className)).map(s=>s.id);
+    } else if (mode === "individual") {
+      if (!ids.length) return setErr("학생을 선택해주세요.");
+      assignedIds = ids;
+    }
+    try {
+      await apiPost("/assignments", {
+        title, type, items, meanings, dueDate: mode==="hidden" ? null : (due || null), rounds, assignedIds,
+        assignedClasses: mode==="class" ? classes : [], published: mode!=="hidden",
+        recordMode: type==="sentence" ? recordMode : "each"
+      });
+      setTitle(""); setList(""); setDue(""); setRounds(3); setRecordMode("each"); setMode("all"); setClasses([]); setIds([]);
+      setShow(false); setErr("");
+      await reload();
+    } catch (e) { setErr(e.message); }
+  };
+
+  const del = async (aid) => {
+    if (!confirm("이 과제를 삭제할까요?")) return;
+    await apiDelete("/assignments/" + aid);
+    await reload();
+  };
+
+  const fillExistingMeanings = async () => {
+    if (!assignments.length) return setErr("등록된 과제가 없어요.");
+    if (!confirm("기존 과제에서 비어 있는 한글 뜻을 모두 자동 생성할까요?")) return;
+    setFillBusy(true); setErr("");
+    try {
+      const r = await apiPost("/assignments/fill-meanings", {});
+      await reload();
+      if (r.updatedMeanings) {
+        alert(`${r.updatedAssignments}개 과제의 한글 뜻 ${r.updatedMeanings}개를 채웠어요!`);
+      } else {
+        alert("이미 모든 과제에 한글 뜻이 있어요.");
+      }
+    } catch (e) { setErr(e.message); }
+    setFillBusy(false);
+  };
+
+  const toggle = (arr, set, v) => set(arr.includes(v) ? arr.filter(x=>x!==v) : [...arr, v]);
+
+  return (
+    <div className="body">
+      {!show && !showBulk ? (
+        <div className="row" style={{ gap:8 }}>
+          <button className="btn" style={{ flex:1 }} onClick={()=>setShow(true)}>+ 새 과제 만들기</button>
+          <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setShowBulk(true)}>📗 교재 통째로 등록</button>
+          <button className="btn-ghost" style={{ flex:1 }} onClick={fillExistingMeanings} disabled={fillBusy}>
+            {fillBusy ? "한글뜻 생성 중..." : "🇰🇷 기존 과제 한글뜻 채우기"}
+          </button>
+        </div>
+      ) : showBulk ? (
+        <BulkUpload students={students} reload={reload} onClose={()=>setShowBulk(false)} />
+      ) : (
+        <div className="card">
+          <div className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:6 }}>① 무엇을 낼까요?</div>
+          <div className="seg" style={{marginTop:0}}>
+            {[["word","📚 단어"],["sentence","📝 문장"]].map(([v,l]) => (
+              <button key={v} className={type===v?"on":""} onClick={()=>setType(v)}>{l}</button>
+            ))}
+          </div>
+          {type==="sentence" && (
+            <>
+              <div style={{height:10}} />
+              <label className="label">문장 녹음 방식</label>
+              <div className="seg" style={{marginTop:0}}>
+                <button className={recordMode==="each"?"on":""} onClick={()=>setRecordMode("each")}>문장별 끊어읽기</button>
+                <button className={recordMode==="whole"?"on":""} onClick={()=>setRecordMode("whole")}>통문장 말하기</button>
+              </div>
+              <div className="muted" style={{ fontSize:11, marginTop:4 }}>{recordMode==="whole" ? "통문장을 한 번에 읽고 하나의 점수로 평가해요 (고학년용)" : "문장을 하나씩 녹음·채점해요 (저학년용)"}</div>
+            </>
+          )}
+
+          <div style={{height:18}} />
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom:6 }}>
+            <span className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:0 }}>② 목록 넣기</span>
+            <div className="row" style={{gap:6}}>
+              <label className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}>
+                📊 엑셀 업로드
+                <input type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}}
+                  onChange={e=>{ const f=e.target.files[0]; if(f) readExcel(f); e.target.value=""; }} />
+              </label>
+              <label className="btn-ghost" style={{ fontSize:12, padding:"6px 10px", opacity: pdfBusy?0.5:1 }}>
+                {pdfBusy ? "분석 중..." : "📄 PDF 업로드"}
+                <input type="file" accept=".pdf" style={{display:"none"}} disabled={pdfBusy}
+                  onChange={e=>{ const f=e.target.files[0]; if(f) readPdf(f); e.target.value=""; }} />
+              </label>
+              <button className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}
+                onClick={autoTranslate} disabled={trBusy}>
+                {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
+              </button>
+            </div>
+          </div>
+          <div className="muted" style={{ fontSize:11, marginBottom:6 }}>📄 책 파일을 올리면 목록이 자동으로 채워져요 · 또는 아래에 직접 입력 (한 줄에 하나)</div>
+          <textarea className="field" rows={6} value={list} onChange={e=>setList(e.target.value)}
+            placeholder={"apple / 사과\nbanana / 바나나\n\n한글 뜻은 '/' 뒤에 쓰거나, 영어만 넣고 '한글뜻 자동'을 누르세요."} />
+          {list.trim() && (
+            <div style={{ marginTop:8, padding:"8px 10px", background:"var(--cream)", borderRadius:8 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:"var(--navy)" }}>
+                올라갈 {type==="sentence" ? "문장" : "단어"} {preview.length}개
+                {type==="sentence" && preview.length !== rawLineCount &&
+                  <span style={{ fontWeight:600, color:"var(--navy-soft)" }}> · 줄바꿈으로 잘린 문장을 이어서 문장 단위로 나눴어요 (입력 {rawLineCount}줄)</span>}
+              </div>
+              <div style={{ marginTop:6, display:"flex", flexWrap:"wrap", gap:5 }}>
+                {preview.slice(0, type==="sentence" ? 4 : 6).map((p,i)=>(
+                  <button key={i} onClick={()=>speak(p.text, voice)}
+                    style={{ fontSize:11, padding:"4px 9px", borderRadius:999, background:"var(--cream-deep)", color:"var(--navy)",
+                      textAlign:"left", maxWidth:"100%", flex: type==="sentence" ? "1 1 100%" : "0 0 auto" }}>
+                    🔊 {p.text}{p.meaning ? " — " + p.meaning : ""}
+                  </button>
+                ))}
+                {preview.length > (type==="sentence" ? 4 : 6) &&
+                  <span className="muted" style={{ fontSize:11 }}>… 외 {preview.length - (type==="sentence" ? 4 : 6)}개</span>}
+              </div>
+            </div>
+          )}
+
+          <div style={{height:18}} />
+          <div className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:6 }}>③ 누구에게 · 언제까지</div>
+          <label className="label">배정 대상</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[["hidden","📦 보관함"],["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
+              <button key={v} className={mode===v?"on":""} onClick={()=>setMode(v)}>{l}</button>
+            ))}
+          </div>
+          {mode==="hidden" && <div className="muted" style={{ marginTop:8, fontSize:12 }}>📦 기본은 <b>보관함</b>이에요 — 학생에겐 안 보이고 저장만 돼요. <b>지금 바로 특정 학생에게 내려면</b> 위에서 개별(또는 반별)을 고르세요. 나중에 보관함에서 배정해도 됩니다.</div>}
+          {mode==="class" && (
+            <div className="row" style={{marginTop:10}}>
+              {!classNames.length && <span className="err">학생관리에서 반을 먼저 입력해주세요.</span>}
+              {classNames.map(c=>(
+                <button key={c} onClick={()=>toggle(classes,setClasses,c)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: classes.includes(c)?"var(--navy)":"#fff", color: classes.includes(c)?"var(--cream)":"var(--navy)" }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {mode==="individual" && (
+            <div className="row" style={{marginTop:10}}>
+              {students.map(s=>(
+                <button key={s.id} onClick={()=>toggle(ids,setIds,s.id)}
+                  style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
+                    background: ids.includes(s.id)?"var(--navy)":"#fff", color: ids.includes(s.id)?"var(--cream)":"var(--navy)" }}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div style={{height:18}} />
+          <div className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:6 }}>④ 제목 · 마감 · 녹음 횟수</div>
+          <label className="label">과제 제목</label>
+          <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="예: Unit 3 단어 · Day 12" />
+          <div style={{height:10}} />
+          <label className="label">마감일 (선택)</label>
+          <input className="field" type="date" value={due} onChange={e=>setDue(e.target.value)} />
+          <div style={{height:10}} />
+          <label className="label">녹음 횟수 (전체를 몇 번 반복할지)</label>
+          <div className="seg" style={{marginTop:0}}>
+            {[1,2,3].map(n => (
+              <button key={n} className={rounds===n?"on":""} onClick={()=>setRounds(n)}>{n}회</button>
+            ))}
+          </div>
+
+          {err && <div className="err">{err}</div>}
+          <div className="row" style={{ marginTop:14 }}>
+            <button className="btn-ghost" onClick={()=>{setShow(false); setErr("");}}>취소</button>
+            <button className="btn" onClick={create}>과제 등록</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{height:12}} />
+      <AssignmentBrowser students={students} assignments={assignments} reload={reload} />
+    </div>
+  );
+}
+
+// ---------- 반 → 교재 → 과제 브라우저 ----------
+
+function AssignmentBrowser({ students, assignments, reload }) {
+  const [group, setGroup] = useState(null);   // 선택한 반/대상
+  const [book, setBook] = useState(null);     // 선택한 교재
+
+  const classNames = [...new Set(students.map(s=>s.className).filter(Boolean))];
+
+  const groupsOf = (a) => {
+    if (a.published === false) return [a.type === "sentence" ? "📝 문장 보관함" : "📦 단어 보관함"];
+    if (a.assignedClasses?.length) return a.assignedClasses;
+    if (a.assignedIds?.length) {
+      const names = students.filter(s=>a.assignedIds.includes(s.id)).map(s=>s.className || s.name);
+      return [...new Set(names)];
+    }
+    return ["전체"];
+  };
+
+  // 반별 집계
+  const byGroup = {};
+  assignments.forEach(a => groupsOf(a).forEach(g => { (byGroup[g] = byGroup[g] || []).push(a); }));
+  const groupKeys = Object.keys(byGroup).sort();
+
+  if (!group) {
+    // 📦 보관함은 반 목록에 섞여 맨 아래로 밀리기 쉬워서, 맨 위에 눈에 띄게 고정한다.
+    const boxKeys = groupKeys.filter(g => g.includes("보관함"));
+    const otherKeys = groupKeys.filter(g => !g.includes("보관함"));
+    const groupCard = (g, pinned) => {
+      const list = byGroup[g];
+      const books = new Set(list.map(a => a.book || a.title));
+      const kids = students.filter(s => s.className === g).map(s => s.name);   // 그 반에 속한 학생
+      return (
+        <button key={g} className="card" onClick={()=>{setGroup(g); setBook(null);}}
+          style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left",
+            ...(pinned ? { borderColor:"var(--gold)", borderWidth:2, background:"var(--cream-deep)" } : {}) }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontWeight:700, fontSize:15 }}>{g}</div>
+            <div className="muted" style={{ marginTop:3 }}>교재 {books.size}권 · 과제 {list.length}개{kids.length ? ` · 학생 ${kids.length}명` : ""}</div>
+            {kids.length > 0 && (
+              <div style={{ marginTop:4, fontSize:12, color:"var(--navy-soft)" }}>{kids.join(", ")}</div>
+            )}
+          </div>
+          <span style={{ color:"var(--navy-soft)", fontSize:20, flexShrink:0, marginLeft:8 }}>›</span>
+        </button>
+      );
+    };
+    return (
+      <>
+        {boxKeys.length > 0 && <>
+          <div style={{ fontWeight:800, color:"var(--gold)", margin:"6px 2px 8px", fontSize:13, letterSpacing:0.5 }}>
+            📦 보관함 (학생에겐 안 보임 · 여기서 배정)
+          </div>
+          {boxKeys.map(g => groupCard(g, true))}
+        </>}
+        <div style={{ fontWeight:700, color:"var(--navy)", margin:(boxKeys.length ? "20px 2px 10px" : "6px 2px 10px"), fontSize:13,
+          borderTop:(boxKeys.length ? "1px solid var(--cream-deep)" : "none"), paddingTop:(boxKeys.length ? 16 : 0) }}>
+          반 / 대상별 보기
+        </div>
+        {!groupKeys.length && <div className="muted" style={{textAlign:"center",padding:30}}>등록된 과제가 없어요.</div>}
+        {otherKeys.map(g => groupCard(g, false))}
+      </>
+    );
+  }
+
+  const inGroup = byGroup[group] || [];
+  const byBook = {};
+  inGroup.forEach(a => { const b = a.book || seriesOf(a.title); (byBook[b] = byBook[b] || []).push(a); });
+  const bookKeys = Object.keys(byBook).sort();
+
+  if (!book) {
+    return (
+      <>
+        <button onClick={()=>setGroup(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, fontSize:16, marginBottom:10 }}>
+          ‹ 반 목록으로
+        </button>
+        <div style={{ fontWeight:800, fontSize:22, marginBottom:12 }}>{group}</div>
+        {bookKeys.map(b => {
+          const list = byBook[b];
+          const dues = list.map(a=>a.dueDate).filter(Boolean).sort();
+          return (
+            <button key={b} className="card" onClick={()=>setBook(b)}
+              style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:18 }}>📗 {b}</div>
+                <div className="muted" style={{ marginTop:4, fontSize:15 }}>
+                  과제 {list.length}개
+                  {dues.length ? ` · ${formatDue(dues[0])} ~ ${formatDue(dues[dues.length-1])}` : ""}
+                </div>
+              </div>
+              <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+            </button>
+          );
+        })}
+      </>
+    );
+  }
+
+  const list = [...(byBook[book] || [])].sort((x,y) => {
+    const dx = dayNum(x.title), dy = dayNum(y.title);
+    if (dx != null && dy != null && dx !== dy) return dx - dy;   // Day 1 → 마지막 Day
+    const dd = (x.dueDate||"").localeCompare(y.dueDate||"");      // Day 번호 없으면 마감일 순
+    if (dd !== 0) return dd;
+    return (x.title||"").localeCompare(y.title||"");             // (1/2) → (2/2) 순서 유지
+  });
+
+  return <BookDetail book={book} group={group} list={list} reload={reload} students={students}
+    onBack={()=>setBook(null)} />;
+}
+
+// ---------- 교재 상세 + 일정 조정 ----------
+
+function BookDetail({ book, group, list, reload, onBack, students }) {
+  const [panel, setPanel] = useState(null);   // 'shift' | 'respread' | null
+  const [days, setDays] = useState(7);
+  const [fromDate, setFromDate] = useState("");
+  const [shiftKeep, setShiftKeep] = useState(true);   // 요일 패턴 유지하며 미루기
+  const [sessions, setSessions] = useState(1);        // 요일 유지 시 몇 회분
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
+  const [respreadStartIdx, setRespreadStartIdx] = useState(0);   // 시작일에 놓을 Day(목록 인덱스)
+  const [assignMode, setAssignMode] = useState("all");   // 사본 배정 대상
+  const [assignClasses, setAssignClasses] = useState([]);
+  const [assignIds, setAssignIds] = useState([]);
+  const [assignDue, setAssignDue] = useState(true);      // 마감일 자동 배치 여부
+  const [assignRepeat, setAssignRepeat] = useState(1);   // 유닛 하나를 며칠 반복할지
+  const [assignFromIdx, setAssignFromIdx] = useState(0);       // 배정 시작 Day(목록 인덱스)
+  const [assignToIdx, setAssignToIdx] = useState(null);        // 배정 끝 Day(null=마지막)
+  const [splitting, setSplitting] = useState(null);           // 둘로 나누는 과제 id
+  const [splitAt, setSplitAt] = useState(1);                  // 앞쪽에 넣을 단어 개수
+  const [splitAllMode, setSplitAllMode] = useState("half");   // 교재 전체 나누기 기준: half | fixed
+  const [splitAllN, setSplitAllN] = useState(10);             // fixed일 때 앞쪽 개수
+  const [splitAllReschedule, setSplitAllReschedule] = useState(true); // 나눈 뒤 하루에 하나씩 다시 배치
+  const [splitAllStartIdx, setSplitAllStartIdx] = useState(0);        // 시작일에 놓을 Day(목록 인덱스)
+  const [editing, setEditing] = useState(null);
+  const [editDue, setEditDue] = useState("");
+  const [editRounds, setEditRounds] = useState(3);
+  const [editRecordMode, setEditRecordMode] = useState("each");   // 문장 녹음 방식: each | whole
+  const [editMode, setEditMode] = useState("all");     // all | class | individual
+  const [editClasses, setEditClasses] = useState([]);
+  const [editIds, setEditIds] = useState([]);
+  const [editItems, setEditItems] = useState("");      // "단어 / 뜻" 줄들
+  const [showItems, setShowItems] = useState(false);
+  const classNames = [...new Set((students || []).map(s => s.className).filter(Boolean))];
+  const [roundsFrom, setRoundsFrom] = useState("");   // 회차 일괄변경 시작 과제 id ("" = 전체)
+  const [newRounds, setNewRounds] = useState(2);
+  const [newRecordMode, setNewRecordMode] = useState("");   // "" 그대로 | each | whole
+  const [busy, setBusy] = useState(false);
+  const [dupBusy, setDupBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
+  const [audioAsg, setAudioAsg] = useState(null);
+  const [previewAsg, setPreviewAsg] = useState(null);        // 문제 미리보기 펼친 과제 id
+  const [audioBusy, setAudioBusy] = useState(null);
+  const [ttsText, setTtsText] = useState({});
+  const [ttsBusy, setTtsBusy] = useState(null);
+  const [err, setErr] = useState("");
+
+  const DAYNAMES = ["일","월","화","수","목","금","토"];
+
+  const uploadEx = async (aid, i, file) => {
+    if (!file) return;
+    setAudioBusy(aid + ":" + i);
+    try {
+      const fd = new FormData();
+      fd.append("index", i);
+      fd.append("audio", file);
+      const res = await fetch(`/api/assignments/${aid}/example-audio`, { method:"POST", body: fd });
+      if (!res.ok) throw new Error("업로드 실패 (" + res.status + ")");
+      await reload();
+    } catch (e) { alert("음원 업로드 실패: " + e.message); }
+    setAudioBusy(null);
+  };
+  const clearEx = async (aid, i) => {
+    await fetch(`/api/assignments/${aid}/example-audio/${i}`, { method:"DELETE" });
+    await reload();
+  };
+  const genTts = async (aid, i, text) => {
+    const t = (text || "").trim();
+    if (!t) { alert("읽을 영어 텍스트를 입력해주세요."); return; }
+    setTtsBusy(aid + ":" + i);
+    try {
+      const res = await fetch(`/api/assignments/${aid}/tts-audio`, {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ index: i, text: t, voice: "en-US-AriaNeural" }),
+      });
+      if (!res.ok) { let d = "생성 실패"; try { const j = await res.json(); d = j.detail || d; } catch (e) {} throw new Error(d); }
+      await reload();
+    } catch (e) { alert("소리 생성 실패: " + e.message); }
+    setTtsBusy(null);
+  };
+  const toggle = (v) => setWeekdays(w => w.includes(v) ? w.filter(x=>x!==v) : [...w, v]);
+
+  const delOne = async (id) => {
+    if (!confirm("이 과제를 삭제할까요?")) return;
+    await apiDelete("/assignments/" + id);
+    await reload();
+  };
+  const delBook = async () => {
+    if (!confirm(`"${book}" 교재의 과제 ${list.length}개를 모두 삭제할까요?\n제출된 녹음 기록도 함께 지워져요.`)) return;
+    await apiPost("/assignments/delete-many", { ids: list.map(a=>a.id) });
+    onBack();
+    await reload();
+  };
+
+  // 교재 이름 바꾸기: book 필드와 각 Day 제목 속 교재명을 함께 교체
+  const renameBook = async () => {
+    const nv = prompt("새 교재 이름을 입력하세요.", book);
+    if (nv == null) return;
+    const nn = nv.trim();
+    if (!nn) return setErr("이름을 입력해주세요.");
+    if (nn === book) return;
+    setBusy(true); setErr("");
+    try {
+      await Promise.all(list.map(a => {
+        const body = {};
+        if (a.book) body.book = nn;                                   // book 필드 교체
+        if (a.title && a.title.includes(book)) body.title = a.title.split(book).join(nn); // 제목 속 교재명 교체
+        if (!Object.keys(body).length) return Promise.resolve();
+        return fetch("/api/assignments/" + a.id, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+      }));
+      await reload();
+      onBack();   // 바뀐 이름으로 다시 보도록 교재 목록으로
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  // 이 교재의 과제 단어(items+meanings)로 단어시험지 PDF를 만든다.
+  // 낭독 앱 백엔드(/api/vocab-test)가 시험지 생성기를 대신 호출하므로 CORS가 필요 없다.
+  const makeVocabTest = async () => {
+    const wordAsgs = list.filter(a => (a.type || "word") === "word" && (a.items || []).length);
+    if (!wordAsgs.length) { alert("이 교재에 단어 유형 과제가 없어요."); return; }
+    const units = wordAsgs.map(a => ({
+      unit_title: a.title,
+      words: (a.items || []).map((w, i) => ({
+        no: i + 1, word: w, kor: (a.meanings && a.meanings[i]) || "",
+      })),
+    }));
+    setTestBusy(true); setErr("");
+    try {
+      const res = await fetch("/api/vocab-test", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          academy_name: "해피트리학원 국영수문해력센터",
+          book_title: book, units, direction: "kor_to_eng",
+        }),
+      });
+      if (!res.ok) {
+        let detail = "생성기 응답 오류 (" + res.status + ")";
+        try { const j = await res.json(); detail = j.detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (book || "단어").replace(/\s+/g, "_") + "_단어시험지.pdf";
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) {
+      setErr("시험지 생성 실패: " + e.message + " — 생성기 서버가 자는 중이면 20~60초 뒤 다시 눌러주세요.");
+    }
+    setTestBusy(false);
+  };
+
+  // 같은 과제가 두 번 등록된 것(제목+마감+문항수 동일)을 정리한다.
+  // 학생 제출(녹음)이 있는 복사본은 남기고, 비어 있는 복사본만 삭제.
+  // 중복인데 여러 복사본에 제출이 있으면 안전하게 그대로 둔다.
+  const cleanDupes = async () => {
+    // 같은 Day(제목)가 여러 번 배정된 경우 정리 — 마감일이 서로 달라도 중복으로 본다.
+    // (같은 교재를 두 번 숙제내기 해서 진도 흐름이 겹친 경우까지 잡음)
+    const groups = {};
+    list.forEach(a => {
+      const k = (a.title||"");
+      (groups[k] = groups[k] || []).push(a);
+    });
+    const dupGroups = Object.values(groups).filter(g => g.length > 1);
+    if (!dupGroups.length) { alert("중복된 과제가 없어요. 👍"); return; }
+    const dupCount = dupGroups.reduce((s,g)=>s+(g.length-1), 0);
+    if (!confirm(`같은 Day가 두 번 이상 들어간 게 ${dupGroups.length}종류 있어요.\n중복 ${dupCount}개를 지워서 Day마다 하나씩만 남길까요?\n(학생 녹음이 있는 것을 우선 남기고, 없으면 마감일이 이른 것을 남겨요.)\n\n정리 후 "🗓 일정 다시 짜기"로 날짜를 맞춰주세요.`)) return;
+    setDupBusy(true); setErr("");
+    try {
+      const toDelete = [];
+      let keptConflict = 0;
+      for (const g of dupGroups) {
+        const counts = await Promise.all(g.map(async a => {
+          const r = await fetch("/api/submissions/" + a.id);
+          const j = await r.json();
+          return { a, n: Object.keys(j || {}).length };
+        }));
+        const withSubs = counts.filter(c => c.n > 0);
+        if (withSubs.length === 0) {
+          // 녹음이 없으면 마감일이 이른 것 하나만 남기고 삭제
+          const sorted = counts.slice().sort((x,y) =>
+            (x.a.dueDate||"9999").localeCompare(y.a.dueDate||"9999"));
+          sorted.slice(1).forEach(c => toDelete.push(c.a));
+        } else {
+          counts.filter(c => c.n === 0).forEach(c => toDelete.push(c.a)); // 빈 복사본만 삭제
+          if (withSubs.length > 1) keptConflict++;
+        }
+      }
+      if (!toDelete.length) {
+        alert("중복이 있지만 모두 학생 제출이 있어서 자동으로 지우지 않았어요.\n직접 확인 후 삭제해주세요.");
+        setDupBusy(false); return;
+      }
+      await Promise.all(toDelete.map(a =>
+        fetch("/api/assignments/" + a.id, { method:"DELETE" })));
+      await reload();
+      let msg = `중복 ${toDelete.length}개를 정리했어요. ✅\n이제 "🗓 일정 다시 짜기"로 날짜를 맞춰주세요.`;
+      if (keptConflict) msg += `\n(제출이 여러 개인 중복 ${keptConflict}건은 안전하게 그대로 뒀어요.)`;
+      alert(msg);
+    } catch (e) { setErr(e.message); }
+    setDupBusy(false);
+  };
+
+  // 미루기 대상: fromDate 이후 (비우면 전체)
+  const shiftTargets = fromDate
+    ? list.filter(a => a.dueDate && a.dueDate >= fromDate)
+    : list;
+
+  // 대상들이 현재 놓인 요일 패턴 (예: 화·목·금)
+  const shiftPatternDays = [...new Set(shiftTargets.filter(a=>a.dueDate)
+    .map(a => new Date(a.dueDate + "T00:00:00").getDay()))].sort();
+  const shiftPatternLabel = shiftPatternDays.map(d => DAYNAMES[d]).join("·");
+
+  const doShift = async () => {
+    if (!shiftTargets.length) return setErr("해당하는 과제가 없어요.");
+    setBusy(true); setErr("");
+    try {
+      if (shiftKeep) {
+        if (!Number(sessions)) { setBusy(false); return setErr("미룰 횟수를 입력해주세요."); }
+        await apiPost("/assignments/reschedule",
+          { mode:"shift_sessions", ids: shiftTargets.map(a=>a.id), sessions: Number(sessions) });
+      } else {
+        if (!Number(days)) { setBusy(false); return setErr("미룰 일수를 입력해주세요."); }
+        await apiPost("/assignments/reschedule",
+          { mode:"shift", ids: shiftTargets.map(a=>a.id), days: Number(days) });
+      }
+      await reload(); setPanel(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const doRespread = async () => {
+    if (!weekdays.length) return setErr("요일을 하나 이상 선택해주세요.");
+    const startIdx = Math.max(0, Math.min(respreadStartIdx, list.length - 1));
+    const targets = list.slice(startIdx);   // 선택한 Day부터만 다시 배치(앞 Day는 원래 날짜 유지)
+    if (!targets.length) return setErr("다시 배치할 Day가 없어요.");
+    setBusy(true); setErr("");
+    try {
+      await apiPost("/assignments/reschedule",
+        { mode:"respread", ids: targets.map(a=>a.id), startDate, weekdays });
+      await reload(); setPanel(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const openEdit = (a) => {
+    setEditing(a.id);
+    setEditDue(a.dueDate || "");
+    setEditRounds(a.rounds || 3);
+    setEditRecordMode(a.recordMode === "whole" ? "whole" : "each");
+    const hasClass = (a.assignedClasses || []).length > 0;
+    const hasIds = (a.assignedIds || []).length > 0;
+    setEditMode(a.published === false ? "hidden" : hasClass ? "class" : hasIds ? "individual" : "all");
+    setEditClasses(a.assignedClasses || []);
+    setEditIds(a.assignedIds || []);
+    setShowItems(false);
+    setEditItems((a.items || []).map((w, i) => {
+      const m = (a.meanings || [])[i];
+      return m ? `${w} / ${m}` : w;
+    }).join("\n"));
+  };
+  const toggleIn = (arr, set, v) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+
+  const saveOne = async (id, aType) => {
+    setBusy(true); setErr("");
+    let assignedIds = [], assignedClasses = [];
+    if (editMode === "class") {
+      assignedClasses = editClasses;
+      assignedIds = (students || []).filter(s => editClasses.includes(s.className)).map(s => s.id);
+    } else if (editMode === "individual") {
+      assignedIds = editIds;
+    }
+    const published = editMode !== "hidden";
+    const body = { dueDate: editDue || null, rounds: editRounds, assignedIds, assignedClasses, published, recordMode: editRecordMode };
+    if (showItems) {
+      const parsed = parseItemList(editItems, aType);
+      if (parsed.length) { body.items = parsed.map(p => p.text); body.meanings = parsed.map(p => p.meaning || ""); }
+    }
+    try {
+      await fetch("/api/assignments/" + id, {
+        method:"PATCH", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(body)
+      });
+      await reload(); setEditing(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  // 과제 하나를 앞/뒤 둘로 나누기 (단어가 많을 때). 원본=앞쪽, 새 과제=뒤쪽.
+  const baseTitle = (t) => (t || "").replace(/\s*\((?:앞|뒤|\d+\s*\/\s*\d+)\)\s*$/, "").trim();
+  const openSplit = (a) => {
+    setSplitting(a.id);
+    setSplitAt(Math.max(1, Math.ceil((a.items || []).length / 2)));
+    setErr("");
+  };
+  const doSplit = async (a) => {
+    const items = a.items || [], meanings = a.meanings || [], ea = a.exampleAudio || [];
+    const n = items.length;
+    if (n < 2) { setSplitting(null); return setErr("단어가 2개 이상일 때만 나눌 수 있어요."); }
+    const at = Math.max(1, Math.min(splitAt, n - 1));
+    const base = baseTitle(a.title) || a.title;
+    if (!confirm(`"${a.title}"을(를) 둘로 나눌까요?\n\n앞 ${at}개 → "${base} (1/2)"\n뒤 ${n - at}개 → "${base} (2/2)"\n\n※ 이미 제출된 녹음이 있으면, 뒤쪽으로 옮겨가는 단어의 녹음은 새 과제로 옮겨지지 않아요. 되도록 녹음 전에 나눠 주세요.`)) return;
+    setBusy(true); setErr("");
+    try {
+      await fetch("/api/assignments/" + a.id, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: base + " (1/2)", items: items.slice(0, at), meanings: meanings.slice(0, at), exampleAudio: ea.slice(0, at) })
+      });
+      await apiPost("/assignments", {
+        title: base + " (2/2)", book: a.book || book, type: a.type || "word",
+        items: items.slice(at), meanings: meanings.slice(at), exampleAudio: ea.slice(at),
+        rounds: a.rounds || 3, dueDate: a.dueDate || null,
+        assignedIds: a.assignedIds || [], assignedClasses: a.assignedClasses || [], published: a.published !== false,
+      });
+      await reload(); setSplitting(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  // 교재 전체를 한 번에 둘로 나누기. 이미 나뉜 Day(1/2·2/2)는 건너뜀.
+  const isSplitTitle = (t) => /\((?:\d+\s*\/\s*\d+|앞|뒤)\)\s*$/.test(t || "");
+  const splitAllTargets = list.filter(a =>
+    (a.items || []).length >= 2 && !isSplitTitle(a.title) &&
+    (splitAllMode === "half" || (a.items || []).length > splitAllN));
+  const doSplitAll = async () => {
+    if (!splitAllTargets.length) return setErr("나눌 수 있는 Day가 없어요. (단어 2개 이상, 아직 안 나뉜 Day만 대상)");
+    const targetSet = new Set(splitAllTargets.map(a => a.id));
+    // 시작 Day부터만 날짜를 다시 배치(그 앞 Day는 원래 날짜 유지). 오늘이 Day1이 아닐 수 있으므로.
+    const startIdx = splitAllReschedule ? Math.max(0, Math.min(splitAllStartIdx, list.length - 1)) : 0;
+    // 시작 Day부터 끝까지 각 조각에 필요한 날짜 개수 미리 계산
+    const slots = splitAllReschedule
+      ? list.slice(startIdx).reduce((s, a) => s + (targetSet.has(a.id) ? 2 : 1), 0) : 0;
+    let dates = [];
+    if (splitAllReschedule) {
+      if (!weekdays.length) return setErr("배치할 요일을 하나 이상 선택해주세요.");
+      const [y, m, d] = startDate.split("-").map(Number);
+      let cur = new Date(y, m - 1, d), guard = 0;
+      while (dates.length < slots && guard < 2000) {
+        if (weekdays.includes(cur.getDay()))
+          dates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
+        cur.setDate(cur.getDate() + 1); guard++;
+      }
+    }
+    const startLabel = list[startIdx] ? (baseTitle(list[startIdx].title) || list[startIdx].title) : "";
+    const msg = splitAllReschedule
+      ? `이 교재를 ${splitAllTargets.length}개 Day → 총 ${splitAllTargets.length*2}개로 나누고,\n"${startLabel}"부터 ${startDate}에 하루에 하나씩 배치할까요?\n(그 앞 Day는 원래 날짜 그대로 둬요)`
+      : `이 교재의 ${splitAllTargets.length}개 Day를 각각 앞·뒤 둘로 나눌까요?`;
+    if (!confirm(`${msg}\n\n※ 이미 제출된 녹음이 있으면, 뒤쪽으로 옮겨가는 단어의 녹음은 새 과제로 옮겨지지 않아요. 되도록 녹음 전에 나눠 주세요.`)) return;
+    setBusy(true); setErr("");
+    try {
+      let di = 0;
+      // list(정렬된 교재 전체) 순서대로 처리. 시작 Day(startIdx)부터만 새 날짜를 매김.
+      for (let j = 0; j < list.length; j++) {
+        const a = list[j];
+        const redate = splitAllReschedule && j >= startIdx;   // 이 Day를 다시 배치할지
+        if (targetSet.has(a.id)) {
+          const items = a.items || [], meanings = a.meanings || [], ea = a.exampleAudio || [];
+          const n = items.length;
+          const at = splitAllMode === "half" ? Math.ceil(n / 2) : Math.max(1, Math.min(splitAllN, n - 1));
+          const base = baseTitle(a.title) || a.title;
+          const due1 = redate ? (dates[di++] || null) : (a.dueDate || null);
+          const due2 = redate ? (dates[di++] || null) : (a.dueDate || null);
+          await fetch("/api/assignments/" + a.id, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: base + " (1/2)", items: items.slice(0, at), meanings: meanings.slice(0, at), exampleAudio: ea.slice(0, at), dueDate: due1 })
+          });
+          await apiPost("/assignments", {
+            title: base + " (2/2)", book: a.book || book, type: a.type || "word",
+            items: items.slice(at), meanings: meanings.slice(at), exampleAudio: ea.slice(at),
+            rounds: a.rounds || 3, dueDate: due2,
+            assignedIds: a.assignedIds || [], assignedClasses: a.assignedClasses || [], published: a.published !== false,
+          });
+        } else if (redate) {
+          // 나누지 않는 Day도 하루에 하나씩 순서에 맞춰 날짜만 재배치
+          await fetch("/api/assignments/" + a.id, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dueDate: dates[di++] || a.dueDate || null })
+          });
+        }
+      }
+      await reload(); setPanel(null);
+      alert(splitAllReschedule
+        ? `${splitAllTargets.length}개 Day를 나누고 "${startLabel}"부터 하루에 하나씩 배치했어요!`
+        : `${splitAllTargets.length}개 Day를 각각 둘로 나눴어요!`);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  // 회차 일괄변경 대상: 선택한 과제부터 끝까지 (list는 마감일 순 정렬됨), 비우면 전체
+  const roundsStartIdx = roundsFrom ? list.findIndex(a => a.id === roundsFrom) : 0;
+  const roundsTargets = roundsStartIdx >= 0 ? list.slice(roundsStartIdx) : list;
+
+  const doSetRounds = async () => {
+    if (!roundsTargets.length) return setErr("해당하는 과제가 없어요.");
+    setBusy(true); setErr("");
+    try {
+      await Promise.all(roundsTargets.map(a => {
+        const body = { rounds: newRounds };
+        if (newRecordMode) body.recordMode = newRecordMode;   // 문장 녹음 방식도 함께 일괄 변경
+        return fetch("/api/assignments/" + a.id, {
+          method:"PATCH", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify(body)
+        });
+      }));
+      await reload(); setPanel(null);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  // 보관 원본은 그대로 두고, 이 교재 전체를 '사본'으로 만들어 학생에게 배정한다.
+  const doAssignCopy = async () => {
+    if (!list.length) return setErr("과제가 없어요.");
+    // 시작~끝 Day 범위만 잘라서 배정 (중간 Day부터 낼 수 있음)
+    const from = Math.max(0, Math.min(assignFromIdx, list.length - 1));
+    const to = (assignToIdx == null) ? list.length - 1 : Math.max(0, Math.min(assignToIdx, list.length - 1));
+    if (from > to) return setErr("시작 Day가 끝 Day보다 뒤예요. 범위를 다시 골라주세요.");
+    const chosen = list.slice(from, to + 1);
+    if (!chosen.length) return setErr("배정할 Day를 골라주세요.");
+    let assignedIds = [], assignedClasses = [];
+    if (assignMode === "class") {
+      if (!assignClasses.length) return setErr("반을 선택해주세요.");
+      assignedClasses = assignClasses;
+      assignedIds = (students || []).filter(s => assignClasses.includes(s.className)).map(s => s.id);
+    } else if (assignMode === "individual") {
+      if (!assignIds.length) return setErr("학생을 선택해주세요.");
+      assignedIds = assignIds;
+    }
+    // 유닛 하나를 며칠씩 반복 (예: 5 → Unit1이 5일 연속, 그다음 Unit2가 5일…)
+    const rep = Math.max(1, Number(assignRepeat) || 1);
+    const totalSlots = chosen.length * rep;
+    // 마감일: 시작일부터 선택 요일에 하루씩 배치 (반복 포함 총 개수만큼)
+    const dues = [];
+    if (assignDue && weekdays.length) {
+      const [y,m,d] = startDate.split("-").map(Number);
+      let cur = new Date(y, m-1, d), guard = 0;
+      while (dues.length < totalSlots && guard < 3000) {
+        if (weekdays.includes(cur.getDay()))
+          dues.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
+        cur.setDate(cur.getDate()+1); guard++;
+      }
+    }
+    const payload = [];
+    chosen.forEach((a, ui) => {
+      for (let k = 0; k < rep; k++) {
+        const slot = ui * rep + k;
+        payload.push({
+          title: rep > 1 ? `${a.title} (${k+1}일차)` : a.title,
+          book: a.book || book, type: a.type || "word",
+          items: a.items || [], meanings: a.meanings || [], exampleAudio: a.exampleAudio || [],
+          recordMode: a.recordMode === "whole" ? "whole" : "each",
+          rounds: a.rounds || 3,
+          dueDate: assignDue ? (dues[slot] || null) : null,
+          assignedIds, assignedClasses, published: true,
+        });
+      }
+    });
+    setBusy(true); setErr("");
+    try {
+      const r = await apiPost("/assignments/bulk", { assignments: payload });
+      await reload(); setPanel(null);
+      alert(`${r.created}개 과제를 배정했어요! (보관함 원본은 그대로 있어요)`);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+        ‹ {group} 교재 목록으로
+      </button>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8 }}>
+        <button onClick={renameBook} title="교재 이름 바꾸기"
+          style={{ background:"none", padding:0, fontWeight:800, fontSize:16, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"left", color:"var(--navy)" }}>
+          📗 {book} <span style={{ color:"var(--gold)", fontSize:14 }}>✏️</span>
+        </button>
+        <div className="row" style={{ gap:6, flexShrink:0 }}>
+          <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px" }}
+            onClick={cleanDupes} disabled={dupBusy}>{dupBusy ? "검사 중..." : "🧹 중복 정리"}</button>
+          <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }}
+            onClick={delBook}>교재 전체 삭제</button>
+        </div>
+      </div>
+
+      <div className="row" style={{ gap:6, marginBottom:6 }}>
+        <button className={panel==="shift" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="shift"?null:"shift"); setErr(""); }}>⏭ 뒤로 미루기</button>
+        <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="respread"?null:"respread"); setRespreadStartIdx(0); setErr(""); }}>🗓 일정 다시 짜기</button>
+      </div>
+      <div className="row" style={{ gap:6, marginBottom:6 }}>
+        <button className={panel==="rounds" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setNewRecordMode(""); setErr(""); }}>🔁 녹음 회차·방식 바꾸기</button>
+        <button className={panel==="splitall" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="splitall"?null:"splitall"); setSplitAllStartIdx(0); setErr(""); }}>✂️ 교재 전체 나누기</button>
+      </div>
+      <div className="row" style={{ gap:6, marginBottom:12 }}>
+        <button className={panel==="assign" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setAssignFromIdx(0); setAssignToIdx(null); setAssignRepeat(1); setErr(""); }}>📤 과제 내기</button>
+        <button className="btn-ghost" style={{ flex:1, fontSize:13 }}
+          onClick={makeVocabTest} disabled={testBusy}>
+          {testBusy ? "시험지 만드는 중..." : "📝 단어시험지 만들기"}
+        </button>
+      </div>
+      {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
+
+      {panel === "splitall" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            이 교재의 <b style={{ color:"var(--navy)" }}>모든 Day</b>를 앞·뒤 둘로 나눠요. 각 Day가 <b>(1/2)</b>와 <b>(2/2)</b>로 바뀌고, 마감·회차·배정·음원은 그대로 복사돼요. 이미 나뉜 Day는 건너뜁니다.
+          </div>
+          <label className="label">나누는 기준</label>
+          <div className="seg" style={{ marginTop:0 }}>
+            {[["half","각 Day 절반씩"],["fixed","앞쪽 개수 지정"]].map(([m,l]) => (
+              <button key={m} className={splitAllMode===m?"on":""} onClick={()=>setSplitAllMode(m)}>{l}</button>
+            ))}
+          </div>
+          {splitAllMode==="fixed" && (
+            <label className="label" style={{ marginTop:10 }}>
+              앞쪽에 넣을 단어 개수
+              <input className="field" type="number" min={1} value={splitAllN}
+                onChange={e=>setSplitAllN(Math.max(1, Number(e.target.value)||1))} style={{ marginTop:4 }} />
+              <span className="muted" style={{ fontSize:12 }}>단어가 이 개수보다 적은 Day는 그대로 둬요.</span>
+            </label>
+          )}
+          <div className="muted" style={{ fontSize:13, margin:"10px 0" }}>
+            나눌 대상: <b style={{ color:"var(--navy)" }}>{splitAllTargets.length}개 Day</b> → 나누면 총 {splitAllTargets.length*2}개가 돼요.
+          </div>
+          <label className="label" style={{ marginTop:4 }}>
+            <input type="checkbox" checked={splitAllReschedule} onChange={e=>setSplitAllReschedule(e.target.checked)} /> 나눈 뒤 <b>하루에 하나씩</b> 다시 배치 (조각마다 다른 날, 학생이 하루 하나씩 학습)
+          </label>
+          {splitAllReschedule && <>
+            <label className="label" style={{ marginTop:10 }}>시작일에 놓을 Day <span className="muted" style={{ fontWeight:400 }}>(오늘이 Day1이 아니어도 OK — 이 Day가 시작일에 와요)</span></label>
+            <select className="field" style={{ margin:0 }} value={splitAllStartIdx}
+              onChange={e=>setSplitAllStartIdx(Number(e.target.value))}>
+              {list.map((a,i)=>(<option key={i} value={i}>{a.title}</option>))}
+            </select>
+            <label className="label" style={{ marginTop:10 }}>시작일</label>
+            <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={{ margin:0 }} />
+            <label className="label" style={{ marginTop:10 }}>배치 요일</label>
+            <div className="row" style={{ gap:5, marginTop:0 }}>
+              {DAYNAMES.map((n,i) => (
+                <button key={i} onClick={()=>toggle(i)}
+                  style={{ width:38, height:38, borderRadius:"50%", fontSize:13, fontWeight:700, border:"1px solid var(--navy)",
+                    background: weekdays.includes(i) ? "var(--navy)" : "#fff", color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
+              ))}
+            </div>
+            <div className="muted" style={{ fontSize:12, marginTop:6 }}>
+              "{(list[Math.min(splitAllStartIdx, list.length-1)]||{}).title}"부터 {startDate}에 하루에 하나씩 배치돼요. (그 앞 Day는 원래 날짜 유지)
+            </div>
+          </>}
+          <div className="row" style={{ gap:6, marginTop:12 }}>
+            <button className="btn" style={{ flex:1 }} disabled={busy || !splitAllTargets.length}
+              onClick={doSplitAll}>{busy ? "나누는 중... (조금 걸려요)" : "✂️ 전체 둘로 나누기"}</button>
+            <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setPanel(null)}>취소</button>
+          </div>
+          {err && <div className="err" style={{ marginTop:8 }}>{err}</div>}
+        </div>
+      )}
+
+      {panel === "assign" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          {(() => {
+            const toVal = (assignToIdx == null) ? list.length - 1 : Math.min(assignToIdx, list.length - 1);
+            const cnt = Math.max(0, toVal - Math.min(assignFromIdx, list.length - 1) + 1);
+            return (
+              <div className="muted" style={{ marginBottom:10 }}>
+                보관함 원본은 그대로 두고, 아래에서 고른 <b style={{ color:"var(--navy)" }}>{cnt}개</b> Day를 사본으로 만들어 학생에게 배정해요. (원본 {list.length}개는 그대로)
+              </div>
+            );
+          })()}
+          <label className="label">배정할 Day 범위 <span className="muted" style={{ fontWeight:400 }}>(중간 Day부터도 가능)</span></label>
+          <div className="row" style={{ gap:8, alignItems:"center", marginBottom:4 }}>
+            <select className="field" style={{ flex:1, margin:0 }} value={assignFromIdx}
+              onChange={e=>{ const v=Number(e.target.value); setAssignFromIdx(v);
+                if (assignToIdx != null && assignToIdx < v) setAssignToIdx(v); }}>
+              {list.map((a,i)=>(<option key={i} value={i}>{a.title}</option>))}
+            </select>
+            <span style={{ fontWeight:700, color:"var(--navy)" }}>~</span>
+            <select className="field" style={{ flex:1, margin:0 }}
+              value={assignToIdx == null ? list.length - 1 : assignToIdx}
+              onChange={e=>setAssignToIdx(Number(e.target.value))}>
+              {list.map((a,i)=>(<option key={i} value={i} disabled={i < assignFromIdx}>{a.title}</option>))}
+            </select>
+          </div>
+          <div className="row" style={{ gap:6, marginBottom:10 }}>
+            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 10px" }}
+              onClick={()=>{ setAssignFromIdx(0); setAssignToIdx(null); }}>전체</button>
+          </div>
+          <label className="label">배정 대상</label>
+          <div className="seg" style={{ marginTop:0 }}>
+            {[["all","전체"],["class","반별"],["individual","개별"]].map(([m,l]) => (
+              <button key={m} className={assignMode===m?"on":""} onClick={()=>setAssignMode(m)}>{l}</button>
+            ))}
+          </div>
+          {assignMode==="class" && (
+            <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
+              {classNames.length ? classNames.map(c => (
+                <button key={c} onClick={()=>toggleIn(assignClasses, setAssignClasses, c)}
+                  style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: assignClasses.includes(c)?"var(--navy)":"#fff", color: assignClasses.includes(c)?"var(--cream)":"var(--navy)" }}>{c}</button>
+              )) : <span className="muted" style={{ fontSize:12 }}>반이 없어요</span>}
+            </div>
+          )}
+          {assignMode==="individual" && (
+            <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
+              {(students||[]).map(s => (
+                <button key={s.id} onClick={()=>toggleIn(assignIds, setAssignIds, s.id)}
+                  style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: assignIds.includes(s.id)?"var(--navy)":"#fff", color: assignIds.includes(s.id)?"var(--cream)":"var(--navy)" }}>{s.name}</button>
+              ))}
+            </div>
+          )}
+          <label className="label" style={{ marginTop:10 }}>
+            <input type="checkbox" checked={assignDue} onChange={e=>setAssignDue(e.target.checked)} /> 마감일 자동 배치 (시작일부터 요일에 하루씩)
+          </label>
+          {assignDue && <>
+            <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+            <div className="row" style={{ gap:5, marginTop:8 }}>
+              {DAYNAMES.map((n,i) => (
+                <button key={i} onClick={()=>toggle(i)}
+                  style={{ width:38, height:38, borderRadius:"50%", fontSize:13, fontWeight:700, border:"1px solid var(--navy)",
+                    background: weekdays.includes(i) ? "var(--navy)" : "#fff", color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
+              ))}
+            </div>
+            <label className="label" style={{ marginTop:12 }}>유닛 하나를 며칠씩 반복할까요 <span className="muted" style={{ fontWeight:400 }}>(같은 유닛을 연속으로)</span></label>
+            <div className="row" style={{ gap:6, marginBottom:6 }}>
+              {[1,3,5,7].map(n => (
+                <button key={n} onClick={()=>setAssignRepeat(n)}
+                  style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: Number(assignRepeat)===n ? "var(--navy)" : "#fff", color: Number(assignRepeat)===n ? "var(--cream)" : "var(--navy)" }}>
+                  {n===1 ? "반복 안 함" : `${n}일`}
+                </button>
+              ))}
+            </div>
+            <input className="field" type="number" min={1} value={assignRepeat}
+              onChange={e=>setAssignRepeat(Math.max(1, Number(e.target.value)||1))} />
+            {Number(assignRepeat) > 1 && <div className="muted" style={{ fontSize:12, marginTop:4 }}>같은 유닛이 {assignRepeat}일 연속으로 나와요 (제목에 "1일차·2일차…" 표시). 그다음 유닛으로 넘어가요.</div>}
+          </>}
+          {err && <div className="err">{err}</div>}
+          <div style={{height:12}} />
+          {(() => {
+            const rep = Math.max(1, Number(assignRepeat) || 1);
+            const toVal = assignToIdx==null ? list.length-1 : Math.min(assignToIdx, list.length-1);
+            const cnt = Math.max(0, toVal - Math.min(assignFromIdx, list.length-1) + 1) * rep;
+            return (
+              <button className="btn full" onClick={doAssignCopy} disabled={busy}>
+                {busy ? "배정 중..." : `${cnt}개 과제로 배정하기`}
+              </button>
+            );
+          })()}
+        </div>
+      )}
+
+      {panel === "rounds" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            선택한 과제부터 마지막 과제까지 녹음 횟수를 한꺼번에 바꿔요.
+          </div>
+          <label className="label">어디부터 바꿀까요</label>
+          <select className="field" value={roundsFrom} onChange={e=>setRoundsFrom(e.target.value)}>
+            <option value="">처음부터 (교재 전체)</option>
+            {list.map(a => <option key={a.id} value={a.id}>{a.title}부터</option>)}
+          </select>
+          <div style={{height:10}} />
+          <label className="label">녹음 횟수</label>
+          <div className="seg" style={{ marginTop:0 }}>
+            {[1,2,3].map(n => (
+              <button key={n} className={newRounds===n?"on":""} onClick={()=>setNewRounds(n)}>{n}회</button>
+            ))}
+          </div>
+          {list.some(a => a.type==="sentence") && <>
+            <div style={{height:10}} />
+            <label className="label">녹음 방식 (문장) — 한꺼번에</label>
+            <div className="seg" style={{ marginTop:0 }}>
+              <button className={newRecordMode===""?"on":""} onClick={()=>setNewRecordMode("")}>그대로</button>
+              <button className={newRecordMode==="each"?"on":""} onClick={()=>setNewRecordMode("each")}>문장별</button>
+              <button className={newRecordMode==="whole"?"on":""} onClick={()=>setNewRecordMode("whole")}>통문장 말하기</button>
+            </div>
+            <div className="muted" style={{ marginTop:4, fontSize:11 }}>
+              {newRecordMode==="" ? "녹음 방식은 그대로 두고 회차만 바꿔요." : newRecordMode==="whole" ? "선택 범위의 문장 과제를 모두 '통문장 말하기'로 바꿔요." : "선택 범위의 문장 과제를 모두 '문장별 끊어읽기'로 바꿔요."}
+            </div>
+          </>}
+          <div className="muted" style={{ marginTop:8 }}>
+            대상 <b style={{color:"var(--navy)"}}>{roundsTargets.length}개</b> 과제
+          </div>
+          {err && <div className="err">{err}</div>}
+          <div style={{height:12}} />
+          <button className="btn full" onClick={doSetRounds} disabled={busy}>
+            {busy ? "변경 중..." : `${roundsTargets.length}개 과제 변경 (${newRounds}회${newRecordMode ? " · " + (newRecordMode==="whole"?"통문장 말하기":"문장별") : ""})`}
+          </button>
+        </div>
+      )}
+
+      {panel === "shift" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            진도가 밀렸을 때, 특정 날짜부터 뒤에 있는 과제들의 마감일을 한꺼번에 미뤄요.
+          </div>
+          <label className="label">이 날짜부터 (비우면 교재 전체)</label>
+          <input className="field" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} />
+          <div style={{height:12}} />
+          <label className="label">미루는 방식</label>
+          <div className="seg" style={{ marginTop:0 }}>
+            <button className={shiftKeep ? "on" : ""} onClick={()=>setShiftKeep(true)}>요일 유지 (추천)</button>
+            <button className={!shiftKeep ? "on" : ""} onClick={()=>setShiftKeep(false)}>날짜로 미루기</button>
+          </div>
+
+          {shiftKeep ? <>
+            <label className="label" style={{ marginTop:12 }}>
+              몇 회분 미룰까요 {shiftPatternLabel && <span className="muted" style={{ fontWeight:400 }}>· 지금 {shiftPatternLabel} 요일 유지</span>}
+            </label>
+            <div className="row" style={{ gap:6, marginBottom:8 }}>
+              {[1,2,3,4].map(n => (
+                <button key={n} onClick={()=>setSessions(n)}
+                  style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: Number(sessions)===n ? "var(--navy)" : "#fff", color: Number(sessions)===n ? "var(--cream)" : "var(--navy)" }}>
+                  {n}회분
+                </button>
+              ))}
+            </div>
+            <input className="field" type="number" min={1} value={sessions} onChange={e=>setSessions(e.target.value)} />
+            <div className="muted" style={{ fontSize:12, marginTop:6 }}>
+              각 과제를 {shiftPatternLabel || "수업"} 다음 수업일로 {sessions}칸씩 미뤄, 요일은 그대로 유지돼요.
+            </div>
+          </> : <>
+            <label className="label" style={{ marginTop:12 }}>며칠 미룰까요</label>
+            <div className="row" style={{ gap:6, marginBottom:8 }}>
+              {[1,2,3,7,14].map(n => (
+                <button key={n} onClick={()=>setDays(n)}
+                  style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                    background: Number(days)===n ? "var(--navy)" : "#fff", color: Number(days)===n ? "var(--cream)" : "var(--navy)" }}>
+                  {n}일
+                </button>
+              ))}
+            </div>
+            <input className="field" type="number" value={days} onChange={e=>setDays(e.target.value)} />
+            <div className="muted" style={{ fontSize:12, marginTop:6 }}>날짜를 그대로 더해요(요일이 바뀔 수 있어요).</div>
+          </>}
+
+          <div className="muted" style={{ marginTop:8 }}>
+            대상 <b style={{color:"var(--navy)"}}>{shiftTargets.length}개</b> 과제
+          </div>
+          {err && <div className="err">{err}</div>}
+          <div style={{height:12}} />
+          <button className="btn full" onClick={doShift} disabled={busy}>
+            {busy ? "적용 중..." : (shiftKeep
+              ? `${shiftTargets.length}개 과제를 ${sessions}회분 미루기 (${shiftPatternLabel || "요일"} 유지)`
+              : `${shiftTargets.length}개 과제를 ${days}일 미루기`)}
+          </button>
+        </div>
+      )}
+
+      {panel === "respread" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10 }}>
+            <b style={{ color:"var(--navy)" }}>어느 Day</b>를 <b style={{ color:"var(--navy)" }}>어느 날짜·요일</b>부터 시작할지 정하면, 그 Day부터 선택한 요일에 하루 하나씩 다시 배치해요. (그 앞 Day는 원래 날짜 그대로 둬요)
+          </div>
+          <label className="label">시작일에 놓을 Day</label>
+          <select className="field" value={respreadStartIdx}
+            onChange={e=>setRespreadStartIdx(Number(e.target.value))}>
+            {list.map((a,i) => (
+              <option key={a.id} value={i}>{a.title}{a.dueDate ? ` (현재 ${formatDue(a.dueDate)})` : ""}</option>
+            ))}
+          </select>
+          <div style={{height:10}} />
+          <label className="label">새 시작일 (위 Day를 놓을 날짜)</label>
+          <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+          <div style={{height:10}} />
+          <label className="label">숙제 요일</label>
+          <div className="row" style={{ gap:5 }}>
+            {DAYNAMES.map((n,i) => (
+              <button key={i} onClick={()=>toggle(i)}
+                style={{ width:38, height:38, borderRadius:"50%", fontSize:13, fontWeight:700, border:"1px solid var(--navy)",
+                  background: weekdays.includes(i) ? "var(--navy)" : "#fff",
+                  color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
+            ))}
+          </div>
+          {err && <div className="err">{err}</div>}
+          <div style={{height:12}} />
+          <button className="btn full" onClick={doRespread} disabled={busy}>
+            {busy ? "적용 중..." : `"${(list[Math.min(respreadStartIdx, list.length-1)]||{}).title || ""}"부터 ${Math.max(0, list.length - respreadStartIdx)}개 다시 짜기`}
+          </button>
+        </div>
+      )}
+
+      {list.map(a => (
+        <div key={a.id} className="card" style={{ padding:12 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+            <div style={{ minWidth:0 }}>
+              <div className="row" style={{ marginBottom:4 }}>
+                <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
+                <span className="muted">{a.items.length}개 · {a.rounds || 3}회</span>
+              </div>
+              <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
+              {editing === a.id ? (
+                <div style={{ marginTop:8 }}>
+                  <label className="label" style={{ marginBottom:4 }}>마감일</label>
+                  <input className="field" type="date" style={{ width:"100%", padding:"7px 10px", fontSize:13 }}
+                    value={editDue} onChange={e=>setEditDue(e.target.value)} />
+                  <label className="label" style={{ marginTop:10, marginBottom:4 }}>녹음 횟수</label>
+                  <div className="seg" style={{ marginTop:0 }}>
+                    {[1,2,3].map(n => (
+                      <button key={n} className={editRounds===n?"on":""}
+                        onClick={()=>setEditRounds(n)}>{n}회</button>
+                    ))}
+                  </div>
+                  {a.type==="sentence" && <>
+                    <label className="label" style={{ marginTop:10, marginBottom:4 }}>녹음 방식 (문장)</label>
+                    <div className="seg" style={{ marginTop:0 }}>
+                      <button className={editRecordMode==="each"?"on":""} onClick={()=>setEditRecordMode("each")}>문장별 끊어읽기</button>
+                      <button className={editRecordMode==="whole"?"on":""} onClick={()=>setEditRecordMode("whole")}>통문장 말하기</button>
+                    </div>
+                    <div className="muted" style={{ marginTop:6, fontSize:11 }}>
+                      {editRecordMode==="whole"
+                        ? "통문장을 처음부터 끝까지 한 번에 읽고 하나의 점수로 평가해요. (고학년용)"
+                        : "문장을 하나씩 녹음하고 문장마다 점수를 매겨요. (저학년용)"}
+                    </div>
+                  </>}
+                  <label className="label" style={{ marginTop:10, marginBottom:4 }}>배정 대상</label>
+                  <div className="seg" style={{ marginTop:0 }}>
+                    {[["all","전체"],["class","반별"],["individual","개별"],["hidden","보관"]].map(([m,l]) => (
+                      <button key={m} className={editMode===m?"on":""} onClick={()=>setEditMode(m)}>{l}</button>
+                    ))}
+                  </div>
+                  {editMode==="hidden" && <div className="muted" style={{ marginTop:6, fontSize:11 }}>보관 상태: 학생에게 안 보여요. 필요할 때 전체/반별/개별로 배정하세요.</div>}
+                  {editMode==="class" && (
+                    <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
+                      {classNames.length ? classNames.map(c => (
+                        <button key={c} onClick={()=>toggleIn(editClasses, setEditClasses, c)}
+                          style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                            background: editClasses.includes(c)?"var(--navy)":"#fff", color: editClasses.includes(c)?"var(--cream)":"var(--navy)" }}>{c}</button>
+                      )) : <span className="muted" style={{ fontSize:12 }}>반이 없어요 (학생관리에서 반 입력)</span>}
+                    </div>
+                  )}
+                  {editMode==="individual" && (
+                    <div className="row" style={{ flexWrap:"wrap", gap:6, marginTop:8 }}>
+                      {(students||[]).map(s => (
+                        <button key={s.id} onClick={()=>toggleIn(editIds, setEditIds, s.id)}
+                          style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                            background: editIds.includes(s.id)?"var(--navy)":"#fff", color: editIds.includes(s.id)?"var(--cream)":"var(--navy)" }}>{s.name}</button>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ marginTop:10 }}>
+                    <button className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}
+                      onClick={()=>setShowItems(v=>!v)}>{showItems ? "▼ 단어 목록 수정" : "▶ 단어 목록 수정"}</button>
+                    {showItems && <>
+                      <textarea className="field" value={editItems} onChange={e=>setEditItems(e.target.value)} rows={8}
+                        style={{ marginTop:6, resize:"vertical", fontFamily:"inherit", fontSize:12, lineHeight:1.6 }}
+                        placeholder={"한 줄에 하나씩\napple / 사과\nrun / 달리다"} />
+                      <div className="muted" style={{ fontSize:11, marginTop:4 }}>단어 / 뜻 형식. 줄을 추가·삭제·수정하면 저장 시 반영돼요. (빠진 단어 추가 가능)</div>
+                    </>}
+                  </div>
+                  <div className="row" style={{ marginTop:10, gap:6 }}>
+                    <button className="btn" style={{ flex:1, padding:"7px 12px", fontSize:12 }}
+                      onClick={()=>saveOne(a.id, a.type)} disabled={busy}>{busy ? "저장 중..." : "저장"}</button>
+                    <button className="btn-ghost" style={{ padding:"7px 12px", fontSize:12 }}
+                      onClick={()=>setEditing(null)}>취소</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={()=>openEdit(a)}
+                  style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12, textAlign:"left" }}>
+                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회{a.type==="sentence" && a.recordMode==="whole" ? " · 통문장" : ""} · {a.published===false ? "📦 보관함" : (a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
+                </button>
+              )}
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, alignItems:"flex-end", flexShrink:0 }}>
+              <button onClick={()=>delOne(a.id)} style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
+              <button onClick={()=>{ setPreviewAsg(previewAsg===a.id ? null : a.id); setAudioAsg(null); setSplitting(null); }}
+                title="문제 미리보기 (단어/문장 보기)" style={{ background:"none", fontSize:16 }}>👁</button>
+              <button onClick={()=>setAudioAsg(audioAsg===a.id ? null : a.id)} title="발음/음가 음원 관리"
+                style={{ background:"none", fontSize:16 }}>🎵</button>
+              <button onClick={()=>{ splitting===a.id ? setSplitting(null) : openSplit(a); setAudioAsg(null); }}
+                title="단어가 많으면 둘로 나누기" disabled={(a.items||[]).length < 2}
+                style={{ background:"none", fontSize:16, opacity:(a.items||[]).length<2 ? 0.35 : 1 }}>✂️</button>
+            </div>
+          </div>
+
+          {previewAsg === a.id && (
+            <div style={{ marginTop:10, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+              <div className="muted" style={{ marginBottom:8, fontSize:12 }}>👁 문제 미리보기 — {a.type==="sentence" ? "문장" : "단어"} {(a.items||[]).length}개 (학생에게 나가는 내용)</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                {(a.items||[]).map((it, i) => (
+                  <div key={i} style={{ display:"flex", gap:8, fontSize:13, lineHeight:1.5 }}>
+                    <span style={{ color:"var(--navy-soft)", fontVariantNumeric:"tabular-nums", flexShrink:0 }}>{i+1}.</span>
+                    <span style={{ fontWeight:700, color:"var(--navy)" }}>{it}</span>
+                    {(a.meanings||[])[i] ? <span className="muted">— {(a.meanings||[])[i]}</span> : null}
+                  </div>
+                ))}
+                {!(a.items||[]).length && <div className="muted" style={{ fontSize:12 }}>등록된 문제가 없어요.</div>}
+              </div>
+            </div>
+          )}
+
+          {audioAsg === a.id && (
+            <div style={{ marginTop:10, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+              <div className="muted" style={{ marginBottom:8 }}>읽을 영어 텍스트를 적고 <b>🔊 소리 생성</b>을 누르면 음원이 자동으로 만들어져요. (직접 녹음 파일 업로드도 가능) 학생은 카드암기·녹음 화면에서 이 소리를 들어요.</div>
+              {a.items.map((it, i) => {
+                const url = (a.exampleAudio || [])[i];
+                const key = a.id + ":" + i;
+                return <div key={i} style={{ padding:"8px 0", borderBottom:"1px solid var(--line)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                    <div style={{ flex:1, minWidth:0, fontWeight:700, fontSize:14 }}>{url ? "🔊 " : "⬜ "}{it}</div>
+                    {url && <button onClick={()=>playModel(url)} className="btn-ghost" style={{ padding:"4px 9px", fontSize:12 }}>▶ 듣기</button>}
+                    {url && <button onClick={()=>clearEx(a.id, i)} style={{ background:"none", color:"var(--danger)", fontSize:14 }}>✕</button>}
+                  </div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <input className="field" style={{ flex:1, padding:"6px 8px", fontSize:12 }} placeholder="읽을 영어 텍스트 (예: apple)"
+                      value={ttsText[key] || ""} onChange={e=>setTtsText(m => ({ ...m, [key]: e.target.value }))} />
+                    <button className="btn" style={{ padding:"6px 10px", fontSize:12, whiteSpace:"nowrap" }} disabled={ttsBusy===key}
+                      onClick={()=>genTts(a.id, i, ttsText[key])}>{ttsBusy===key ? "생성 중..." : "🔊 소리 생성"}</button>
+                    <label className="btn-ghost" style={{ padding:"6px 8px", fontSize:12, whiteSpace:"nowrap", opacity: audioBusy===key ? 0.5 : 1 }}>
+                      {audioBusy===key ? "..." : "파일"}
+                      <input type="file" accept="audio/*" style={{ display:"none" }}
+                        onChange={e=>{ const f=e.target.files[0]; if(f) uploadEx(a.id, i, f); e.target.value=""; }} />
+                    </label>
+                  </div>
+                </div>;
+              })}
+            </div>
+          )}
+
+          {splitting === a.id && (() => {
+            const n = (a.items || []).length;
+            const at = Math.max(1, Math.min(splitAt, n - 1));
+            const base = baseTitle(a.title) || a.title;
+            return (
+              <div style={{ marginTop:10, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+                <div className="muted" style={{ marginBottom:8 }}>단어가 많은 Day를 <b>앞·뒤 둘</b>로 나눠요. 원본이 앞쪽(1/2), 새 과제가 뒤쪽(2/2)이 되고 마감·회차·배정은 그대로 복사돼요.</div>
+                <label className="label">앞쪽에 넣을 단어 개수: <b style={{ color:"var(--navy)" }}>{at}</b>개 <span className="muted">/ 뒤 {n-at}개</span></label>
+                <input type="range" min={1} max={n-1} value={at}
+                  onChange={e=>setSplitAt(Number(e.target.value))} style={{ width:"100%" }} />
+                <div className="muted" style={{ fontSize:12, margin:"6px 0" }}>앞: "{base} (1/2)" · 뒤: "{base} (2/2)"</div>
+                <div className="row" style={{ gap:6, marginTop:6 }}>
+                  <button className="btn" style={{ flex:1 }} disabled={busy} onClick={()=>doSplit(a)}>{busy ? "나누는 중..." : "✂️ 둘로 나누기"}</button>
+                  <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setSplitting(null)}>취소</button>
+                </div>
+                {err && <div className="err" style={{ marginTop:8 }}>{err}</div>}
+              </div>
+            );
+          })()}
+        </div>
+      ))}
+    </>
+  );
+}
+
+// ---------- Admin: review ----------
+
+function AdminReview({ students, assignments, reload }) {
+  const [view, setView] = useState("class");   // class | all
+  const [cls, setCls] = useState(null);
+  const [sid, setSid] = useState(null);
+
+  const classNames = [...new Set(students.map(s => s.className).filter(Boolean))].sort();
+  const noClass = students.filter(s => !s.className);
+
+  if (sid) {
+    const student = students.find(s => s.id === sid);
+    return <StudentReview student={student} assignments={assignments} reload={reload}
+      onBack={() => setSid(null)} />;
+  }
+
+  // 학생 목록 (반 선택됨 또는 전체보기)
+  if (cls || view === "all") {
+    const list = view === "all" ? students : students.filter(s => s.className === cls);
+    return (
+      <div className="body">
+        <button onClick={() => { setCls(null); if (view === "all") setView("class"); }}
+          style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+          ‹ 목록으로
+        </button>
+        <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>
+          {view === "all" ? "전체 학생" : cls}
+        </div>
+        {list.map(s => (
+          <button key={s.id} className="card" onClick={() => setSid(s.id)}
+            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{s.name}</div>
+              {s.className && <div className="muted" style={{ marginTop:2 }}>{s.className}</div>}
+            </div>
+            <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+          </button>
+        ))}
+        {!list.length && <div className="muted" style={{ textAlign:"center", padding:30 }}>학생이 없어요.</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="body">
+      <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
+        <button className={view==="class" ? "on" : ""} onClick={()=>setView("class")}>반별</button>
+        <button className={view==="all" ? "on" : ""} onClick={()=>setView("all")}>개인별</button>
+      </div>
+
+      {classNames.map(c => {
+        const kids = students.filter(s => s.className === c).map(s => s.name);
+        return (
+          <button key={c} className="card" onClick={() => setCls(c)}
+            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontWeight:700, fontSize:15 }}>{c}</div>
+              <div className="muted" style={{ marginTop:2 }}>학생 {kids.length}명</div>
+              {kids.length > 0 && (
+                <div style={{ marginTop:4, fontSize:12, color:"var(--navy-soft)" }}>{kids.join(", ")}</div>
+              )}
+            </div>
+            <span style={{ color:"var(--navy-soft)", fontSize:20, flexShrink:0, marginLeft:8 }}>›</span>
+          </button>
+        );
+      })}
+
+      {noClass.length > 0 && (
+        <>
+          <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:13 }}>반 미지정</div>
+          {noClass.map(s => (
+            <button key={s.id} className="card" onClick={() => setSid(s.id)}
+              style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left" }}>
+              <div style={{ fontWeight:700, fontSize:15 }}>{s.name}</div>
+              <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+            </button>
+          ))}
+        </>
+      )}
+
+      {!classNames.length && !noClass.length &&
+        <div className="muted" style={{ textAlign:"center", padding:30 }}>등록된 학생이 없어요.</div>}
+    </div>
+  );
+}
+
+// ---------- 학생 한 명의 제출 현황 ----------
+
+function StudentReview({ student, assignments, reload, onBack }) {
+  const [tab, setTab] = useState("word");
+  const [subs, setSubs] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [openA, setOpenA] = useState(null);
+  const [delBusy, setDelBusy] = useState(null);
+
+  const delAssignment = async (a) => {
+    const shared = (a.assignedIds && a.assignedIds.length) ? `개별 ${a.assignedIds.length}명` : "이 반/전체 학생";
+    if (!confirm(`"${a.title}" 과제를 삭제할까요?\n\n이 과제는 배정된 모든 학생(${shared})에게서 사라지고, 제출된 녹음도 함께 지워져요. 되돌릴 수 없어요.`)) return;
+    setDelBusy(a.id);
+    try { await apiDelete(`/assignments/${a.id}`); if (reload) await reload(); }
+    catch (e) { alert("삭제 실패: " + e.message); }
+    setDelBusy(null);
+  };
+
+  const [bookBusy, setBookBusy] = useState(false);
+  const keepOnly = async (book, others) => {
+    const cnt = others.reduce((s,[,n])=>s+n,0);
+    if (!confirm(`${student.name} 학생에게 "${book}"만 남기고,\n나머지 ${others.length}권(과제 ${cnt}개)을 뺄까요?\n\n다른 학생과 공유된 과제는 이 학생만 빠지고, 이 학생 전용 과제는 삭제돼요.`)) return;
+    setBookBusy(true);
+    try { const r = await apiPost(`/students/${student.id}/clean-books`, { keep: book }); if (reload) await reload();
+      alert(`정리 완료! (${r.unassigned}개 배정 해제 · ${r.deleted}개 삭제)`); }
+    catch (e) { alert("정리 실패: " + e.message); }
+    setBookBusy(false);
+  };
+  const removeBook = async (book, n) => {
+    if (!confirm(`${student.name} 학생에게서 "${book}"(과제 ${n}개)을 뺄까요?`)) return;
+    setBookBusy(true);
+    try { await apiPost(`/students/${student.id}/clean-books`, { remove:[book] }); if (reload) await reload(); }
+    catch (e) { alert("정리 실패: " + e.message); }
+    setBookBusy(false);
+  };
+
+  useEffect(() => {
+    apiGet(`/student-submissions/${student.id}`)
+      .then(setSubs).catch(()=>setSubs({})).finally(()=>setLoading(false));
+  }, [student.id]);
+
+  const mine = assignments.filter(a =>
+    a.published !== false &&
+    ((!a.assignedIds || !a.assignedIds.length) || a.assignedIds.includes(student.id)));
+  const list = mine.filter(a => (a.type || "word") === tab)
+    .sort((x,y) => {
+      const dx = dayNum(x.title), dy = dayNum(y.title);
+      if (dx != null && dy != null && dx !== dy) return dx - dy;   // Day 1 → 마지막
+      return (x.dueDate||"").localeCompare(y.dueDate||"");
+    });
+
+  if (openA) {
+    return <SubmissionDetail student={student} assignment={openA}
+      onBack={() => { setOpenA(null); apiGet(`/student-submissions/${student.id}`).then(setSubs).catch(()=>{}); }} />;
+  }
+
+  const counts = {
+    word: mine.filter(a => (a.type||"word") === "word").length,
+    sentence: mine.filter(a => a.type === "sentence").length,
+  };
+
+  return (
+    <div className="body">
+      <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+        ‹ 학생 목록으로
+      </button>
+      <div style={{ fontWeight:800, fontSize:18, marginBottom:2 }}>{student.name}</div>
+      {student.className && <div className="muted" style={{ marginBottom:12 }}>{student.className}</div>}
+
+      <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
+        <button className={tab==="word" ? "on" : ""} onClick={()=>setTab("word")}>
+          단어 ({counts.word})
+        </button>
+        <button className={tab==="sentence" ? "on" : ""} onClick={()=>setTab("sentence")}>
+          문장 ({counts.sentence})
+        </button>
+      </div>
+
+      {(() => {
+        const m = {};
+        mine.forEach(a => { const b = a.book || "(책 없음)"; m[b] = (m[b]||0)+1; });
+        const myBooks = Object.entries(m).sort((x,y)=>y[1]-x[1]);
+        if (myBooks.length < 2) return null;
+        return (
+          <div className="card" style={{ background:"var(--cream)", marginBottom:12 }}>
+            <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:2 }}>📚 이 학생의 교재 {myBooks.length}권</div>
+            <div className="muted" style={{ fontSize:12, marginBottom:8 }}>필요한 책 하나만 두고 나머지는 한 번에 뺄 수 있어요.</div>
+            {myBooks.map(([b,n]) => (
+              <div key={b} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, padding:"6px 0", borderTop:"1px solid var(--line)" }}>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📗 {b}</div>
+                  <div className="muted" style={{ fontSize:11 }}>과제 {n}개</div>
+                </div>
+                <div className="row" style={{ gap:6, flexShrink:0 }}>
+                  <button className="btn" style={{ fontSize:11, padding:"5px 10px" }} disabled={bookBusy}
+                    onClick={()=>keepOnly(b, myBooks.filter(([x])=>x!==b))}>이 책만 남기기</button>
+                  <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }} disabled={bookBusy}
+                    onClick={()=>removeBook(b, n)}>빼기</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {loading && <div className="center"><div className="spin" /></div>}
+
+      {!loading && !list.length && (
+        <div className="muted" style={{ textAlign:"center", padding:30 }}>
+          {tab==="word" ? "단어" : "문장"} 과제가 없어요.
+        </div>
+      )}
+
+      {!loading && list.map(a => {
+        const s = subs[a.id] || {};
+        const st = s.status || "none";
+        return (
+          <div key={a.id} className="card" onClick={()=>setOpenA(a)}
+            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left", gap:10, cursor:"pointer", opacity: delBusy===a.id ? 0.5 : 1 }}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
+              <div className="muted" style={{ marginTop:3 }}>
+                {a.items.length}개 · {a.rounds||3}회
+                {a.dueDate ? ` · 마감 ${formatDue(a.dueDate)}` : ""}
+              </div>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
+              <div style={{ textAlign:"right" }}>
+                {s.average != null && (
+                  <div style={{ fontSize:19, fontWeight:800, marginBottom:2,
+                    color: s.average>=85 ? "#2E7D5B" : s.average>=60 ? "#8A6D0F" : "var(--danger)" }}>
+                    {s.average}
+                  </div>
+                )}
+                <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+                  {st==="none"?"미제출":st==="submitted"?"확인 대기":"확인완료"}
+                </Badge>
+              </div>
+              <button onClick={(e)=>{ e.stopPropagation(); delAssignment(a); }} disabled={delBusy===a.id}
+                title="이 과제 삭제 (배정된 모든 학생)"
+                style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- 과제 하나의 녹음 상세 ----------
+
+function SubmissionDetail({ student, assignment, onBack }) {
+  const a = assignment;
+  const isWhole = a.type === "sentence" && a.recordMode === "whole";
+  const [sub, setSub] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [comment, setComment] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const s = await apiGet(`/submission/${a.id}/${student.id}`);
+      setSub(s); setComment(s.comment || "");
+      setLoading(false);
+      if (s && s.items && !s.comment) {
+        setAiBusy(true);
+        try {
+          const r = await apiPost(`/suggest-comment/${a.id}/${student.id}`);
+          setComment(r.comment);
+        } catch (e) {}
+        setAiBusy(false);
+      }
+    })();
+  }, [a.id, student.id]);
+
+  const regenerate = async () => {
+    setAiBusy(true);
+    try {
+      const r = await apiPost(`/suggest-comment/${a.id}/${student.id}`);
+      setComment(r.comment);
+    } catch (e) { setMsg("코멘트 생성 실패: " + e.message); }
+    setAiBusy(false);
+  };
+
+  const markDone = async () => {
+    try {
+      await apiPost(`/submission/${a.id}/${student.id}`,
+        { status:"reviewed", comment, reviewedAt: nowStr() });
+      setMsg("저장됐어요."); setTimeout(()=>setMsg(""), 1800);
+    } catch (e) { setMsg("저장 실패: " + e.message); }
+  };
+
+  const deleteSub = async () => {
+    if (!confirm(`${student.name} 학생의 "${a.title}" 제출(녹음·점수·코멘트)을 삭제할까요?\n\n삭제하면 '미제출' 상태로 돌아가고, 학생이 다시 녹음할 수 있어요. 되돌릴 수 없어요.`)) return;
+    try {
+      await apiDelete(`/submission/${a.id}/${student.id}`);
+      setMsg("제출을 삭제했어요.");
+      setTimeout(()=>{ setMsg(""); onBack(); }, 1200);
+    } catch (e) { setMsg("삭제 실패: " + e.message); }
+  };
+
+  if (loading) return <div className="body"><div className="center"><div className="spin" /></div></div>;
+
+  return (
+    <div className="body">
+      <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>
+        ‹ {student.name} 과제 목록으로
+      </button>
+      <div style={{ fontWeight:800, fontSize:16, marginBottom:2 }}>
+        [{a.type==="word"?"단어":"문장"}] {a.title}
+      </div>
+      <div className="muted" style={{ marginBottom:14 }}>
+        {student.name}{student.className ? ` · ${student.className}` : ""}
+      </div>
+
+      {(isWhole ? !(sub && (sub.whole||[]).some(Boolean)) : (!sub || !sub.items)) ? (
+        <div className="muted" style={{ textAlign:"center", padding:40 }}>아직 제출하지 않았어요.</div>
+      ) : (
+        <>
+          {(isWhole
+            ? [{ head: "📖 통문장 (한 번에 읽기)", meaning: "", takes: normalizeTakes(sub.whole).slice(0, a.rounds || 3),
+                 body: a.items.map((t,i)=>`${i+1}. ${t}`).join("\n") }]
+            : a.items.map((text,i) => ({ head: `${i+1}. ${text}`, meaning: (a.meanings||[])[i], takes: normalizeTakes(sub.items[i]).slice(0, a.rounds || 3), body: null }))
+          ).map((row,i) => {
+            const takes = row.takes;
+            return (
+              <div key={i} className="card">
+                <div style={{ fontWeight:600, fontSize:15, marginBottom:8, whiteSpace:"pre-line" }}>
+                  {row.head}
+                  {row.meaning && <span className="muted" style={{ marginLeft:8 }}>{row.meaning}</span>}
+                  {row.body && <div style={{ fontSize:14, color:"var(--navy-soft)", fontWeight:400, marginTop:6 }}>{row.body}</div>}
+                </div>
+                {takes.some(t=>t) ? takes.map((t,ti) => t && (
+                  <div key={ti} style={{ marginBottom:10, paddingBottom:10,
+                    borderBottom: ti<takes.length-1 ? "1px solid #F0EBDD" : "none" }}>
+                    <div className="row">
+                      <span className="muted" style={{ width:28, fontWeight:700 }}>{ti+1}회</span>
+                      <audio controls src={t.audio} style={{ flex:1 }} />
+                    </div>
+                    {t.score != null ? (
+                      <div style={{ display:"flex", gap:8, marginTop:8, marginLeft:34, alignItems:"center", flexWrap:"wrap" }}>
+                        <div style={{ minWidth:52, textAlign:"center", padding:"5px 8px", borderRadius:8,
+                          background: t.score>=85 ? "#DFF0E8" : t.score>=60 ? "#F3E4B8" : "#F3D9D2" }}>
+                          <div style={{ fontSize:19, fontWeight:800, lineHeight:1,
+                            color: t.score>=85 ? "#2E7D5B" : t.score>=60 ? "#8A6D0F" : "var(--danger)" }}>{t.score}</div>
+                          <div style={{ fontSize:9, color:"var(--navy-soft)" }}>종합</div>
+                        </div>
+                        {t.detail && [["정확도",t.detail.accuracy],["유창성",t.detail.fluency],["완성도",t.detail.completeness]].map(([l,v])=>(
+                          <div key={l} style={{ minWidth:46, textAlign:"center" }}>
+                            <div style={{ fontSize:15, fontWeight:700, color:"var(--navy)" }}>{v != null ? v : "-"}</div>
+                            <div style={{ fontSize:9, color:"var(--navy-soft)" }}>{l}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : t.assessError ? (
+                      <div style={{ marginLeft:34, marginTop:6 }}>
+                        <div style={{ fontSize:11, color:"var(--danger)" }}>⚠ {t.assessError}</div>
+                        {t.assessDebug && <div style={{ fontSize:10, color:"var(--navy-soft)", marginTop:2 }}>{t.assessDebug}</div>}
+                      </div>
+                    ) : null}
+                    {t.score != null && (
+                      <div style={{ marginLeft:34 }}>
+                        {t.words && t.words.length > 0
+                          ? <ReadMarks words={t.words} showScores />
+                          : <AlignedFallback recognized={t.recognized} />}
+                      </div>
+                    )}
+                  </div>
+                )) : <div className="err">녹음 없음</div>}
+              </div>
+            );
+          })}
+
+          <div className="card">
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom:6 }}>
+              <span className="label" style={{ marginBottom:0 }}>선생님 코멘트 (학생에게 표시됩니다)</span>
+              <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px" }}
+                onClick={regenerate} disabled={aiBusy}>
+                {aiBusy ? "분석 중..." : "✨ 코멘트 다시 만들기"}
+              </button>
+            </div>
+            <textarea className="field" rows={5} value={comment} onChange={e=>setComment(e.target.value)}
+              placeholder="예) 발음이 좋아요! r 발음만 한번 더 연습해볼까요?" />
+          </div>
+
+          {msg && (
+            <div style={{ position:"fixed", inset:0, display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, background:"rgba(0,0,0,.25)" }}>
+              <div style={{ background:"#fff", borderRadius:18, padding:"32px 40px", textAlign:"center", boxShadow:"0 10px 34px rgba(0,0,0,.25)" }}>
+                <div style={{ fontSize:52 }}>{msg.includes("실패") ? "⚠️" : "✅"}</div>
+                <div style={{ fontSize:24, fontWeight:800, color:"var(--navy)", marginTop:10 }}>{msg}</div>
+              </div>
+            </div>
+          )}
+          <button className="btn full" onClick={markDone}>확인 완료로 표시</button>
+          <button className="btn-ghost full" onClick={deleteSub}
+            style={{ marginTop:8, color:"var(--danger)", borderColor:"#E8C4BC" }}>
+            🗑 이 제출 삭제 (다시 녹음하게)
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Line chart (SVG) ----------
+
+function LineChart({ data }) {
+  const W = 560, H = 200, PL = 34, PR = 12, PT = 12, PB = 30;
+  const iw = W - PL - PR, ih = H - PT - PB;
+  const n = data.length;
+  const x = i => n === 1 ? PL + iw/2 : PL + (i / (n - 1)) * iw;
+  const y = v => PT + ih - (v / 100) * ih;
+
+  const series = [
+    { key:"pron",        color:"#1B2E4C", w:2.5 },
+    { key:"accuracy",    color:"#C9A227", w:2 },
+    { key:"fluency",     color:"#5B8C7B", w:2 },
+    { key:"submitRate",  color:"#B3432F", w:1.5, dash:"4 3" },
+  ];
+
+  const pathFor = key => {
+    let d = "", started = false;
+    data.forEach((p, i) => {
+      const v = p[key];
+      if (v == null) { started = false; return; }
+      d += (started ? " L" : " M") + x(i) + " " + y(v);
+      started = true;
+    });
+    return d.trim();
+  };
+
+  const labelEvery = Math.max(1, Math.ceil(n / 6));
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:"auto", display:"block" }}>
+      {[0,25,50,75,100].map(g => (
+        <g key={g}>
+          <line x1={PL} y1={y(g)} x2={W-PR} y2={y(g)} stroke="#E3DCC8" strokeWidth="1" />
+          <text x={PL-6} y={y(g)+3.5} textAnchor="end" fontSize="9" fill="#3C5075">{g}</text>
+        </g>
+      ))}
+      {series.map(s => (
+        <path key={s.key} d={pathFor(s.key)} fill="none" stroke={s.color}
+          strokeWidth={s.w} strokeDasharray={s.dash || "none"}
+          strokeLinejoin="round" strokeLinecap="round" />
+      ))}
+      {series.map(s => data.map((p,i) => p[s.key] == null ? null : (
+        <circle key={s.key+i} cx={x(i)} cy={y(p[s.key])} r={s.key==="pron" ? 3.2 : 2.2} fill={s.color} />
+      )))}
+      {data.map((p,i) => (i % labelEvery === 0 || i === n-1) && (
+        <text key={"lb"+i} x={x(i)} y={H-10} textAnchor="middle" fontSize="9" fill="#3C5075">
+          {p.date.slice(5).replace("-","/")}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+// ---------- Admin: report ----------
+
+function AdminReport({ students }) {
+  const [sid, setSid] = useState(students[0]?.id || "");
+  const [start, setStart] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 29);
+    return d.toISOString().slice(0,10);
+  });
+  const [end, setEnd] = useState(() => new Date().toISOString().slice(0,10));
+  const [rep, setRep] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [note, setNote] = useState("");
+  const sheetRef = useRef(null);
+
+  const load = async () => {
+    if (!sid) return;
+    setBusy(true); setMsg(""); setRep(null);
+    try {
+      const r = await apiGet(`/report/${sid}?start=${start}&end=${end}`);
+      setRep(r); setNote(r.summary);
+    } catch (e) { setMsg("불러오기 실패: " + e.message); }
+    setBusy(false);
+  };
+
+  const saveImage = async () => {
+    if (!sheetRef.current) return;
+    setMsg("이미지 만드는 중...");
+    try {
+      const canvas = await html2canvas(sheetRef.current, {
+        backgroundColor: "#ffffff", scale: 2, useCORS: true,
+      });
+      const link = document.createElement("a");
+      link.download = `${rep.student.name}_성적표_${rep.period.start}~${rep.period.end}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      setMsg("저장했어요!");
+      setTimeout(()=>setMsg(""), 2000);
+    } catch (e) { setMsg("이미지 저장 실패: " + e.message); }
+  };
+
+
+  return (
+    <div className="body">
+      <div className="card">
+        <label className="label">학생</label>
+        <select className="field" value={sid} onChange={e=>setSid(e.target.value)}>
+          {students.map(s => <option key={s.id} value={s.id}>{s.name}{s.className?` (${s.className})`:""}</option>)}
+        </select>
+        <div style={{height:10}} />
+        <div className="row" style={{ gap:8 }}>
+          <div style={{ flex:1, minWidth:130 }}>
+            <label className="label">시작일</label>
+            <input className="field" type="date" value={start} onChange={e=>setStart(e.target.value)} />
+          </div>
+          <div style={{ flex:1, minWidth:130 }}>
+            <label className="label">종료일</label>
+            <input className="field" type="date" value={end} onChange={e=>setEnd(e.target.value)} />
+          </div>
+        </div>
+        <div style={{height:14}} />
+        <div className="row">
+          <button className="btn" onClick={load} disabled={busy || !sid}>
+            {busy ? "불러오는 중..." : "성적표 만들기"}
+          </button>
+          {rep && <button className="btn-ghost" onClick={saveImage}>🖼 이미지로 저장</button>}
+        </div>
+        {msg && <div style={{ marginTop:8, fontSize:12, fontWeight:700, color:"var(--navy)" }}>{msg}</div>}
+      </div>
+
+      {rep && (
+        <>
+          <div className="card">
+            <label className="label">총평 (수정하면 성적표에 반영돼요)</label>
+            <textarea className="field" rows={4} value={note} onChange={e=>setNote(e.target.value)} />
+          </div>
+
+          <div ref={sheetRef} style={{ background:"#fff", padding:24, borderRadius:14 }}>
+            <div style={{ borderBottom:`3px solid var(--navy)`, paddingBottom:12, marginBottom:16 }}>
+              <div style={{ fontSize:12, color:"var(--gold)", fontWeight:800, letterSpacing:1 }}>HAPPYTREE ACADEMY</div>
+              <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginTop:2 }}>낭독 학습 성적표</div>
+              <div style={{ fontSize:13, color:"var(--navy-soft)", marginTop:6 }}>
+                {rep.student.name} {rep.student.className ? `· ${rep.student.className}` : ""} &nbsp;|&nbsp; {rep.period.start} ~ {rep.period.end}
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:10, marginBottom:10 }}>
+              {[
+                ["종합 발음", rep.overallAverage != null ? `${rep.overallAverage}점` : "-"],
+                ["제출률", `${rep.submitRate}%`],
+                ["완료 과제", `${rep.submittedCount} / ${rep.totalAssigned}`],
+              ].map(([l,v]) => (
+                <div key={l} style={{ flex:1, background:"var(--navy)", borderRadius:10, padding:"12px 8px", textAlign:"center" }}>
+                  <div style={{ fontSize:11, color:"var(--gold-soft)", fontWeight:600 }}>{l}</div>
+                  <div style={{ fontSize:20, fontWeight:800, color:"#fff", marginTop:4 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display:"flex", gap:10, marginBottom:18 }}>
+              {[
+                ["정확도", rep.metrics?.accuracy, "소리를 얼마나 정확히 냈는지"],
+                ["유창성", rep.metrics?.fluency, "끊김 없이 자연스럽게 읽는지"],
+                ["완성도", rep.metrics?.completeness, "문장을 빠짐없이 읽었는지"],
+              ].map(([l,v,desc]) => (
+                <div key={l} style={{ flex:1, background:"var(--cream)", borderRadius:10, padding:"10px 8px", textAlign:"center" }}>
+                  <div style={{ fontSize:11, color:"var(--navy-soft)", fontWeight:700 }}>{l}</div>
+                  <div style={{ fontSize:18, fontWeight:800, color:"var(--navy)", margin:"3px 0" }}>{v != null ? v : "-"}</div>
+                  <div style={{ fontSize:9, color:"var(--navy-soft)", lineHeight:1.3 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {rep.daily.length > 0 && (
+              <div style={{ marginBottom:18 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:4 }}>일자별 학습 추이</div>
+                <div className="row" style={{ gap:12, marginBottom:8 }}>
+                  {[["종합 발음","#1B2E4C"],["정확도","#C9A227"],["유창성(억양)","#5B8C7B"],["성실도(제출률)","#B3432F"]].map(([l,c]) => (
+                    <span key={l} style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
+                      <span style={{ width:14, height:3, background:c, borderRadius:2, display:"inline-block" }} />{l}
+                    </span>
+                  ))}
+                </div>
+                <LineChart data={rep.daily} />
+              </div>
+            )}
+
+            <div style={{ marginBottom:18 }}>
+              <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>과제별 기록</div>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                <thead>
+                  <tr style={{ background:"var(--cream)" }}>
+                    {["과제","유형","마감","제출","평균"].map(h => (
+                      <th key={h} style={{ padding:"7px 6px", textAlign:"left", color:"var(--navy-soft)", fontWeight:700 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rep.assignments.map((r,i) => (
+                    <tr key={i} style={{ borderBottom:"1px solid var(--line)" }}>
+                      <td style={{ padding:"7px 6px", fontWeight:600 }}>{r.title}</td>
+                      <td style={{ padding:"7px 6px" }}>{r.type==="word"?"단어":"문장"} {r.itemCount}개</td>
+                      <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.dueDate ? formatDue(r.dueDate) : "-"}</td>
+                      <td style={{ padding:"7px 6px", color: r.status==="none" ? "var(--danger)" : "var(--navy)" }}>
+                        {r.status==="none" ? "미제출" : "제출"}
+                      </td>
+                      <td style={{ padding:"7px 6px", fontWeight:700 }}>{r.average != null ? `${r.average}점` : "-"}</td>
+                    </tr>
+                  ))}
+                  {!rep.assignments.length && (
+                    <tr><td colSpan={5} style={{ padding:14, textAlign:"center", color:"var(--navy-soft)" }}>해당 기간에 과제가 없어요.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {rep.vocab && rep.vocab.studiedSets > 0 && (
+              <div style={{ marginBottom:18 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>단어 자습 성취도</div>
+                <div className="row" style={{ gap:10, marginBottom:10, flexWrap:"wrap" }}>
+                  {[["평균 최고점", rep.vocab.avgBest != null ? `${rep.vocab.avgBest}점` : "-"],
+                    ["자습한 단어장", `${rep.vocab.studiedSets}개`],
+                    ["뜻고르기", rep.vocab.byMode && rep.vocab.byMode.choice != null ? `${rep.vocab.byMode.choice}점` : "-"],
+                    ["스펠링", rep.vocab.byMode && rep.vocab.byMode.spell != null ? `${rep.vocab.byMode.spell}점` : "-"],
+                    ["미니테스트", rep.vocab.byMode && rep.vocab.byMode.test != null ? `${rep.vocab.byMode.test}점` : "-"]].map(([l,v]) => (
+                    <div key={l} style={{ flex:"1 1 90px", background:"var(--cream)", borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
+                      <div style={{ fontSize:10, color:"var(--navy-soft)" }}>{l}</div>
+                      <div style={{ fontSize:15, fontWeight:800, color:"var(--navy)", marginTop:2 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:"var(--cream)" }}>
+                      {["단어장","최고점","뜻고르기","스펠링","미니테스트","시도"].map(h => (
+                        <th key={h} style={{ padding:"7px 6px", textAlign:"left", color:"var(--navy-soft)", fontWeight:700 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rep.vocab.rows.map((r,i) => (
+                      <tr key={i} style={{ borderBottom:"1px solid var(--line)" }}>
+                        <td style={{ padding:"7px 6px", fontWeight:600 }}>{r.title}</td>
+                        <td style={{ padding:"7px 6px", fontWeight:700 }}>{r.best != null ? `${r.best}점` : "-"}</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.choice != null ? `${r.choice}` : "-"}</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.spell != null ? `${r.spell}` : "-"}</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.test != null ? `${r.test}` : "-"}</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.attempts}회</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {rep.weakWords.length > 0 && (
+              <div style={{ marginBottom:18 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>더 연습하면 좋은 단어</div>
+                <div className="row">
+                  {rep.weakWords.map(w => (
+                    <span key={w.word} style={{
+                      padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:600,
+                      background:"#F3E4B8", color:"#8A6D0F"
+                    }}>{w.word} <span style={{opacity:.7}}>{Math.round(w.accuracy)}</span></span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ background:"var(--cream)", borderLeft:"4px solid var(--gold)", padding:"12px 14px", borderRadius:8 }}>
+              <div style={{ fontSize:12, fontWeight:800, color:"var(--navy)", marginBottom:5 }}>선생님 총평</div>
+              <div style={{ fontSize:13, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{note}</div>
+            </div>
+
+            <div style={{ textAlign:"center", fontSize:11, color:"var(--navy-soft)", marginTop:16 }}>
+              해피트리학원 · 남천동 국영수 문해력센터
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Admin: settings ----------
+
+function AdminSettings({ students, assignments, reload }) {
+  const [msg, setMsg] = useState("");
+  const [diag, setDiag] = useState(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [testText, setTestText] = useState("I like apple.");
+  const [testRec, setTestRec] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [testBusy, setTestBusy] = useState(false);
+  const tmr = useRef(null); const tchunks = useRef([]);
+
+  const runDiag = async () => {
+    setDiagBusy(true); setDiag(null);
+    try {
+      const r = await apiGet("/diag");
+      setDiag(r);
+    } catch (e) { setDiag({ azure_message: "진단 실패: " + e.message }); }
+    setDiagBusy(false);
+  };
+
+  const startTest = async () => {
+    setTestResult(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tchunks.current = [];
+      const mr = new MediaRecorder(stream);
+      tmr.current = mr;
+      mr.ondataavailable = e => { if (e.data && e.data.size) tchunks.current.push(e.data); };
+      mr.onstop = async () => {
+        const blob = new Blob(tchunks.current, { type: mr.mimeType || "audio/webm" });
+        stream.getTracks().forEach(t=>t.stop());
+        setTestBusy(true);
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, "test.webm");
+          fd.append("text", testText);
+          fd.append("debug", "1");
+          const res = await fetch("/api/assess", { method:"POST", body: fd });
+          const j = await res.json();
+          setTestResult({ ok: res.ok, mime: mr.mimeType, size: blob.size, data: j });
+        } catch (e) { setTestResult({ ok:false, data:{ detail: e.message } }); }
+        setTestBusy(false);
+      };
+      mr.start();
+      setTestRec(true);
+    } catch (e) { setTestResult({ ok:false, data:{ detail:"마이크 접근 실패: " + e.message } }); }
+  };
+  const stopTest = () => { if (tmr.current && testRec) { tmr.current.stop(); setTestRec(false); } };
+
+  const backup = async () => {
+    const data = await apiGet("/backup");
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date();
+    a.href = url;
+    a.download = `happytree-backup-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const restore = async (file) => {
+    setMsg("");
+    try {
+      const data = JSON.parse(await file.text());
+      if (!confirm("현재 학생·과제 목록을 백업 파일 내용으로 덮어씁니다. 계속할까요?")) return;
+      await apiPost("/restore", data);
+      await reload();
+      setMsg("복원됐어요.");
+    } catch (e) { setMsg("복원 실패: " + e.message); }
+  };
+
+  const [delBusy, setDelBusy] = useState(false);
+  const [dupBusy, setDupBusy] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const remindDue = async () => {
+    if (!confirm("오늘 마감인데 아직 제출 안 한 학생들에게 '오늘 낭독 숙제' 알림을 보낼까요?\n(알림을 켠 학생에게만 갑니다.)")) return;
+    setPushBusy(true); setMsg("");
+    try {
+      const r = await apiPost("/push/remind-due", {});
+      setMsg(r.students ? `${r.students}명에게 알림을 보냈어요. ✅ (기기 ${r.devices}대)` : "오늘 보낼 대상이 없어요. (마감·미제출·알림켠 학생 없음)");
+    } catch (e) { setMsg("발송 실패: " + e.message); }
+    setPushBusy(false);
+  };
+  const pubCount = assignments.filter(a => a.published !== false).length;
+  const arcCount = assignments.filter(a => a.published === false).length;
+  const dedupe = async () => {
+    setDupBusy(true); setMsg("");
+    try {
+      const pre = await apiPost("/assignments/dedupe", { dryRun: true });
+      if (!pre.wouldDelete) { setMsg("정리할 중복 과제가 없어요. 👍"); setDupBusy(false); return; }
+      let m = `모든 책에서 중복(같은 책·제목·마감·문항수) 빈 복사본 ${pre.wouldDelete}개를 정리할까요?\n학생 녹음이 있는 과제는 그대로 둬요.`;
+      if (pre.keptConflict) m += `\n(제출이 여러 개인 중복 ${pre.keptConflict}건은 안전하게 그대로 둡니다.)`;
+      if (!confirm(m)) { setDupBusy(false); return; }
+      const r = await apiPost("/assignments/dedupe", {});
+      await reload();
+      setMsg(`중복 ${r.deleted}개를 정리했어요. ✅`);
+    } catch (e) { setMsg("정리 실패: " + e.message); }
+    setDupBusy(false);
+  };
+  const deleteAll = async (scope) => {
+    const label = scope === "published" ? `배포된 과제 ${pubCount}개`
+      : scope === "all" ? `모든 과제 ${assignments.length}개 (📦보관함 포함)` : "";
+    if (!confirm(`${label}를 삭제할까요?\n\n※ 되돌릴 수 없어요. 학생 녹음·점수 기록도 함께 끊깁니다.\n먼저 위의 '백업 파일 내려받기'로 백업을 받아두시길 권해요.`)) return;
+    if (scope === "all" && !confirm("정말 보관함 교재 원본까지 전부 삭제할까요?\n이 작업은 되돌릴 수 없어요.")) return;
+    setDelBusy(true); setMsg("");
+    try {
+      const r = await apiPost("/assignments/delete-all", { scope });
+      await reload();
+      setMsg(`${r.deleted}개 과제를 삭제했어요.`);
+    } catch (e) { setMsg("삭제 실패: " + e.message); }
+    setDelBusy(false);
+  };
+
+  return (
+    <div className="body">
+      <a href="/manual.html" target="_blank" rel="noopener" className="card"
+        style={{ display:"flex", width:"100%", textDecoration:"none", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+        <div>
+          <div style={{ fontWeight:800, fontSize:15, color:"var(--navy)" }}>📖 선생님 사용 설명서</div>
+          <div className="muted" style={{ marginTop:3 }}>학생 등록·교재 업로드·과제 배정·채점·배틀·성적표 전체 안내 (새 창)</div>
+        </div>
+        <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+      </a>
+
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>발음평가 진단</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          점수가 안 나올 때 여기서 원인을 확인할 수 있어요.
+        </div>
+        <button className="btn" onClick={runDiag} disabled={diagBusy}>
+          {diagBusy ? "확인 중..." : "발음평가 상태 확인"}
+        </button>
+        {diag && (
+          <div style={{ marginTop:12, background:"var(--cream)", borderRadius:8, padding:12, fontSize:13 }}>
+            <div style={{ marginBottom:4 }}>Azure 키: <b>{diag.azure_key_set ? "설정됨" : "없음"}</b></div>
+            <div style={{ marginBottom:4 }}>지역: <b>{diag.azure_region}</b></div>
+            <div style={{ marginBottom:4 }}>ffmpeg: <b>{diag.ffmpeg}</b></div>
+            {diag.azure_status != null && <div style={{ marginBottom:4 }}>Azure 응답코드: <b>{diag.azure_status}</b></div>}
+            <div style={{ marginTop:8, fontWeight:700,
+              color: diag.azure_status === 200 ? "#2E7D5B" : "var(--danger)" }}>
+              {diag.azure_message}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>녹음 테스트 (원인 찾기)</div>
+        <div className="muted" style={{ marginBottom:10 }}>
+          직접 녹음해서 Azure가 실제로 뭐라고 응답하는지 그대로 확인할 수 있어요.
+        </div>
+        <label className="label">읽을 문장</label>
+        <input className="field" value={testText} onChange={e=>setTestText(e.target.value)} />
+        <div style={{height:12}} />
+        {!testRec ? (
+          <button className="btn" onClick={startTest} disabled={testBusy}>
+            {testBusy ? "분석 중..." : "🎤 테스트 녹음 시작"}
+          </button>
+        ) : (
+          <button className="btn-danger" onClick={stopTest}>■ 중지하고 분석</button>
+        )}
+        {testResult && (
+          <div style={{ marginTop:12, background:"var(--cream)", borderRadius:8, padding:12, fontSize:12 }}>
+            {testResult.data.pronScore != null ? (
+              <div style={{ fontWeight:800, color:"#2E7D5B", fontSize:15, marginBottom:8 }}>
+                ✅ 성공! 종합 {Math.round(testResult.data.pronScore)}점
+                (정확도 {Math.round(testResult.data.accuracyScore)} ·
+                 유창성 {Math.round(testResult.data.fluencyScore)} ·
+                 완성도 {Math.round(testResult.data.completenessScore)})
+              </div>
+            ) : (
+              <div style={{ fontWeight:800, color:"var(--danger)", marginBottom:8 }}>
+                ❌ {testResult.data.note || testResult.data.detail || "실패"}
+              </div>
+            )}
+            <div style={{ lineHeight:1.7 }}>
+              <div>브라우저 형식: <b>{testResult.mime || "-"}</b> ({testResult.size} bytes)</div>
+              {testResult.data.audio && (
+                <>
+                  <div>디코더: <b>{testResult.data.audio.decoder}</b></div>
+                  <div>길이: <b>{(testResult.data.audio.durationMs/1000).toFixed(1)}초</b> ·
+                       음량: <b>{testResult.data.audio.dBFS ?? "무음"}dB</b></div>
+                  <div>변환된 WAV: <b>{testResult.data.audio.wavBytes} bytes</b></div>
+                </>
+              )}
+              {testResult.data.status && <div>Azure 상태: <b>{testResult.data.status}</b></div>}
+              {testResult.data.recognizedText != null &&
+                <div>정렬된 인식값: <b>"{testResult.data.recognizedText || "(없음)"}"</b>
+                  <span style={{ fontSize:10.5, color:"var(--navy-soft)", marginLeft:6 }}>
+                    (참조문장에 맞춰 정렬된 값 — 실제 발음과 다를 수 있음)</span></div>}
+            </div>
+            {testResult.data.raw && (
+              <details style={{ marginTop:8 }}>
+                <summary style={{ cursor:"pointer", color:"var(--navy-soft)" }}>Azure 원본 응답</summary>
+                <div style={{ marginTop:6, fontSize:10, wordBreak:"break-all", fontFamily:"monospace" }}>
+                  {testResult.data.raw}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>데이터 백업 / 복원</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          학생 명단·과제·제출 기록을 파일로 내려받아 보관할 수 있어요. 정기적으로 한 번씩 받아두시면 안전해요.
+        </div>
+        <div className="row">
+          <button className="btn" onClick={backup}>백업 파일 내려받기</button>
+          <label className="btn-ghost">
+            백업에서 복원
+            <input type="file" accept=".json" style={{display:"none"}}
+              onChange={e=>{ const f=e.target.files[0]; if(f) restore(f); e.target.value=""; }} />
+          </label>
+        </div>
+        <div className="muted" style={{ marginTop:10 }}>현재 학생 {students.length}명 · 과제 {assignments.length}개</div>
+        {msg && <div style={{ marginTop:8, fontSize:12, fontWeight:700, color:"var(--navy)" }}>{msg}</div>}
+      </div>
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>🔔 숙제 알림 보내기</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          <b>오늘 마감인데 아직 제출 안 한</b> 학생들에게 폰 알림을 보내요. <b>알림을 켠 학생</b>에게만 갑니다.
+          (학생은 로그인 후 “🔔 알림 켜기”를 눌러야 받아요.)
+        </div>
+        <button className="btn" onClick={remindDue} disabled={pushBusy}>
+          {pushBusy ? "보내는 중..." : "🔔 오늘 마감 학생에게 알림 보내기"}
+        </button>
+        <div className="muted" style={{ fontSize:12, marginTop:10 }}>
+          아이폰은 <b>홈 화면에 추가</b>한 트리톡(iOS 16.4+)에서만 알림이 와요.
+        </div>
+      </div>
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>🧹 중복 과제 정리 (전체)</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          같은 책·제목·마감·문항수로 <b>두 번 이상 등록된 빈 복사본</b>을 모든 책에서 한 번에 정리해요.
+          <b>학생 녹음이 있는 과제는 그대로</b> 두니 안전해요.
+        </div>
+        <button className="btn" onClick={dedupe} disabled={dupBusy}>
+          {dupBusy ? "정리 중..." : "🧹 중복 과제 한 번에 정리"}
+        </button>
+        <div className="muted" style={{ fontSize:12, marginTop:10 }}>
+          같은 책이 <b>이름만 다르게</b> 두 번 있는 경우(예: “Word Up 400” ↔ “Word Up 400_Vocabulary Lists”)는 자동 정리가 안 돼요.
+          안 쓰는 쪽을 <b>과제관리 → 교재 → 교재 전체 삭제</b>로 지워주세요.
+        </div>
+      </div>
+      <div className="card" style={{ borderColor:"#E8C4BC" }}>
+        <div style={{ fontWeight:700, color:"var(--danger)", marginBottom:6 }}>⚠️ 과제 전체 삭제</div>
+        <div className="muted" style={{ marginBottom:12 }}>
+          과제를 한 번에 정리해요. <b>되돌릴 수 없으니</b> 먼저 위에서 <b>백업</b>을 받아두세요.
+          현재 배포된 과제 <b style={{ color:"var(--navy)" }}>{pubCount}개</b> · 📦보관함 <b style={{ color:"var(--navy)" }}>{arcCount}개</b>.
+        </div>
+        <div className="row" style={{ flexWrap:"wrap", gap:8 }}>
+          <button className="btn-ghost" style={{ color:"var(--danger)", borderColor:"#E8C4BC" }}
+            disabled={delBusy || !pubCount} onClick={()=>deleteAll("published")}>
+            {delBusy ? "삭제 중..." : `배포된 과제만 삭제 (${pubCount})`}
+          </button>
+          <button className="btn-ghost" style={{ color:"var(--danger)", borderColor:"#E8C4BC" }}
+            disabled={delBusy || !assignments.length} onClick={()=>deleteAll("all")}>
+            {delBusy ? "삭제 중..." : `보관함 포함 전부 삭제 (${assignments.length})`}
+          </button>
+        </div>
+        <div className="muted" style={{ fontSize:12, marginTop:10 }}>
+          특정 교재 하나만 지우려면 <b>과제관리 → 교재 → 교재 전체 삭제</b>를 쓰세요.
+        </div>
+      </div>
+      <div className="card">
+        <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>학생 접속 주소</div>
+        <div className="muted">학생들에게 이 페이지 주소를 그대로 알려주세요. 각자 발급받은 아이디로 로그인하면 됩니다.</div>
+        <div style={{ marginTop:8, padding:10, background:"var(--cream-deep)", borderRadius:8, fontSize:13, wordBreak:"break-all" }}>
+          {window.location.origin}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Admin shell ----------
+// 묶은 탭 안에서 섹션을 구분하는 작은 제목
+
+function SectionLabel({ children }) {
+  return <div style={{ margin:"26px 2px 10px", fontWeight:800, color:"var(--gold)",
+    fontSize:13, letterSpacing:1, borderTop:"1px solid var(--cream-deep)", paddingTop:18 }}>{children}</div>;
+}
+
+// 학생·성적 탭: 명단과 성적표를 소탭으로 분리 (긴 학생 목록에 성적표가 묻히지 않게)
+
+function PeoplePanel({ students, reload }) {
+  const [sub, setSub] = useState("students");
+  return (
+    <>
+      <div className="tabs" style={{ marginBottom:14 }}>
+        {[["students","👥 학생 명단"],["report","📊 성적표"]].map(([id,l]) => (
+          <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
+        ))}
+      </div>
+      {sub==="students" && <AdminStudents students={students} reload={reload} />}
+      {sub==="report" && <AdminReport students={students} />}
+    </>
+  );
+}
+
+// 현황 탭: 학습현황과 제출확인을 소탭으로 (제출확인이 스크롤 아래 묻혀 '없어진 줄' 오해 방지)
+
+function HomePanel({ students, assignments, reload }) {
+  const [sub, setSub] = useState("dash");
+  return (
+    <>
+      <div className="tabs" style={{ marginBottom:14 }}>
+        {[["dash","📊 학습현황"],["review","🎤 제출확인"]].map(([id,l]) => (
+          <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
+        ))}
+      </div>
+      {sub==="dash" && <AdminDashboard students={students} assignments={assignments} />}
+      {sub==="review" && <AdminReview students={students} assignments={assignments} reload={reload} />}
+    </>
+  );
+}
+
+// 설정 탭: 설정과 배틀을 소탭으로 (배틀이 설정 아래 묻히지 않게)
+
+function SettingsPanel({ students, assignments, reload }) {
+  const [sub, setSub] = useState("settings");
+  return (
+    <>
+      <div className="tabs" style={{ marginBottom:14 }}>
+        {[["settings","⚙️ 설정"],["battle","🥊 단어 배틀"]].map(([id,l]) => (
+          <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
+        ))}
+      </div>
+      {sub==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
+      {sub==="battle" && <BattleHost assignments={assignments} />}
+    </>
+  );
+}
+
+function AdminView({ onLogout }) {
+  // 7탭 → 4탭 재구성. 기존 화면(컴포넌트)은 그대로 두고 묶기만 한다.
+  //  현황 = 학습현황 + 제출확인 / 과제 / 학생·성적 = 학생관리 + 성적표 / 설정 = 설정 + 배틀
+  const [tab, setTab] = useState("home");
+  const [students, setStudents] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const voice = useVoice();
+
+  const reload = async () => {
+    // 관리자는 보관함(published=false)까지 관리하므로 archived=1 로 전체를 받는다.
+    // (학생 화면은 보관함을 안 받아 응답이 가볍다 — 서버 기본이 보관함 제외)
+    const [s, a] = await Promise.all([apiGet("/students"), apiGet("/assignments?archived=1")]);
+    setStudents(s); setAssignments(a);
+  };
+  useEffect(() => { reload().finally(()=>setLoading(false)); }, []);
+
+  if (loading) return <div className="center"><div className="spin" /></div>;
+
+  return (
+    <div className="wrap">
+      <div className="hdr">
+        <h1>트리톡 관리자</h1>
+        <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
+      </div>
+      <div className="tabs">
+        {[["home","📊 현황"],["task","📚 과제"],["people","👥 학생·성적"],["settings","⚙️ 설정"]].map(([id,l]) => (
+          <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
+        ))}
+      </div>
+
+      {tab==="home" && <HomePanel students={students} assignments={assignments} reload={reload} />}
+
+      {tab==="task" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
+
+      {tab==="people" && <PeoplePanel students={students} reload={reload} />}
+
+      {tab==="settings" && <SettingsPanel students={students} assignments={assignments} reload={reload} />}
+    </div>
+  );
+}
+
+// ---------- 단어 자습 ----------
+
+const ACT_COLS = [["record","녹음"],["flash","카드암기"],["choice","뜻고르기"],["spell","스펠링"],["test","미니테스트"]];
+
+function AdminDashboard({ students, assignments }) {
+  const [act, setAct] = useState({});
+  const [vocab, setVocab] = useState({});
+  const [sid, setSid] = useState(null);
+  const [nowTs, setNowTs] = useState(Math.floor(Date.now()/1000));
+
+  const refresh = () => {
+    apiGet("/activity-all").then(setAct).catch(()=>{});
+    apiGet("/vocab-all").then(setVocab).catch(()=>{});
+    setNowTs(Math.floor(Date.now()/1000));
+  };
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 7000);   // 7초마다 실시간 갱신
+    return () => clearInterval(t);
+  }, []);
+
+  const titleOf = (aid) => { const a = assignments.find(x => x.id === aid); return a ? a.title : aid; };
+  const nameOf = (id) => { const s = students.find(x => x.id === id); return s ? s.name : id; };
+  const isLive = (ts) => ts && (nowTs - ts) < 300;   // 5분 이내면 '학습중'
+  // 학생의 단어 자습 완료 요약: 완료 세트 수·최근 완료시간·진행중 최대 단계
+  const vocabInfo = (id) => {
+    const vals = Object.values(vocab[id] || {});
+    const comps = vals.filter(r => r.completedAt).map(r => r.completedAt).sort();
+    const completeCount = vals.filter(r => r.complete).length;
+    const stages = vals.filter(r => !r.complete)
+      .map(r => ["flash","choice","spell","test"].filter(k => (r.byMode||{})[k]).length);
+    return { latest: comps[comps.length-1], completeCount, maxStage: stages.length ? Math.max(...stages) : 0 };
+  };
+
+  if (sid) {
+    const recs = vocab[sid] || {};
+    const entries = Object.keys(recs).map(aid => [aid, recs[aid]])
+      .sort((a, b) => (((b[1].last && b[1].last.at) || "")).localeCompare((a[1].last && a[1].last.at) || ""));
+    return <div className="body">
+      <button onClick={()=>setSid(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 현황판</button>
+      <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>{nameOf(sid)} · 단어 자습 점수</div>
+      {!entries.length && <div className="muted" style={{ textAlign:"center", padding:24 }}>아직 자습 점수 기록이 없어요.</div>}
+      {entries.map(([aid, rec]) => {
+        const by = rec.byMode || {};
+        return <div key={aid} className="card" style={{ padding:12 }}>
+          <div style={{ fontWeight:700, fontSize:14 }}>
+            {rec.complete ? "✅ " : ""}{titleOf(aid)}
+            {rec.complete && <span style={{ color:"var(--good)", fontSize:11, marginLeft:6 }}>4단계 완료</span>}
+          </div>
+          <div className="muted" style={{ marginTop:4 }}>
+            최고 <b style={{ color:"var(--navy)" }}>{rec.best}점</b> · {rec.attempts}회
+            {rec.last && rec.last.score!=null ? ` · 최근 ${rec.last.score}점` : ""}
+          </div>
+          <div className="muted" style={{ marginTop:3, fontSize:11 }}>
+            {rec.startedAt ? `시작 ${rec.startedAt}` : ""}{rec.completedAt ? ` · 완료 ${rec.completedAt}` : ""}
+          </div>
+          <div className="row" style={{ gap:8, marginTop:6, flexWrap:"wrap" }}>
+            {[["flash","카드암기"],["choice","뜻고르기"],["spell","스펠링"],["test","미니테스트"]].map(([k,l]) =>
+              by[k] ? <span key={k} className="muted" style={{ fontSize:11 }}>{l}{by[k].best!=null ? ` ${by[k].best}점` : " ✓"}</span> : null
+            )}
+          </div>
+        </div>;
+      })}
+    </div>;
+  }
+
+  const liveCount = students.filter(s => {
+    const a = act[s.id] || {};
+    return ACT_COLS.some(([k]) => a[k] && isLive(a[k].ts));
+  }).length;
+
+  // ★하는 학생(현재 학습 중)을 맨 위로. 그다음 최근 활동순, 나머지는 이름순.
+  const actMaxTs = (id) => {
+    const a = act[id] || {};
+    let mx = 0;
+    ACT_COLS.forEach(([k]) => { if (a[k] && a[k].ts && a[k].ts > mx) mx = a[k].ts; });
+    return mx;
+  };
+  const sortedStudents = [...students].sort((x, y) => {
+    const tx = actMaxTs(x.id), ty = actMaxTs(y.id);
+    const lx = (tx && isLive(tx)) ? 1 : 0, ly = (ty && isLive(ty)) ? 1 : 0;
+    if (lx !== ly) return ly - lx;         // 학습 중이 먼저
+    if (ty !== tx) return ty - tx;         // 최근 활동이 위로
+    return (x.name || "").localeCompare(y.name || "");
+  });
+
+  return <div className="body">
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+      <div className="muted">실시간 학습 현황 · 7초마다 자동 갱신</div>
+      <span style={{ fontSize:12, fontWeight:700, color: liveCount ? "#2E7D5B" : "var(--navy-soft)" }}>
+        🟢 지금 학습 중 {liveCount}명
+      </span>
+    </div>
+    <div style={{ overflowX:"auto" }}>
+      <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, minWidth:520 }}>
+        <thead>
+          <tr style={{ background:"var(--cream)" }}>
+            <th style={{ padding:"8px 8px", textAlign:"left", color:"var(--navy-soft)", position:"sticky", left:0, background:"var(--cream)" }}>학생</th>
+            {ACT_COLS.map(([k,l]) => (
+              <th key={k} style={{ padding:"8px 6px", textAlign:"center", color:"var(--navy-soft)", fontWeight:700, whiteSpace:"nowrap" }}>{l}</th>
+            ))}
+            <th style={{ padding:"8px 6px", textAlign:"center", color:"var(--navy-soft)", fontWeight:700, whiteSpace:"nowrap" }}>자습완료</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedStudents.map(s => {
+            const a = act[s.id] || {};
+            const rowLive = ACT_COLS.some(([k]) => a[k] && isLive(a[k].ts));
+            return (
+              <tr key={s.id} style={{ borderBottom:"1px solid var(--line)", cursor:"pointer", background: rowLive ? "#F0F8F3" : "transparent" }} onClick={()=>setSid(s.id)}>
+                <td style={{ padding:"8px 8px", fontWeight:700, whiteSpace:"nowrap", position:"sticky", left:0, background:"var(--cream)" }}>
+                  {s.name}
+                </td>
+                {ACT_COLS.map(([k]) => {
+                  const c = a[k];
+                  const live = c && isLive(c.ts);
+                  return (
+                    <td key={k} style={{ padding:"6px 4px", textAlign:"center",
+                      background: live ? "#E3F1E9" : "transparent" }}>
+                      {c
+                        ? <div>
+                            <div style={{ fontWeight:700, color: live ? "#2E7D5B" : "var(--navy)", fontSize:11 }}>{live ? "🟢 학습중" : c.at}</div>
+                            {k==="record" && c.total
+                              ? <div className="muted" style={{ fontSize:10, fontWeight:700, color: (c.done>=c.total) ? "var(--good)" : "var(--navy-soft)" }}>{c.done||0}/{c.total}회차{c.done>=c.total ? " ✅" : ""}</div>
+                              : (live && <div className="muted" style={{ fontSize:10 }}>{c.at}</div>)}
+                          </div>
+                        : <span style={{ color:"var(--line)" }}>–</span>}
+                    </td>
+                  );
+                })}
+                {(() => {
+                  const vi = vocabInfo(s.id);
+                  return (
+                    <td style={{ padding:"6px 4px", textAlign:"center" }}>
+                      {vi.completeCount
+                        ? <div>
+                            <div style={{ fontWeight:800, color:"var(--good)", fontSize:11 }}>✅ {vi.completeCount}개</div>
+                            {vi.latest && <div className="muted" style={{ fontSize:10 }}>{vi.latest}</div>}
+                          </div>
+                        : vi.maxStage
+                          ? <div className="muted" style={{ fontSize:11, fontWeight:700 }}>{vi.maxStage}/4단계</div>
+                          : <span style={{ color:"var(--line)" }}>–</span>}
+                    </td>
+                  );
+                })()}
+              </tr>
+            );
+          })}
+          {!students.length && <tr><td colSpan={ACT_COLS.length+2} style={{ padding:16, textAlign:"center", color:"var(--navy-soft)" }}>학생이 없어요.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+    <div className="muted" style={{ marginTop:10, fontSize:11 }}>학생 이름을 누르면 단어 자습 점수 상세를 볼 수 있어요.</div>
+  </div>;
+}
+
+// ---------- 단어 배틀 (실시간) ----------
+
+function BattleHost({ assignments }) {
+  const validCount = (a) => (a.items || []).filter((w, i) => w && ((a.meanings || [])[i] || "").trim()).length;
+  const wordSets = assignments
+    .filter(a => (a.type || "word") === "word" && validCount(a) >= 1)
+    .slice()
+    .sort((x, y) => {
+      const dx = dayNum(x.title), dy = dayNum(y.title);
+      if (dx != null && dy != null && dx !== dy) return dx - dy;
+      return (x.title || "").localeCompare(y.title || "");
+    });
+  const [step, setStep] = useState("pick");   // pick | live
+  const [mode, setMode] = useState("sets");   // sets | custom
+  const [duration, setDuration] = useState(15);
+  const [totalSec, setTotalSec] = useState(90);
+  const [selected, setSelected] = useState([]);
+  const [openBook, setOpenBook] = useState(null);
+  const [customText, setCustomText] = useState("");
+  const [info, setInfo] = useState(null);
+  const [st, setSt] = useState({ phase:"lobby", players:[], q:null, reveal:null, board:[] });
+  const [balloons, setBalloons] = useState([]);
+  const [err, setErr] = useState("");
+  const wsRef = useRef(null);
+  const balId = useRef(0);
+
+  useEffect(() => () => { if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} } }, []);
+
+  const popBalloon = (nm) => {
+    const id = ++balId.current;
+    const x = 5 + Math.random() * 82;
+    const color = BALLOON_COLORS[id % BALLOON_COLORS.length];
+    setBalloons(b => [...b, { id, name: nm, x, color }]);
+    setTimeout(() => setBalloons(b => b.filter(z => z.id !== id)), 6000);
+  };
+  const handle = (m) => {
+    if (m.type === "lobby") setSt(s => ({ ...s, phase: m.phase, players: m.players || [] }));
+    else if (m.type === "players") setSt(s => ({ ...s, players: m.players || [] }));
+    else if (m.type === "starting") setSt(s => ({ ...s, phase: "starting" }));
+    else if (m.type === "question") setSt(s => ({ ...s, phase: "question", q: m, reveal: null }));
+    else if (m.type === "reveal") setSt(s => ({ ...s, phase: "reveal", reveal: m }));
+    else if (m.type === "standings") setSt(s => ({ ...s, phase: "standings", board: m.board || [] }));
+    else if (m.type === "end") setSt(s => ({ ...s, phase: "end", board: m.board || [] }));
+    else if (m.type === "balloon") popBalloon(m.name);
+  };
+
+  const toggleSel = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+
+  const startWith = async (extra) => {
+    setErr("");
+    try {
+      const r = await apiPost("/battle/create", { duration, totalSec, ...extra });
+      setInfo(r); setStep("live");
+      const ws = new WebSocket(wsUrl(r.code, "role=host"));
+      wsRef.current = ws;
+      ws.onmessage = (ev) => { try { handle(JSON.parse(ev.data)); } catch (e) {} };
+    } catch (e) { setErr(e.message); }
+  };
+  const startSets = () => {
+    if (!selected.length) { setErr("단어장을 하나 이상 골라주세요."); return; }
+    startWith({ assignmentIds: selected });
+  };
+  const startCustom = () => {
+    const custom = customText.split("\n").map(line => {
+      const i = line.indexOf("/");
+      if (i < 0) return null;
+      const p = line.slice(0, i).trim(), a = line.slice(i + 1).trim();
+      return (p && a) ? { prompt: p, answer: a } : null;
+    }).filter(Boolean);
+    if (custom.length < 4) { setErr("‘문제 / 정답’ 형식으로 4줄 이상 입력해주세요."); return; }
+    startWith({ custom, title: "직접 만든 퀴즈" });
+  };
+  const send = (o) => { try { wsRef.current.send(JSON.stringify(o)); } catch (e) {} };
+
+  if (step === "pick") {
+    return <div className="body">
+      <div className="seg" style={{ marginBottom:14 }}>
+        <button className={mode==="sets"?"on":""} onClick={()=>{ setMode("sets"); setErr(""); }}>📚 단어 과제로</button>
+        <button className={mode==="custom"?"on":""} onClick={()=>{ setMode("custom"); setErr(""); }}>✏️ 직접 만들기</button>
+      </div>
+      <label className="label">전체 배틀 시간</label>
+      <div className="seg" style={{ marginTop:0, marginBottom:10 }}>
+        {[[90,"1분 30초"],[120,"2분"],[180,"3분"]].map(([v,l]) => <button key={v} className={totalSec===v?"on":""} onClick={()=>setTotalSec(v)}>{l}</button>)}
+      </div>
+      <label className="label">문제당 제한시간</label>
+      <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
+        {[10,15,20].map(n => <button key={n} className={duration===n?"on":""} onClick={()=>setDuration(n)}>{n}초</button>)}
+      </div>
+      {err && <div className="err">{err}</div>}
+
+      {mode === "sets" ? (
+        <>
+          {!wordSets.length ? (
+            <div className="card" style={{ textAlign:"center", padding:24 }}><span className="muted">단어장이 없어요.</span></div>
+          ) : !openBook ? (
+            <>
+              <div className="muted" style={{ marginBottom:8 }}>교재를 골라 들어가서 Day를 선택해요. (여러 교재·Day를 합쳐 출제 가능)</div>
+              {(() => {
+                const byBook = {};
+                wordSets.forEach(a => { const b = a.book || seriesOf(a.title); (byBook[b] = byBook[b] || []).push(a); });
+                return Object.keys(byBook).sort().map(b => {
+                  const days = byBook[b];
+                  const selN = days.filter(a => selected.includes(a.id)).length;
+                  return <button key={b} onClick={()=>setOpenBook(b)} className="card"
+                    style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:15 }}>📗 {b}</div>
+                      <div className="muted" style={{ marginTop:3 }}>{days.length}일{selN ? ` · ${selN}개 선택됨` : ""}</div>
+                    </div>
+                    <span style={{ color:"var(--navy-soft)", fontSize:20 }}>›</span>
+                  </button>;
+                });
+              })()}
+            </>
+          ) : (() => {
+            const days = wordSets.filter(a => (a.book || seriesOf(a.title)) === openBook);
+            const allOn = days.every(a => selected.includes(a.id));
+            return <>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, gap:8 }}>
+                <button onClick={()=>setOpenBook(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700 }}>‹ 교재 목록</button>
+                <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px" }}
+                  onClick={()=>setSelected(s => allOn ? s.filter(id => !days.some(a=>a.id===id)) : [...new Set([...s, ...days.map(a=>a.id)])])}>
+                  {allOn ? "전체 해제" : "이 교재 전체 선택"}
+                </button>
+              </div>
+              <div style={{ fontWeight:800, fontSize:15, marginBottom:8 }}>📗 {openBook}</div>
+              {days.map(s => {
+                const on = selected.includes(s.id);
+                return <button key={s.id} onClick={()=>toggleSel(s.id)} className="card"
+                  style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10,
+                    border: on ? "2px solid var(--navy)" : undefined, background: on ? "var(--cream)" : undefined }}>
+                  <div><div style={{ fontWeight:700, fontSize:15 }}>{on ? "✅ " : "⬜ "}{s.title}</div>
+                    <div className="muted" style={{ marginTop:3 }}>{validCount(s)}단어</div></div>
+                </button>;
+              })}
+            </>;
+          })()}
+          <button className="btn full" style={{ marginTop:12, position:"sticky", bottom:12 }} onClick={startSets} disabled={!selected.length}>
+            {selected.length ? `선택한 ${selected.length}개로 배틀 열기 🚀` : "Day를 골라주세요"}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="muted" style={{ marginBottom:8 }}>과목 상관없이 직접 문제를 만들 수 있어요. 한 줄에 하나씩 <b>문제 / 정답</b> 형식으로 적어주세요.</div>
+          <textarea className="field" value={customText} onChange={e=>setCustomText(e.target.value)} rows={9}
+            placeholder={"예)\n조선을 건국한 왕은? / 이성계\n3·1운동이 일어난 해는? / 1919\n임진왜란 때 활약한 장군은? / 이순신\n한글을 만든 왕은? / 세종대왕"}
+            style={{ resize:"vertical", fontFamily:"inherit", lineHeight:1.6 }} />
+          <div className="muted" style={{ marginTop:6, fontSize:11 }}>4문제 이상 필요해요. 오답 보기는 다른 문제의 정답에서 자동으로 만들어집니다.</div>
+          <button className="btn full" style={{ marginTop:12 }} onClick={startCustom}>직접 만든 퀴즈로 배틀 열기 🚀</button>
+        </>
+      )}
+    </div>;
+  }
+
+  const joinLink = `${location.origin}/?battle=${info ? info.code : ""}`;
+  const balloonLayer = (
+    <div style={{ position:"fixed", inset:0, overflow:"hidden", pointerEvents:"none", zIndex:50 }}>
+      {balloons.map(b => (
+        <div key={b.id} className="balloon" style={{ left: b.x + "%" }}>
+          <svg width="52" height="66" viewBox="0 0 52 66">
+            <ellipse cx="26" cy="25" rx="21" ry="25" fill={b.color} />
+            <ellipse cx="18" cy="15" rx="5.5" ry="8" fill="rgba(255,255,255,.45)" />
+            <path d={"M26 49 l-4 6 h8 z"} fill={b.color} />
+            <path d={"M26 55 q6 7 0 11"} stroke="#cbb" strokeWidth="1.2" fill="none" />
+          </svg>
+          <div style={{ textAlign:"center", fontWeight:800, fontSize:12, color:"var(--navy)", marginTop:-8,
+            background:"#fff", borderRadius:8, padding:"1px 7px", boxShadow:"0 1px 5px rgba(0,0,0,.18)", display:"inline-block" }}>{b.name}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return <div className="body">
+    {balloonLayer}
+    <div className="card" style={{ textAlign:"center", padding:16, marginBottom:12 }}>
+      <div className="muted">참가 코드</div>
+      <div style={{ fontSize:38, fontWeight:800, letterSpacing:4, color:"var(--navy)" }}>{info && info.code}</div>
+      <div className="muted" style={{ marginTop:6, wordBreak:"break-all" }}>참가 링크: {joinLink}</div>
+      <div className="muted" style={{ marginTop:2 }}>학생: 로그인 화면 → "🎮 단어 배틀 참가하기" → 코드 입력</div>
+    </div>
+
+    {(st.phase === "lobby" || st.phase === "starting") && (
+      <>
+        <div style={{ fontWeight:700, color:"var(--navy)", margin:"4px 4px 8px" }}>참가한 학생 {st.players.length}명</div>
+        <div className="row" style={{ flexWrap:"wrap", gap:8, marginBottom:14 }}>
+          {st.players.map((n, i) => <span key={i} style={{ padding:"6px 12px", borderRadius:999, background:"var(--cream-deep)", color:"var(--navy)", fontWeight:700, fontSize:13, animation:"popIn .3s ease" }}>{n}</span>)}
+          {!st.players.length && <span className="muted">아직 없어요. 학생들이 코드로 들어오면 여기 떠요.</span>}
+        </div>
+        <button className="btn full" onClick={()=>send({ type:"start" })} disabled={st.phase === "starting"}>
+          {st.phase === "starting" ? "시작 중..." : "🚀 배틀 시작하기"}
+        </button>
+      </>
+    )}
+
+    {st.phase === "question" && st.q && (
+      <div className="card" style={{ padding:18 }}>
+        <div className="muted" style={{ textAlign:"center", marginBottom:8 }}>{st.q.index + 1} / {st.q.total}</div>
+        <div style={{ fontSize:20, fontWeight:800, color:"var(--navy)", textAlign:"center", minHeight:56 }}>{st.q.prompt}</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:14 }}>
+          {st.q.options.map((opt, i) => (
+            <div key={i} style={{ background: BATTLE_OPT[i].c, color:"#fff", borderRadius:12, padding:"16px 10px", fontWeight:800, fontSize:18, textAlign:"center" }}>
+              {BATTLE_OPT[i].s} {opt}
+            </div>
+          ))}
+        </div>
+        <div className="muted" style={{ textAlign:"center", marginTop:12 }}>정답을 맞히면 풍선이 떠올라요 🎈</div>
+      </div>
+    )}
+
+    {st.phase === "reveal" && st.reveal && (
+      <div className="card" style={{ padding:22, textAlign:"center" }}>
+        <div className="muted">정답</div>
+        <div style={{ fontSize:28, fontWeight:800, color:"#2E7D5B", marginTop:6 }}>{st.reveal.answer}</div>
+      </div>
+    )}
+
+    {st.phase === "standings" && (
+      <div className="card" style={{ padding:18 }}>
+        <div style={{ fontSize:18, fontWeight:800, color:"var(--navy)", textAlign:"center", marginBottom:12 }}>🏅 중간 순위</div>
+        {st.board.slice(0, 10).map((b, i) => (
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"9px 12px", borderBottom:"1px solid var(--line)" }}>
+            <span style={{ fontWeight:700 }}>{i + 1}. {b.name}</span><span style={{ fontWeight:700, color:"var(--navy)" }}>{b.score}점</span>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {st.phase === "end" && (
+      <div className="card" style={{ padding:20, textAlign:"center" }}>
+        <div style={{ fontSize:26, fontWeight:800, color:"var(--navy)", marginBottom:14 }}>🏆 최종 순위</div>
+        {st.board.slice(0, 15).map((b, i) => (
+          <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px", borderRadius:10,
+            background: i === 0 ? "#F7EAC0" : "transparent", marginBottom:4 }}>
+            <span style={{ fontWeight: i < 3 ? 800 : 600 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1) + "."} {b.name}</span>
+            <span style={{ fontWeight:700, color:"var(--navy)" }}>{b.score}점</span>
+          </div>
+        ))}
+        {!st.board.length && <div className="muted">참가 기록이 없어요.</div>}
+        <button className="btn" style={{ marginTop:16 }} onClick={()=>{ if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} } setStep("pick"); setInfo(null); setSelected([]); setOpenBook(null); setCustomText(""); setSt({ phase:"lobby", players:[], q:null, reveal:null, board:[] }); }}>새 배틀 열기</button>
+      </div>
+    )}
+  </div>;
+}
+
+// ---------- Root ----------
+
+// ---------- 선생님 로그인 ----------
+function Login({ onAdmin }) {
+  const [apw, setApw] = useState(""); const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const go = async () => {
+    setErr(""); setBusy(true);
+    try {
+      await apiPost("/login/admin", { pw: apw });
+      setAdminKey(apw);   // 이후 관리자 API 호출에 열쇠로 쓴다
+      onAdmin();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="wrap" style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div style={{ width:"100%", maxWidth:360 }}>
+        <a href="/" style={{ display:"inline-block", marginBottom:14, color:"var(--navy-soft)", fontWeight:700, fontSize:13, textDecoration:"none" }}>‹ 학생 화면</a>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ fontSize:32, fontWeight:800, color:"var(--navy)", letterSpacing:"-0.02em" }}>트리톡</div>
+          <div className="muted" style={{ marginTop:6 }}>선생님 화면</div>
+        </div>
+        <div className="card">
+          <label className="label">관리자 비밀번호</label>
+          <input className="field" type="password" value={apw} onChange={e=>setApw(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&go()} placeholder="비밀번호" autoFocus />
+          {err && <div className="err">{err}</div>}
+          <div style={{height:14}} />
+          <button className="btn full" onClick={go} disabled={busy}>{busy ? "확인 중..." : "로그인"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [ok, setOk] = useState(false);
+  if (!ok) return <Login onAdmin={()=>setOk(true)} />;
+  return <AdminView onLogout={()=>{ setAdminKey(""); setOk(false); }} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);

@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# 분리 전 원본(되돌릴 땐 git 이력을 쓴다)
+static/index.html.bak
