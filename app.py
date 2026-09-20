@@ -1997,14 +1997,9 @@ def assess_with_sdk(wav_path: str, reference: str, debug: bool = False):
     """Azure Speech SDK로 발음평가. REST API는 점수를 누락하는 알려진 문제가 있어 SDK를 사용.
 
     ★ 반환값의 text(=recognizedText)를 '아이가 말한 문장'으로 쓰면 안 된다.
-      PronunciationAssessment 를 켜면 인식 결과가 reference 쪽으로 정렬된다 — 아이가
-      읽지 않은 단어까지 그대로 들어간다. 2026-09-19 실측(학생 녹음 89건):
-        · 저장된 recognizedText 의 56%가 참조문장과 글자까지 동일
-        · 같은 오디오를 PA 없이 돌린 순수 STT 는 5.6%만 일치 (단어정확도 57.8% vs PA 95.7%)
-        · 발음점수가 낮을수록 더 심하다 (85점↑ 87.5% / 60점 미만 17.6%)
-          → 발음점수 33점 녹음에도 참조문장이 통째로 찍혔다
-      '뭘 읽었나'가 필요하면 words[]의 errorType 을 보라. 진짜 받아쓰기가 필요하면
-      PronunciationAssessmentConfig 를 적용하지 않은 별도 인식을 한 번 더 돌려야 한다.
+      PronunciationAssessment 를 켜면 인식 결과가 reference 쪽으로 정렬되므로, 아이가
+      읽지 않은 단어까지 들어간 문장이 나온다. 받아쓰기로 오해하기 쉬우니 주의.
+      '뭘 읽었나'가 필요하면 words[] 의 errorType 을 보라(Omission/Mispronunciation).
     """
     import azure.cognitiveservices.speech as speechsdk
 
