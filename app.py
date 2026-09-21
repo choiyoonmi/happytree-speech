@@ -1535,6 +1535,19 @@ def treetalk_points(ym: str = "", days: str = ""):
         except Exception:
             pass
         return None
+    def _after_due(ts, due):
+        """제출/학습 시각이 마감일을 지났는가(마감일 다음날부터 True). ★마감일을 지나서 한 학습은
+        점수 없음(원장 2026-09-21) — 마감 전까지(당일 포함) 한 것만 그 마감주 점수로 인정.
+        ts='M/D HH:MM', due='YYYY-MM-DD'. 같은 해 가정(트리톡 타임스탬프에 연도 없음)."""
+        try:
+            md = _norm_md(ts)
+            if not md or not due: return False
+            dq = str(due).split("-")
+            if len(dq) != 3: return False
+            tm, td = md.split("/")
+            return (int(tm), int(td)) > (int(dq[1]), int(dq[2]))
+        except Exception:
+            return False
     out = {}
     ids = set(all_student_ids()) | set(all_vocab_student_ids())
     for sid in ids:
@@ -1551,6 +1564,8 @@ def treetalk_points(ym: str = "", days: str = ""):
             if dmd is not None:
                 if not in_period(dmd):
                     continue
+                if _after_due(sub.get("submittedAt") or sub.get("completedAt"), adue.get(aid)):
+                    continue   # 마감일 지나서 제출 → 점수 없음
             elif not (in_period(sub.get("submittedAt")) or in_period(sub.get("completedAt"))):
                 continue
             avg = _avg_score_from_sub(sub)
@@ -1568,6 +1583,10 @@ def treetalk_points(ym: str = "", days: str = ""):
             if dmd is not None:
                 if not in_period(dmd):
                     continue
+                _ats = [((bm or {}).get("last") or {}).get("at") for bm in by.values()]
+                _ats = [a for a in _ats if a]
+                if _ats and all(_after_due(a, adue.get(aid)) for a in _ats):
+                    continue   # 자습을 마감일 지나서만 했으면 → 점수 없음
             elif not any(in_period(((bm or {}).get("last") or {}).get("at")) for bm in by.values()):
                 continue
             stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
