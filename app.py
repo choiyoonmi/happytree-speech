@@ -1603,7 +1603,7 @@ def treetalk_points(ym: str = "", days: str = ""):
     return {"ok": True, "ym": cur_ym, "points": out}
 
 
-def _notify_treetalk(student_id, lesson=""):
+def _notify_treetalk(student_id, lesson="", due=""):
     """트리톡 활동 완료 시 담당쌤(학년별, 입력봇이 결정)+원장께 4활동 현황 알림. best-effort."""
     try:
         db = load_db()
@@ -1621,6 +1621,12 @@ def _notify_treetalk(student_id, lesson=""):
         _params = {"learndone": "1", "app": "트리톡", "student": name, "cls": cls, "what": what}
         if lesson:
             _params["lesson"] = lesson
+        # 과제 마감일(할당 날짜) + 완료일(오늘) → 입력봇이 '제때/보충완료' 표시. 마감 전 완료는 제때.
+        import re as _re
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        if _re.match(r"^\d{4}-\d{2}-\d{2}$", str(due or "")):
+            _params["slotdate"] = str(due)
+            _params["donedate"] = (_dt.now(_tz.utc) + _td(hours=9)).strftime("%Y-%m-%d")
         q = urllib.parse.urlencode(_params)
         try:
             urllib.request.urlopen(BOT_NOTIFY_URL + "?" + q, timeout=8).read()
@@ -1714,7 +1720,7 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     # 이번 저장으로 '제출됨' 상태가 새로 된 경우에만 알림 (중간 저장·재저장 시엔 안 보냄)
     if payload.get("status") == "submitted" and prev_status != "submitted":
         try:
-            _notify_treetalk(student_id, lesson=a_title)   # 담당쌤(학년별)+원장께 4활동 현황
+            _notify_treetalk(student_id, lesson=a_title, due=(assignment or {}).get("dueDate", ""))   # 담당쌤(학년별)+원장께 4활동 현황
         except Exception as e:
             print("[telegram] 트리톡 제출 알림 실패:", e)
 
@@ -2866,7 +2872,7 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
         save_vocab(student_id, data)
     if _fire_study:
         try:
-            _notify_treetalk(student_id, lesson=(_a or {}).get("title", ""))   # 자습 완료 → 담당쌤(학년별)+원장께
+            _notify_treetalk(student_id, lesson=(_a or {}).get("title", ""), due=(_a or {}).get("dueDate", ""))   # 자습 완료 → 담당쌤(학년별)+원장께
         except Exception as e:
             print("[treetalk] 자습 알림 실패:", e)
     return rec
