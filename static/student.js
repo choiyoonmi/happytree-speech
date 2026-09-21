@@ -800,7 +800,12 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
           <span className="muted">이 날은 {isStudy ? studyLabel+"이" : "숙제가"} 없어요 🎈</span>
         </div>
       )}
-      {pickedList.map(card)}
+      {/* 미래 과제 미리하기 잠금 — 마감일이 아직 안 온 날은 열지 못한다(그 날부터 가능). 점수 몰아주기 방지. */}
+      {pickedList.length > 0 && (picked > todayKey
+        ? <div className="card" style={{ textAlign:"center", padding:24 }}>
+            <span className="muted">🔒 아직 열리지 않았어요.<br/>마감일({picked.slice(5).replace("-","/")})부터 할 수 있어요.</span>
+          </div>
+        : pickedList.map(card))}
 
       {noDate.length > 0 && (
         <>

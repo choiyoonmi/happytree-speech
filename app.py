@@ -1523,6 +1523,18 @@ def treetalk_points(ym: str = "", days: str = ""):
 
     db = load_db()
     atype = {a.get("id"): a.get("type", "word") for a in db.get("assignments", [])}
+    # ★랭킹 집계는 '과제 마감일'이 속한 기간으로 센다(2026-09-21). 예전엔 '제출한 날' 기준이라,
+    #   밀린 과제·미래 과제를 하루에 몰아 하면 그날 랭킹에 통째로 쌓였다(이채린 새 주 첫날 120점).
+    #   마감일 기준이면 밀린 것은 그 마감주로, 오늘 것은 이번 주로 들어가 공정해진다.
+    #   마감일 없는 과제만 예전처럼 '한 날' 기준으로 폴백한다.
+    adue = {a.get("id"): a.get("dueDate") for a in db.get("assignments", [])}
+    def _due_md(due):
+        try:
+            q = str(due).split("-")
+            if len(q) == 3: return f"{int(q[1])}/{int(q[2])}"
+        except Exception:
+            pass
+        return None
     out = {}
     ids = set(all_student_ids()) | set(all_vocab_student_ids())
     for sid in ids:
@@ -1535,7 +1547,11 @@ def treetalk_points(ym: str = "", days: str = ""):
         for aid, sub in subs.items():
             if (sub or {}).get("status") not in ("submitted", "reviewed"):
                 continue
-            if not (in_period(sub.get("submittedAt")) or in_period(sub.get("completedAt"))):
+            dmd = _due_md(adue.get(aid))
+            if dmd is not None:
+                if not in_period(dmd):
+                    continue
+            elif not (in_period(sub.get("submittedAt")) or in_period(sub.get("completedAt"))):
                 continue
             avg = _avg_score_from_sub(sub)
             if avg is None:
@@ -1548,7 +1564,11 @@ def treetalk_points(ym: str = "", days: str = ""):
             vocab = {}
         for aid, rec in vocab.items():
             by = (rec or {}).get("byMode") or {}
-            if not any(in_period(((bm or {}).get("last") or {}).get("at")) for bm in by.values()):
+            dmd = _due_md(adue.get(aid))
+            if dmd is not None:
+                if not in_period(dmd):
+                    continue
+            elif not any(in_period(((bm or {}).get("last") or {}).get("at")) for bm in by.values()):
                 continue
             stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
             if sum(1 for s in stages if by.get(s)) / len(stages) < 0.5:
@@ -1625,6 +1645,22 @@ def _rounds_done(items, item_count, rounds_total):
     return done
 
 
+def _assignment_is_future(assignment) -> bool:
+    """마감일이 아직 오지 않은(오늘 이후) 과제인가. 미래 과제 미리하기 차단용.
+    dueDate 는 'YYYY-MM-DD' 문자열, _today_kr()도 같은 형식이라 문자열 비교가 곧 날짜 비교다.
+    마감일이 없는 과제는 잠그지 않는다(날짜를 판단할 수 없으므로)."""
+    due = (assignment or {}).get("dueDate")
+    return bool(due) and str(due) > _today_kr()
+
+def _find_assignment(aid):
+    try:
+        return next((a for a in load_db()["assignments"] if a["id"] == aid), None)
+    except Exception:
+        return None
+
+FUTURE_LOCK_MSG = "아직 열리지 않은 과제예요. 마감일부터 할 수 있어요 🔒"
+
+
 @app.post("/api/submission/{assignment_id}/{student_id}")
 def save_submission(assignment_id: str, student_id: str, payload: dict = Body(...)):
     import time
@@ -1632,6 +1668,9 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     # 과제 정보(회차·항목 수)
     db = load_db()
     assignment = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
+    # ★미래 과제(마감일이 아직 안 옴)는 미리 할 수 없다 — 점수 몰아주기 방지(2026-09-21).
+    if _assignment_is_future(assignment):
+        raise HTTPException(403, FUTURE_LOCK_MSG)
     rounds_total = int((assignment or {}).get("rounds", 3) or 3)
     item_count = len((assignment or {}).get("items", []))
     a_title = (assignment or {}).get("title", "")
@@ -2193,6 +2232,8 @@ async def score_take(assignment_id: str, student_id: str, background: Background
     그 학생 제출의 whole[round](또는 items[index][round]) take 에 점수를 써넣는다."""
     if not AZURE_KEY:
         raise HTTPException(500, "서버에 AZURE_SPEECH_KEY가 설정되어 있지 않아요.")
+    if _assignment_is_future(_find_assignment(assignment_id)):   # 미래 과제 미리하기 차단
+        raise HTTPException(403, FUTURE_LOCK_MSG)
     raw_bytes = await audio.read()
     if not raw_bytes:
         raise HTTPException(400, "오디오가 비어 있어요.")
@@ -2776,6 +2817,8 @@ VOCAB_STAGES = {"flash", "choice", "spell", "test"}   # 자습 4단계
 def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(...)):
     """단어 자습 한 판 결과 저장. body: {mode, correct, total}
     mode='flash'(카드암기)는 점수 없이 '했음'만 기록. 4단계 모두 하면 completedAt 기록."""
+    if _assignment_is_future(_find_assignment(assignment_id)):   # 미래 과제 미리하기 차단
+        raise HTTPException(403, FUTURE_LOCK_MSG)
     mode = str(payload.get("mode") or "test")[:20]
     is_noscore = mode in ("flash", "smeaning")   # 점수 없이 '했음'만 기록하는 모드(카드암기·문장 뜻확인)
     correct = max(0, int(payload.get("correct") or 0))
