@@ -2873,6 +2873,19 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
     return rec
 
 
+@app.delete("/api/vocab/{assignment_id}/{student_id}")
+def delete_vocab(assignment_id: str, student_id: str):
+    """한 학생의 특정 과제 자습 기록 삭제 → 그 과제 자습을 '안 한 것'으로 되돌림.
+    (미리 한 미래 과제 정리·선생님 취소용. 제출 삭제(delete_submission)와 짝.)"""
+    with _sub_lock(student_id):
+        voc = load_vocab(student_id)
+        had = assignment_id in voc
+        if had:
+            del voc[assignment_id]
+            save_vocab(student_id, voc)
+    return {"ok": True, "deleted": had}
+
+
 @app.get("/api/vocab/{student_id}")
 def get_vocab(student_id: str):
     """한 학생의 단어 자습 기록 전체 {assignment_id: record}."""

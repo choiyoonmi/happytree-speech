@@ -285,6 +285,10 @@ function StudentView({ student, onLogout }) {
   }, []);
 
   const openA = async (a) => {
+    // 재학습(완료한 과제 다시 열기): 완료 메시지 — 점수는 더 오르지 않음(다른 앱과 동일)
+    const _st = statusMap[a.id];
+    if ((_st === "submitted" || _st === "reviewed") &&
+        !confirm("✅ 이 학습을 완료했어요!\n\n다시 하면 복습이에요. 점수는 더 오르지 않아요.\n복습할까요?")) return;
     setOpen(a);
     pingActivity(student.id, "record", a.title);
     const s = await apiGet(`/submission/${a.id}/${student.id}`);
