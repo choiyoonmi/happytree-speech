@@ -804,12 +804,9 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
           <span className="muted">이 날은 {isStudy ? studyLabel+"이" : "숙제가"} 없어요 🎈</span>
         </div>
       )}
-      {/* 미래 과제 미리하기 잠금 — 마감일이 아직 안 온 날은 열지 못한다(그 날부터 가능). 점수 몰아주기 방지. */}
-      {pickedList.length > 0 && (picked > todayKey
-        ? <div className="card" style={{ textAlign:"center", padding:24 }}>
-            <span className="muted">🔒 아직 열리지 않았어요.<br/>마감일({picked.slice(5).replace("-","/")})부터 할 수 있어요.</span>
-          </div>
-        : pickedList.map(card))}
+      {/* 트리톡 과제 날짜는 '마감일'이라 그 전에 미리 해도 된다(선생님 방침). 미래 잠금 없음.
+         몰아하기로 이번 주 점수 부풀리는 건 점수 집계가 '마감일 주' 기준이라 막힌다. */}
+      {pickedList.map(card)}
 
       {noDate.length > 0 && (
         <>

@@ -1645,22 +1645,6 @@ def _rounds_done(items, item_count, rounds_total):
     return done
 
 
-def _assignment_is_future(assignment) -> bool:
-    """마감일이 아직 오지 않은(오늘 이후) 과제인가. 미래 과제 미리하기 차단용.
-    dueDate 는 'YYYY-MM-DD' 문자열, _today_kr()도 같은 형식이라 문자열 비교가 곧 날짜 비교다.
-    마감일이 없는 과제는 잠그지 않는다(날짜를 판단할 수 없으므로)."""
-    due = (assignment or {}).get("dueDate")
-    return bool(due) and str(due) > _today_kr()
-
-def _find_assignment(aid):
-    try:
-        return next((a for a in load_db()["assignments"] if a["id"] == aid), None)
-    except Exception:
-        return None
-
-FUTURE_LOCK_MSG = "아직 열리지 않은 과제예요. 마감일부터 할 수 있어요 🔒"
-
-
 @app.post("/api/submission/{assignment_id}/{student_id}")
 def save_submission(assignment_id: str, student_id: str, payload: dict = Body(...)):
     import time
@@ -1668,9 +1652,9 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     # 과제 정보(회차·항목 수)
     db = load_db()
     assignment = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
-    # ★미래 과제(마감일이 아직 안 옴)는 미리 할 수 없다 — 점수 몰아주기 방지(2026-09-21).
-    if _assignment_is_future(assignment):
-        raise HTTPException(403, FUTURE_LOCK_MSG)
+    # ※트리톡의 과제 날짜는 '마감일'이라 학생이 그 전에 미리 해도 된다(선생님 방침, 2026-09-21).
+    #   그래서 미래 잠금은 두지 않는다 — 몰아하기로 이번 주 점수를 부풀리는 건 /api/points 가
+    #   '마감일이 속한 주'로 세서 막는다(미리 해도 그 과제는 마감 주에만 잡힘).
     rounds_total = int((assignment or {}).get("rounds", 3) or 3)
     item_count = len((assignment or {}).get("items", []))
     a_title = (assignment or {}).get("title", "")
@@ -2232,8 +2216,6 @@ async def score_take(assignment_id: str, student_id: str, background: Background
     그 학생 제출의 whole[round](또는 items[index][round]) take 에 점수를 써넣는다."""
     if not AZURE_KEY:
         raise HTTPException(500, "서버에 AZURE_SPEECH_KEY가 설정되어 있지 않아요.")
-    if _assignment_is_future(_find_assignment(assignment_id)):   # 미래 과제 미리하기 차단
-        raise HTTPException(403, FUTURE_LOCK_MSG)
     raw_bytes = await audio.read()
     if not raw_bytes:
         raise HTTPException(400, "오디오가 비어 있어요.")
@@ -2817,8 +2799,6 @@ VOCAB_STAGES = {"flash", "choice", "spell", "test"}   # 자습 4단계
 def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(...)):
     """단어 자습 한 판 결과 저장. body: {mode, correct, total}
     mode='flash'(카드암기)는 점수 없이 '했음'만 기록. 4단계 모두 하면 completedAt 기록."""
-    if _assignment_is_future(_find_assignment(assignment_id)):   # 미래 과제 미리하기 차단
-        raise HTTPException(403, FUTURE_LOCK_MSG)
     mode = str(payload.get("mode") or "test")[:20]
     is_noscore = mode in ("flash", "smeaning")   # 점수 없이 '했음'만 기록하는 모드(카드암기·문장 뜻확인)
     correct = max(0, int(payload.get("correct") or 0))
