@@ -1436,34 +1436,71 @@ def practiced_today():
 
 
 @app.get("/api/due-today")
-def due_today():
-    """오늘(KST) 마감인 트리톡 숙제가 있는데 아직 다 제출하지 않은 학생 id 목록(notDone).
-    '오늘 마감 숙제 안 한 사람'만 명단에 띄우려는 것 — 오늘 마감 숙제가 없는 학생은 안 나온다.
-    한 학생에게 오늘 마감 과제가 여럿이면(단어+문장) 하나라도 미제출이면 '안 함'(=문장녹음 규칙도 자연 처리).
-    id 만 돌려주므로 개인정보 없음. 리포트와 같은 배정 매칭(assignedIds, 비면 전체)."""
-    from datetime import datetime, timezone, timedelta
-    today = (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y-%m-%d")
+def due_today(back: int = 14):
+    """트리톡 숙제를 '마감일' 기준으로 못 끝낸 학생 id 목록.
+    트리톡은 다른 앱과 달리 과제마다 마감일이 있다 — 그 전까지만 하면 된다.
+    그래서 '오늘 안 했다'가 아니라 '마감이 됐는데 안 했다'로 판단한다(원장 2026-09-22).
+
+      notDone    = 오늘 마감분을 아직 안 낸 학생        (★예전과 같은 뜻 — 알림톡 크론이 이걸 쓴다)
+      overdue    = 마감이 지났는데(back일 이내) 아직 안 낸 학생 = '밀린 학생'
+      notDoneAll = notDone ∪ overdue                     (키오스크·관리자 화면이 쓴다)
+
+    ★예전에는 notDone(오늘 마감분)만 있어서, 마감을 놓치면 다음 날 명단에서 조용히 사라졌다.
+      overdue 를 따로 둔 이유: 알림톡은 건당 요금이 나가므로 발송량이 말없이 늘면 안 된다.
+      화면만 먼저 넓히고, 알림톡을 넓힐지는 따로 정한다.
+    back=지난 마감을 며칠까지 거슬러 볼지(기본 14일, 0~120). 너무 늘리면 옛 미제출이 계속 쌓인다.
+    id 만 돌려주므로 개인정보 없음. 리포트와 같은 배정 매칭(assignedIds, 비면 전체).
+    한 학생에게 같은 묶음 과제가 여럿이면(단어+문장) 하나라도 미제출이면 '안 함'."""
+    from datetime import datetime, timezone, timedelta, date as _date
+    now_kr = datetime.now(timezone.utc) + timedelta(hours=9)
+    today_d = now_kr.date()
+    today = today_d.strftime("%Y-%m-%d")
+    try:
+        back_n = max(0, min(int(back), 120))
+    except Exception:
+        back_n = 14
+    floor_d = today_d - timedelta(days=back_n)
+
+    def _iso(s):
+        try:
+            y, m, dd = str(s).split("-")
+            return _date(int(y), int(m), int(dd))
+        except Exception:
+            return None
+
     db = load_db()
-    due = [a for a in db.get("assignments", [])
-           if a.get("published", True) and a.get("dueDate") == today and a.get("type") in ("word", "sentence")]
     all_ids = [str(s.get("id")) for s in db.get("students", [])]
-    by_student = {}
-    for a in due:
+    due_by, over_by = {}, {}          # 학생 → 아직 안 끝난 과제 id (오늘 마감 / 지난 마감)
+    for a in db.get("assignments", []):
+        if not a.get("published", True) or a.get("type") not in ("word", "sentence"):
+            continue
+        dd = _iso(a.get("dueDate"))
+        if dd is None or dd > today_d or dd < floor_d:   # 마감 없음·아직 안 옴·너무 오래됨
+            continue
+        bucket = due_by if dd == today_d else over_by
         ids = a.get("assignedIds") or []
         targets = [str(x) for x in ids] if ids else all_ids     # 비면 전체 배정
         for sid in targets:
-            by_student.setdefault(sid, []).append(a["id"])
-    not_done = []
-    for sid, aids in by_student.items():
-        try:
-            subs = load_student_subs(sid) or {}
-        except Exception:
-            subs = {}
+            bucket.setdefault(sid, []).append(a["id"])
+
+    subs_cache = {}                    # 학생 제출 파일은 한 번씩만 읽는다
+    def _has_unfinished(sid, aids):
+        if sid not in subs_cache:
+            try:
+                subs_cache[sid] = load_student_subs(sid) or {}
+            except Exception:
+                subs_cache[sid] = {}
+        subs = subs_cache[sid]
         for aid in aids:
             if (subs.get(aid) or {}).get("status") not in ("submitted", "reviewed"):
-                not_done.append(sid)          # 오늘 마감분 하나라도 미제출 → '안 함'
-                break
-    return {"ok": True, "date": today, "notDone": sorted(not_done)}
+                return True
+        return False
+
+    not_done = sorted(sid for sid, aids in due_by.items() if _has_unfinished(sid, aids))
+    overdue  = sorted(sid for sid, aids in over_by.items() if _has_unfinished(sid, aids))
+    return {"ok": True, "date": today, "back": back_n,
+            "notDone": not_done, "overdue": overdue,
+            "notDoneAll": sorted(set(not_done) | set(overdue))}
 
 
 @app.get("/api/points")
