@@ -1535,9 +1535,19 @@ def treetalk_points(ym: str = "", days: str = ""):
         except Exception:
             pass
         return None
-    # ★마감일이 속한 '주' 기준으로만 센다(원장 2026-09-22): 마감일을 지나도 그 주간 안에 완료하면
-    #   점수를 주고, 지난 주 마감 과제를 이번 주에 늦게 완료하면 이번 주엔 안 준다(그 과제의 마감주로 감).
-    #   → dueDate 의 M/d 가 이번 주(days) 안이면 인정. 제출/완료 시각은 따로 안 본다(마감 지나도 그 주면 OK).
+    def _after_due(ts, due):
+        """제출/학습 시각이 마감일을 지났는가(마감일 다음날부터 True). ★마감일을 지나서 한 학습은
+        점수 없음(원장 2026-09-21) — 마감 전까지(당일 포함) 한 것만 그 마감주 점수로 인정.
+        ts='M/D HH:MM', due='YYYY-MM-DD'. 같은 해 가정(트리톡 타임스탬프에 연도 없음)."""
+        try:
+            md = _norm_md(ts)
+            if not md or not due: return False
+            dq = str(due).split("-")
+            if len(dq) != 3: return False
+            tm, td = md.split("/")
+            return (int(tm), int(td)) > (int(dq[1]), int(dq[2]))
+        except Exception:
+            return False
     out = {}
     ids = set(all_student_ids()) | set(all_vocab_student_ids())
     for sid in ids:
@@ -1554,7 +1564,8 @@ def treetalk_points(ym: str = "", days: str = ""):
             if dmd is not None:
                 if not in_period(dmd):
                     continue
-                # ★마감일이 그 주간이면, 마감일을 지나서 완료했어도 그 주 점수로 인정(원장 2026-09-22)
+                if _after_due(sub.get("submittedAt") or sub.get("completedAt"), adue.get(aid)):
+                    continue   # 마감일 지나서 제출 → 점수 없음
             elif not (in_period(sub.get("submittedAt")) or in_period(sub.get("completedAt"))):
                 continue
             avg = _avg_score_from_sub(sub)
@@ -1572,7 +1583,10 @@ def treetalk_points(ym: str = "", days: str = ""):
             if dmd is not None:
                 if not in_period(dmd):
                     continue
-                # ★마감일이 그 주간이면, 마감일을 지나서 했어도 그 주 점수로 인정(원장 2026-09-22)
+                _ats = [((bm or {}).get("last") or {}).get("at") for bm in by.values()]
+                _ats = [a for a in _ats if a]
+                if _ats and all(_after_due(a, adue.get(aid)) for a in _ats):
+                    continue   # 자습을 마감일 지나서만 했으면 → 점수 없음
             elif not any(in_period(((bm or {}).get("last") or {}).get("at")) for bm in by.values()):
                 continue
             stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
@@ -2039,30 +2053,6 @@ def assess_with_sdk(wav_path: str, reference: str, debug: bool = False):
 
     speech_config = speechsdk.SpeechConfig(subscription=AZURE_KEY, region=AZURE_REGION)
     speech_config.speech_recognition_language = "en-US"
-
-    # ── 읽기가 느린 학생이 "녹음이 자꾸 끊긴다"고 하는 자리 ──────────────────
-    # Azure 는 말이 잠깐 멎으면 "발화가 끝났다"고 보고 인식을 닫는다. 그 기본값이
-    # **0.5초**다. 또박또박 읽거나 낱말 사이에서 한 번 쉬는 아이는 거의 매번 거기서
-    # 잘리고, **잘린 뒤쪽은 통째로 Omission** 이 되어 completeness·fluency 가 무너진다.
-    # 학생 눈에는 "끝까지 읽었는데 점수가 엉망"으로 보인다.
-    #   오디오는 **파일**로 보내므로 이 값을 늘려도 손해가 없다 — 파일이 끝나면 어차피 끝난다.
-    #   빨리 읽는 아이에게는 아무 영향이 없다.
-    # SEG  : 문장 가운데 쉬어도 되는 시간 (Azure 허용 100~5000ms)
-    # INIT : 녹음 시작 뒤 첫 소리까지 기다리는 시간 (기본 5초 — 느린 아이는 여기서도 잘린다)
-    # MAXT : 한 덩어리로 인식하는 최대 길이 (기본 20초)
-    _SEG  = os.environ.get("SPEECH_SEGMENTATION_MS", "3000")
-    _INIT = os.environ.get("SPEECH_INITIAL_SILENCE_MS", "15000")
-    _MAXT = os.environ.get("SPEECH_SEGMENT_MAX_MS", "60000")
-    for _pid, _v in (
-        (speechsdk.PropertyId.Speech_SegmentationSilenceTimeoutMs, _SEG),
-        (speechsdk.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs, _INIT),
-        (speechsdk.PropertyId.Speech_SegmentationMaximumTimeMs, _MAXT),
-    ):
-        # SDK 판이 바뀌어 어느 하나를 안 받아도 채점 자체는 굴러가야 한다
-        try:
-            speech_config.set_property(_pid, str(_v))
-        except Exception as _e:
-            print(f"[assess] 무음 설정 건너뜀 {_pid}: {_e}")
 
     pa_config = speechsdk.PronunciationAssessmentConfig(
         reference_text=reference,
