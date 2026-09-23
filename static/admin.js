@@ -1333,7 +1333,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, busy }) {
+function BookCalendar({ list, onMove, onRespread, busy }) {
   const dated = list.filter(a => a.dueDate);
   const [ym, setYm] = useState(() => {
     const first = dated.map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
@@ -1343,8 +1343,10 @@ function BookCalendar({ list, onMove, busy }) {
   const [sel, setSel] = useState(null);              // 톡 눌러서 고른 과제(누른 뒤 날짜를 누르면 이동)
   const [drag, setDrag] = useState(null);
   const [closed, setClosed] = useState({ days: new Set(), names: {} });
+  const [reStart, setReStart] = useState(() => new Date().toISOString().slice(0,10));
   const dragRef = useRef(null);
   dragRef.current = drag;
+  const navRef = useRef(0);   // 드래그 중 달 넘김 과속 방지
 
   useEffect(() => {
     apiGet("/closed-days")
@@ -1357,6 +1359,8 @@ function BookCalendar({ list, onMove, busy }) {
   const byDate = {};
   dated.forEach(a => { (byDate[a.dueDate] = byDate[a.dueDate] || []).push(a); });
   Object.values(byDate).forEach(v => v.sort((x, y) => (dayNum(x.title) || 0) - (dayNum(y.title) || 0)));
+
+  const pastList = dated.filter(a => a.dueDate < todayKey).sort((x, y) => x.dueDate.localeCompare(y.dueDate));
 
   const shortOf = (t) => {
     const m = /(?:day|unit|lesson)\s*\d+\s*(?:\(\s*\d+\s*\/\s*\d+\s*\))?/i.exec(t || "");
@@ -1387,6 +1391,15 @@ function BookCalendar({ list, onMove, busy }) {
       if (!moved && Math.abs(ev.clientX - sx) < 6 && Math.abs(ev.clientY - sy) < 6) return;
       moved = true;
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      /* ★끌고 있는 동안 ‹ › 위에 잠시 머물면 달이 넘어간다 — 지난 달 과제를
+         다음 달로 미룰 수 있게(원장 2026-09-23). 너무 빨리 넘어가지 않게 500ms 간격. */
+      const nav = el && el.closest ? el.closest("[data-nav]") : null;
+      if (nav) {
+        const now = Date.now();
+        if (now - navRef.current > 500) { navRef.current = now; move(nav.getAttribute("data-nav") === "prev" ? -1 : 1); }
+        setDrag({ a, x: ev.clientX, y: ev.clientY, over: null });
+        return;
+      }
       const cell = el && el.closest ? el.closest("[data-day]") : null;
       setDrag({ a, x: ev.clientX, y: ev.clientY, over: cell ? cell.getAttribute("data-day") : null });
     };
@@ -1412,11 +1425,11 @@ function BookCalendar({ list, onMove, busy }) {
   return (
     <div className="card" style={{ padding: 12, marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <button onClick={() => move(-1)} style={{ background: "none", fontSize: 20, color: "var(--navy)", padding: "0 10px" }}>‹</button>
+        <button data-nav="prev" onClick={() => move(-1)} style={{ background: "none", fontSize: 20, color: "var(--navy)", padding: "2px 14px" }}>‹</button>
         <div style={{ fontWeight: 800, fontSize: 15, color: "var(--navy)" }}>
           {ym.y}년 {ym.m + 1}월 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· 과제 {inMonth}개</span>
         </div>
-        <button onClick={() => move(1)} style={{ background: "none", fontSize: 20, color: "var(--navy)", padding: "0 10px" }}>›</button>
+        <button data-nav="next" onClick={() => move(1)} style={{ background: "none", fontSize: 20, color: "var(--navy)", padding: "2px 14px" }}>›</button>
       </div>
 
       <label className="row" style={{ gap: 6, fontSize: 12, marginBottom: 8, cursor: "pointer", alignItems: "center" }}>
@@ -1425,8 +1438,28 @@ function BookCalendar({ list, onMove, busy }) {
       </label>
       <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>
         과제를 끌어다 다른 날에 놓으세요. 톡 누른 뒤 날짜를 눌러도 옮겨집니다.
+        끌고 있는 동안 ‹ › 위에 머물면 다른 달로 넘어갑니다.
         {sel && <b style={{ color: "var(--gold)" }}> · 고른 과제: {shortOf(sel.title)} (날짜를 누르세요)</b>}
       </div>
+
+      {/* ★마감이 지난 과제를 한꺼번에 앞으로 끌어오기(원장 2026-09-23).
+           하나씩 끌어 옮기기엔 밀린 게 너무 많을 때 쓴다. 지난 것부터 뒤 과제까지
+           지금 쓰는 수업 요일에 다시 줄 세운다. */}
+      {onRespread && pastList.length > 0 && (
+        <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10,
+          background: "#FFF6E0", border: "1px solid #F0D9A8", borderRadius: 8, padding: "7px 9px" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#8A6D0F" }}>⏰ 마감 지난 과제 {pastList.length}개</span>
+          <input className="field" type="date" value={reStart} onChange={e => setReStart(e.target.value)}
+            style={{ width: 148, padding: "4px 6px", fontSize: 12, margin: 0 }} />
+          <button className="btn" style={{ fontSize: 12, padding: "5px 10px" }} disabled={busy}
+            onClick={() => {
+              const n = list.filter(x => x.dueDate && x.dueDate >= pastList[0].dueDate).length;
+              if (confirm(`마감이 지난 ${pastList.length}개를 포함해, ${pastList[0].dueDate} 부터의 과제 ${n}개를
+${reStart} 부터 지금 수업 요일에 다시 줄 세울까요?`))
+                onRespread(pastList[0].dueDate, reStart);
+            }}>이 날짜부터 다시 배치</button>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3, marginBottom: 4 }}>
         {["일", "월", "화", "수", "목", "금", "토"].map((n, i) => (
@@ -1527,6 +1560,23 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
         });
         if (!r.ok) throw new Error("옮기지 못했어요.");
       }
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  /* 달력의 '이 날짜부터 다시 배치' — 마감 지난 과제부터 끝까지를
+     지금 쓰는 수업 요일에 다시 줄 세운다(기존 respread 재사용).
+     요일은 지금 마감일들이 쓰는 요일을 그대로 따른다 — 선생님이 따로 고를 것 없게. */
+  const respreadFrom = async (fromDue, startDate) => {
+    setBusy(true); setErr("");
+    try {
+      const targets = list.filter(x => x.dueDate && x.dueDate >= fromDue);
+      const wds = [...new Set(list.filter(x => x.dueDate).map(x => new Date(x.dueDate + "T00:00:00").getDay()))];
+      await apiPost("/assignments/reschedule", {
+        mode: "respread", ids: targets.map(x => x.id), startDate,
+        weekdays: wds.length ? wds : [1, 2, 3, 4, 5],
+      });
       await reload();
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -2198,7 +2248,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       )}
 
       {panel === "cal" && (
-        <BookCalendar list={list} onMove={moveOnCalendar} busy={busy} />
+        <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} busy={busy} />
       )}
 
       {panel === "shift" && (
