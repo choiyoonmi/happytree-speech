@@ -725,7 +725,7 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
         opacity:.62, background:"#F4F6F8" }}>
       <div style={{ minWidth:0 }}>
         <div className="row" style={{ marginBottom:5 }}>
-          <Badge tone="b-gray">{a.type==="sentence"?"문장":a.type==="exam"?"진급시험":"단어"}</Badge>
+          <Badge tone="b-gray">{a.type==="sentence"?"문장":"단어"}</Badge>   {/* 진급시험은 이 창을 안 타서 여기 안 온다 */}
           <span className="muted">{openLabel(a)}부터 열려요</span>
         </div>
         <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>

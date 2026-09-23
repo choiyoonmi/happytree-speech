@@ -734,8 +734,15 @@ except Exception:
 
 
 def _open_from(a) -> str:
-    """이 과제가 열리는 날(YYYY-MM-DD). 마감일이 없는 과제는 '' (언제나 열림)."""
+    """이 과제가 열리는 날(YYYY-MM-DD). '' 면 언제나 열린 과제다.
+
+    ★진급시험(type=exam)은 이 창을 안 탄다(원장 2026-09-23). 시험은 숫자를 미리 하는 게 아니라
+      수업 시간에 맞춰 보는 것이라, 마감 3일 전이 될 때까지 잠기면 정해둔 날 응시를 못 한다.
+      여기서 '' 를 돌려주면 화면(lockedOf)과 서버(_too_early)가 한꺼번에 예외 처리된다.
+    마감일이 없는 과제도 언제나 열린다."""
     from datetime import date as _date, timedelta
+    if (a or {}).get("type") == "exam":
+        return ""
     try:
         y, m, d = str((a or {}).get("dueDate") or "").split("-")
         return (_date(int(y), int(m), int(d)) - timedelta(days=EARLY_OPEN_DAYS)).isoformat()
@@ -3034,9 +3041,8 @@ def submit_exam(assignment_id: str, student_id: str, payload: dict = Body(...)):
     seconds = max(0, int(payload.get("seconds") or 0))
     by_type = payload.get("byType") or {}
     now = _now_kr()
-    _early = next((x for x in load_db().get("assignments", []) if x.get("id") == assignment_id), None)
-    if _too_early(_early):
-        raise HTTPException(403, _too_early_msg(_early))
+    # ※진급시험은 '마감 3일 전부터' 창(EARLY_OPEN_DAYS)을 안 탄다 — 수업 시간에 맞춰 보는 것이라
+    #   선생님이 정한 날 바로 응시할 수 있어야 한다(_open_from 이 exam 에는 '' 을 돌려준다).
     with _sub_lock(student_id):
         data = load_exam(student_id)
         rec = data.get(assignment_id) or {"attempts": 0, "best": None, "bestSeconds": None}
