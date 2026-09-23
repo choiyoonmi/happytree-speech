@@ -719,6 +719,12 @@ def get_assignments(request: Request):
     #   관리자가 보관함을 관리할 때만 ?archived=1 로 전체를 받는다.
     if not (admin and request.query_params.get("archived") == "1"):
         rows = [a for a in rows if a.get("published") is not False]
+    # ★학생 화면은 자기 과제만 쓴다. 전에는 학원 과제 969개(520KB)를 다 보내고
+    #   브라우저가 44개만 골랐다 — 휴대데이터로는 여기서 몇 초가 날아간다
+    #   (원장 2026-09-23 "트리톡 로딩이 느려졌다"). 골라내는 기준은 학생 화면(mine)과 똑같다.
+    if sid and not admin:
+        rows = [a for a in rows
+                if (not a.get("assignedIds")) or sid in [str(x) for x in a["assignedIds"]]]
     return _light_assignments(rows)
 
 
