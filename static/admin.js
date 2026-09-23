@@ -1346,19 +1346,6 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
   const [reStart, setReStart] = useState(() => new Date().toISOString().slice(0,10));
   const [withPast, setWithPast] = useState(false);   // 밀린 것까지 끌어올지
   const [hist, setHist] = useState([]);   // 최근 일정 변경(되돌리기용)
-  /* ★수업 요일 — 원장님 제안(2026-09-23): "수업 없는 요일을 끕어 두면
-     그 뒤 주·다음 달까지 자동으로 과제가 안 들어가게." 요일 하나만 끄면 끝까지 적용된다.
-     안 정해 두면 지금 마감일들이 쓰는 요일을 그대로 본다. */
-  const [classDays, setClassDays] = useState(savedDays || null);
-  const inferred = [...new Set(dated.map(a => new Date(dueOf(a) + "T00:00:00").getDay()))].filter(w => w >= 1 && w <= 5);
-  const days = classDays || (inferred.length ? inferred : [1, 2, 3, 4, 5]);
-  const isClassDay = (w) => days.indexOf(w) >= 0;
-  const toggleDay = (w) => {
-    const next = isClassDay(w) ? days.filter(x => x !== w) : days.concat([w]).sort();
-    if (!next.length) return;          // 전부 끄면 놓을 데가 없다
-    setClassDays(next);
-    if (onClassDays) onClassDays(next);
-  };
   const dragRef = useRef(null);
   dragRef.current = drag;
   const navRef = useRef(0);   // 드래그 중 달 넘김 과속 방지
@@ -1375,6 +1362,20 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
     });
   }, [list]);
   const dueOf = (a) => local[a.id] || a.dueDate;
+
+  /* ★수업 요일 — 원장님 제안(2026-09-23): "수업 없는 요일을 끕어 두면
+     그 뒤 주·다음 달까지 자동으로 과제가 안 들어가게." 요일 하나만 끄면 끝까지 적용된다.
+     안 정해 두면 지금 마감일들이 쓰는 요일을 그대로 본다. */
+  const [classDays, setClassDays] = useState(savedDays || null);
+  const inferred = [...new Set(dated.map(a => new Date(dueOf(a) + "T00:00:00").getDay()))].filter(w => w >= 1 && w <= 5);
+  const days = classDays || (inferred.length ? inferred : [1, 2, 3, 4, 5]);
+  const isClassDay = (w) => days.indexOf(w) >= 0;
+  const toggleDay = (w) => {
+    const next = isClassDay(w) ? days.filter(x => x !== w) : days.concat([w]).sort();
+    if (!next.length) return;          // 전부 끄면 놓을 데가 없다
+    setClassDays(next);
+    if (onClassDays) onClassDays(next);
+  };
 
   const loadHist = () => apiGet("/schedule-history").then(d => setHist(d.items || [])).catch(()=>{});
   useEffect(() => { loadHist(); }, [list]);   // 일정이 바뀔 때마다 다시
