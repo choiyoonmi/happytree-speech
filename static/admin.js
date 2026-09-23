@@ -1524,7 +1524,8 @@ ${reStart} 부터 지금 수업 요일에 다시 줄 세울까요?`))
 }
 
 function BookDetail({ book, group, list, reload, onBack, students }) {
-  const [panel, setPanel] = useState(null);   // 'shift' | 'respread' | null
+  const [panel, setPanel] = useState(null);   // 열려 있는 도구 패널
+  const [calOpen, setCalOpen] = useState(false);   // 달력에서 과제 내기 상자를 여느냐
   const [days, setDays] = useState(7);
   const [fromDate, setFromDate] = useState("");
   const [shiftKeep, setShiftKeep] = useState(true);   // 요일 패턴 유지하며 미루기
@@ -2052,30 +2053,40 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
         </div>
       </div>
 
-      <div className="row" style={{ gap:6, marginBottom:6 }}>
-        <button className={panel==="cal" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="cal"?null:"cal"); setErr(""); }}>📅 달력에서 옮기기</button>
-      </div>
-      <div className="row" style={{ gap:6, marginBottom:6 }}>
-        <button className={panel==="shift" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="shift"?null:"shift"); setErr(""); }}>⏭ 뒤로 미루기</button>
-        <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="respread"?null:"respread"); setRespreadStartIdx(0); setErr(""); }}>🗓 일정 다시 짜기</button>
-      </div>
-      <div className="row" style={{ gap:6, marginBottom:6 }}>
-        <button className={panel==="rounds" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="rounds"?null:"rounds"); setRoundsFrom(""); setNewRounds(2); setNewRecordMode(""); setErr(""); }}>🔁 녹음 회차·방식 바꾸기</button>
-        <button className={panel==="splitall" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="splitall"?null:"splitall"); setSplitAllStartIdx(0); setErr(""); }}>✂️ 교재 전체 나누기</button>
-      </div>
-      <div className="row" style={{ gap:6, marginBottom:12 }}>
-        <button className={panel==="assign" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
-          onClick={()=>{ setPanel(panel==="assign"?null:"assign"); setAssignFromIdx(0); setAssignToIdx(null); setAssignRepeat(1); setErr(""); }}>📤 과제 내기</button>
-        <button className="btn-ghost" style={{ flex:1, fontSize:13 }}
-          onClick={makeVocabTest} disabled={testBusy}>
-          {testBusy ? "시험지 만드는 중..." : "📝 단어시험지 만들기"}
-        </button>
-      </div>
+      {/* ★버튼 6개가 줄마다 눈에 밟혀 지저분하다는 원장님 지적(2026-09-23).
+          '달력에서 과제 내기' 하나로 묶고, 나머지는 그 안에 작은 칩으로 넣었다.
+          기능은 하나도 안 없애고 들어가는 문만 하나로 줄인 것. */}
+      <button className={calOpen ? "btn full" : "btn-ghost full"} style={{ fontSize:14, marginBottom:10 }}
+        onClick={()=>{ const v=!calOpen; setCalOpen(v); if(!v) setPanel(null); setErr(""); }}>
+        📅 달력에서 과제 내기 {calOpen ? "⌃" : "⌄"}
+      </button>
+
+      {calOpen && <>
+        <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} busy={busy} />
+
+        <div className="row" style={{ gap:6, flexWrap:"wrap", marginBottom:10 }}>
+          {[["assign","📤 과제 내기"],
+            ["shift","⏭ 뒤로 미루기"],
+            ["respread","🗓 일정 다시 짜기"],
+            ["rounds","🔁 녹음 회차·방식"],
+            ["splitall","✂️ 교재 나누기"]].map(([k,l]) => (
+            <button key={k} className={panel===k ? "btn" : "btn-ghost"}
+              style={{ fontSize:12, padding:"6px 10px", flex:"0 0 auto" }}
+              onClick={()=>{
+                setPanel(panel===k?null:k); setErr("");
+                if(k==="respread") setRespreadStartIdx(0);
+                if(k==="rounds"){ setRoundsFrom(""); setNewRounds(2); setNewRecordMode(""); }
+                if(k==="splitall") setSplitAllStartIdx(0);
+                if(k==="assign"){ setAssignFromIdx(0); setAssignToIdx(null); setAssignRepeat(1); }
+              }}>{l}</button>
+          ))}
+          <button className="btn-ghost" style={{ fontSize:12, padding:"6px 10px", flex:"0 0 auto" }}
+            onClick={makeVocabTest} disabled={testBusy}>
+            {testBusy ? "만드는 중..." : "📝 단어시험지"}
+          </button>
+        </div>
+      </>}
+
       {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
 
       {panel === "splitall" && (
@@ -2264,10 +2275,6 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
             {busy ? "변경 중..." : `${roundsTargets.length}개 과제 변경 (${newRounds}회${newRecordMode ? " · " + (newRecordMode==="whole"?"통문장 말하기":"문장별") : ""})`}
           </button>
         </div>
-      )}
-
-      {panel === "cal" && (
-        <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} busy={busy} />
       )}
 
       {panel === "shift" && (
