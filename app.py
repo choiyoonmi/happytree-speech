@@ -1639,6 +1639,11 @@ def treetalk_points(ym: str = "", days: str = ""):
     #   마감일 기준이면 밀린 것은 그 마감주로, 오늘 것은 이번 주로 들어가 공정해진다.
     #   마감일 없는 과제만 예전처럼 '한 날' 기준으로 폴백한다.
     adue = {a.get("id"): a.get("dueDate") for a in db.get("assignments", [])}
+    # ★보관함(published=false) 과제는 점수에서 뺀다(원장 2026-09-23).
+    #   중복 배정된 교재를 보관함으로 치워도 그 과제로 받은 랭킹 점수는 남아 있었다
+    #   (배소이가 같은 교재를 두 벌 받아 점수가 부풀어 있던 일). 학생 화면·성적표는 이미
+    #   보관함을 안 보므로 랭킹도 같은 기준으로 맞춘다. 보관을 풀면 점수도 같이 돌아온다.
+    archived = {a.get("id") for a in db.get("assignments", []) if a.get("published") is False}
     def _due_md(due):
         try:
             q = str(due).split("-")
