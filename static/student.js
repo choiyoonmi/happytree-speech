@@ -257,6 +257,7 @@ function StudentView({ student, onLogout }) {
   const [openExam, setOpenExam] = useState(null);
   const [vocabProgress, setVocabProgress] = useState({});
   const [closedDays, setClosedDays] = useState([]);   // 학원 휴무일+공휴일(달력 '휴무' 표시용)
+  const [closedNames, setClosedNames] = useState({}); // 날짜→명절이름(추석·설날…)
 
   const mine = assignments.filter(a =>
     a.published !== false &&
@@ -266,7 +267,7 @@ function StudentView({ student, onLogout }) {
 
   useEffect(() => {
     reloadVocab();
-    apiGet('/closed-days').then(d => setClosedDays((d && d.days) || [])).catch(()=>{});   // 휴무일(공휴일+학원휴무)
+    apiGet('/closed-days').then(d => { setClosedDays((d && d.days) || []); setClosedNames((d && d.names) || {}); }).catch(()=>{});   // 휴무일+명절이름
     (async () => {
       // 과제 목록 + 제출상태를 각각 1번씩만 호출 (과제마다 따로 부르지 않음 → 접속 로딩 대폭 단축)
       // ?student= 를 붙이는 이유: 서버가 '이 학생이 속한 학원'의 과제만 골라 주기 위해서다.
@@ -549,7 +550,7 @@ function StudentView({ student, onLogout }) {
           <span style={{ fontSize:12, color:"var(--gold-soft)", fontWeight:700 }}>문해숨 · 수학숨 숙제 →</span>
         </a>
         <div style={{ marginBottom:12 }}><PushBell studentId={student.id} /></div>
-        <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress} closedDays={closedDays}
+        <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress} closedDays={closedDays} closedNames={closedNames}
           onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} onOpenExam={setOpenExam} />
       </div>
     </div>
@@ -558,10 +559,11 @@ function StudentView({ student, onLogout }) {
 
 // ---------- 학생 홈: 달력 + [녹음 숙제 / 단어 자습] 두 탭 (같은 달력 공유) ----------
 
-function StudentHome({ mine, statusMap, vocabProgress, closedDays, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam }) {
+function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam }) {
   const today = new Date();
   const closedSet = new Set(closedDays || []);          // 학원 휴무일+공휴일
   const isClosed = (k) => closedSet.has(k);
+  const holLabel = (k) => (closedNames && closedNames[k]) || "휴무";   // 공휴일=명절이름, 학원 휴무일='휴무'
   const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [tab, setTab] = useState("record");
   const [picked, setPicked] = useState(() =>
@@ -787,8 +789,8 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, onOpenRecord,
                   const showDot = st && st !== "done" && st !== "closed" && !bs.length;
                   return <>
                     {st === "closed" && !bs.length && (
-                      <span style={{ fontSize:10, fontWeight:800, lineHeight:1,
-                        color: isPicked ? "#cfd8e2" : "#9aa7b3" }}>휴무</span>
+                      <span style={{ fontSize:10, fontWeight:800, lineHeight:1, whiteSpace:"nowrap",
+                        color: isPicked ? "#cfd8e2" : "#9aa7b3" }}>{holLabel(k)}</span>
                     )}
                     {bs.length > 0 && (
                       <div style={{ display:"flex", flexWrap:"wrap", gap:3, justifyContent:"center", maxWidth:"100%" }}>

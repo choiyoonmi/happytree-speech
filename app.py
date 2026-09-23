@@ -1472,30 +1472,34 @@ def _treetalk_done_ids_today() -> set:
 # 트리톡은 별도 서버라 휴무일을 몰랐다. 계정 백엔드의 열린 액션 getLitHolidays 에서 받아 1시간 캐시.
 # 휴무일엔 ① 달력에 '휴무' 표시(프런트가 /api/closed-days 로 받음) ② 마감이 그날인 과제는 미완료로 안 셈(due_today 제외).
 import time as _time_mod
-_CLOSED_CACHE = {"days": [], "at": 0.0}
+_CLOSED_CACHE = {"days": [], "names": {}, "at": 0.0}
 _CLOSED_TTL = 3600.0
 
-def get_closed_days() -> set:
-    """휴무일 집합(YYYY-MM-DD). getLitHolidays(holidays=학원 지정 + national=국가공휴일)에서 1시간 캐시.
-    실패해도 이전 캐시(없으면 빈 집합) — 조회 실패가 학습을 막지 않게."""
+def _refresh_closed():
+    """getLitHolidays(holidays=학원 지정, national=국가공휴일, names=날짜→명절이름)에서 1시간 캐시.
+    실패해도 이전 캐시 유지 — 조회 실패가 학습을 막지 않게."""
     now = _time_mod.time()
     if _CLOSED_CACHE["at"] and (now - _CLOSED_CACHE["at"]) < _CLOSED_TTL:
-        return set(_CLOSED_CACHE["days"])
+        return
     try:
         r = httpx.get(ACCOUNT_PROXY, params={"action": "getLitHolidays"}, timeout=8.0)
         j = r.json()
-        days = list(set((j.get("holidays") or []) + (j.get("national") or [])))
-        _CLOSED_CACHE["days"] = days
+        _CLOSED_CACHE["days"] = list(set((j.get("holidays") or []) + (j.get("national") or [])))
+        _CLOSED_CACHE["names"] = j.get("names") or {}   # 공휴일 이름(학원 지정 휴무일은 이름 없음→'휴무')
         _CLOSED_CACHE["at"] = now
     except Exception:
-        pass   # 이전 캐시 유지(없으면 빈 집합)
+        pass
+
+def get_closed_days() -> set:
+    _refresh_closed()
     return set(_CLOSED_CACHE["days"])
 
 
 @app.get("/api/closed-days")
 def api_closed_days():
-    """학생 달력이 '휴무' 표시에 쓴다 — 학원 휴무일 + 국가공휴일 목록(개인정보 없음)."""
-    return {"ok": True, "days": sorted(get_closed_days())}
+    """학생 달력이 '휴무' 표시에 쓴다 — 학원 휴무일 + 국가공휴일 목록(+명절이름). 개인정보 없음."""
+    _refresh_closed()
+    return {"ok": True, "days": sorted(_CLOSED_CACHE["days"]), "names": _CLOSED_CACHE["names"]}
 
 
 @app.get("/api/practiced-today")
