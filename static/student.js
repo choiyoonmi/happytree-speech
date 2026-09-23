@@ -256,6 +256,7 @@ function StudentView({ student, onLogout }) {
   const [openSentence, setOpenSentence] = useState(null);
   const [openExam, setOpenExam] = useState(null);
   const [vocabProgress, setVocabProgress] = useState({});
+  const [closedDays, setClosedDays] = useState([]);   // 학원 휴무일+공휴일(달력 '휴무' 표시용)
 
   const mine = assignments.filter(a =>
     a.published !== false &&
@@ -265,6 +266,7 @@ function StudentView({ student, onLogout }) {
 
   useEffect(() => {
     reloadVocab();
+    apiGet('/closed-days').then(d => setClosedDays((d && d.days) || [])).catch(()=>{});   // 휴무일(공휴일+학원휴무)
     (async () => {
       // 과제 목록 + 제출상태를 각각 1번씩만 호출 (과제마다 따로 부르지 않음 → 접속 로딩 대폭 단축)
       // ?student= 를 붙이는 이유: 서버가 '이 학생이 속한 학원'의 과제만 골라 주기 위해서다.
@@ -547,7 +549,7 @@ function StudentView({ student, onLogout }) {
           <span style={{ fontSize:12, color:"var(--gold-soft)", fontWeight:700 }}>문해숨 · 수학숨 숙제 →</span>
         </a>
         <div style={{ marginBottom:12 }}><PushBell studentId={student.id} /></div>
-        <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress}
+        <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress} closedDays={closedDays}
           onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} onOpenExam={setOpenExam} />
       </div>
     </div>
@@ -556,8 +558,10 @@ function StudentView({ student, onLogout }) {
 
 // ---------- 학생 홈: 달력 + [녹음 숙제 / 단어 자습] 두 탭 (같은 달력 공유) ----------
 
-function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam }) {
+function StudentHome({ mine, statusMap, vocabProgress, closedDays, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam }) {
   const today = new Date();
+  const closedSet = new Set(closedDays || []);          // 학원 휴무일+공휴일
+  const isClosed = (k) => closedSet.has(k);
   const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [tab, setTab] = useState("record");
   const [picked, setPicked] = useState(() =>
@@ -640,10 +644,12 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
   const openLabel = (a) => `${+a.openFrom.slice(5,7)}월 ${+a.openFrom.slice(8,10)}일`;
 
   const dayState = (d) => {
-    const list = byDate[key(d)] || [];
+    const k = key(d);
+    const list = byDate[k] || [];
+    if (list.length && list.every(doneOf)) return "done";
+    if (isClosed(k)) return "closed";            // ★휴무일(학원 휴무+공휴일) → '밀림/해야할일'로 안 뜬다
     if (!list.length) return null;
-    if (list.every(doneOf)) return "done";
-    if (key(d) < todayKey) return "late";
+    if (k < todayKey) return "late";
     if (list.every(lockedOf)) return "soon";     // 아직 안 열린 날 — '해야 할 일'로 보이면 안 된다
     return "todo";
   };
@@ -778,8 +784,12 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
                   display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:3 }}>
                 {d}
                 {(() => {
-                  const showDot = st && st !== "done" && !bs.length;
+                  const showDot = st && st !== "done" && st !== "closed" && !bs.length;
                   return <>
+                    {st === "closed" && !bs.length && (
+                      <span style={{ fontSize:10, fontWeight:800, lineHeight:1,
+                        color: isPicked ? "#cfd8e2" : "#9aa7b3" }}>휴무</span>
+                    )}
                     {bs.length > 0 && (
                       <div style={{ display:"flex", flexWrap:"wrap", gap:3, justifyContent:"center", maxWidth:"100%" }}>
                         {bs.map((b,bi) => (
