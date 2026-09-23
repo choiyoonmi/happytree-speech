@@ -1219,6 +1219,34 @@ def _hist_push(db, op, changes):
     del h[:-SCHEDULE_HISTORY_MAX]
 
 
+@app.get("/api/class-days", dependencies=ADMIN_ONLY)
+def get_class_days():
+    """반마다 수업하는 요일(일=0…토=6). 원장 2026-09-23: 요일은 교재가 아니라 반마다 다르다.
+    한 번 정해 두면 그 반의 모든 교재에서 그대로 쓴다(다시 고치기 전까지)."""
+    return {"ok": True, "days": (load_db().get("classDays") or {})}
+
+
+@app.post("/api/class-days", dependencies=ADMIN_ONLY)
+def set_class_days(payload: dict = Body(...)):
+    """{group, weekdays:[1,3,5]} — group 은 반 이름(또는 개별 배정 대상)."""
+    group = str((payload or {}).get("group") or "").strip()
+    if not group:
+        raise HTTPException(400, "반을 알 수 없어요.")
+    try:
+        wd = sorted({int(x) for x in ((payload or {}).get("weekdays") or []) if 0 <= int(x) <= 6})
+    except Exception:
+        raise HTTPException(400, "요일이 이상해요.")
+    with _lock:
+        db = load_db()
+        cd = db.setdefault("classDays", {})
+        if wd:
+            cd[group] = wd
+        else:
+            cd.pop(group, None)     # 전부 끄면 '안 정함'으로 되돌린다
+        save_db(db)
+    return {"ok": True, "group": group, "weekdays": wd}
+
+
 @app.get("/api/schedule-history", dependencies=ADMIN_ONLY)
 def schedule_history():
     """최근 일정 변경 목록(최신순). 되돌리기 버튼이 쓴다."""

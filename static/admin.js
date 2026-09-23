@@ -1333,7 +1333,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, busy }) {
+function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy }) {
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   const [ym, setYm] = useState(() => {
     const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
@@ -1367,6 +1367,9 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
      그 뒤 주·다음 달까지 자동으로 과제가 안 들어가게." 요일 하나만 끄면 끝까지 적용된다.
      안 정해 두면 지금 마감일들이 쓰는 요일을 그대로 본다. */
   const [classDays, setClassDays] = useState(savedDays || null);
+  /* 저장된 값은 화면이 그려진 뒤에 도착한다 — 그때 한 번 동기화 */
+  const savedKey = (savedDays || []).join(",");
+  useEffect(() => { if (savedKey) setClassDays(savedKey.split(",").map(Number)); }, [savedKey]);
   const inferred = [...new Set(dated.map(a => new Date(dueOf(a) + "T00:00:00").getDay()))].filter(w => w >= 1 && w <= 5);
   const days = classDays || (inferred.length ? inferred : [1, 2, 3, 4, 5]);
   const isClassDay = (w) => days.indexOf(w) >= 0;
@@ -1495,7 +1498,8 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
       <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>
         과제를 끌어다 다른 날에 놓으세요. 톡 누른 뒤 날짜를 눌러도 옮겨집니다.
         끌고 있는 동안 ‹ › 위에 머물면 다른 달로 넘어갑니다.
-        <br /><b>요일 머리글(월·화·수…)을 누르면</b> 그 요일은 수업 없는 날로 바뀝니다 — 다음 주·다음 달까지 과제가 안 들어가요.
+        <br /><b>요일 머리글(월·화·수…)을 누르면</b> 그 요일은 수업 없는 날로 바뀝니다.
+        {group ? <> 이 설정은 <b>{group}</b> 에 저장돼서 다른 교재에서도 그대로 써요.</> : null}
         {sel && <b style={{ color: "var(--gold)" }}> · 고른 과제: {shortOf(sel.title)} (날짜를 누르세요)</b>}
       </div>
 
@@ -1631,6 +1635,17 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [editItems, setEditItems] = useState("");      // "단어 / 뜻" 줄들
   const [showItems, setShowItems] = useState(false);
   const classNames = [...new Set((students || []).map(s => s.className).filter(Boolean))];
+
+  /* ★수업 요일은 교재가 아니라 **반마다** 다르다(원장 2026-09-23).
+     한 번 정해 두면 그 반의 모든 교재에서 그대로 쓴다 — 다시 고치기 전까지. */
+  const [savedDays, setSavedDays] = useState(null);
+  useEffect(() => {
+    apiGet("/class-days").then(d => setSavedDays(((d && d.days) || {})[group] || null)).catch(()=>{});
+  }, [group]);
+  const saveClassDays = (wd) => {
+    setSavedDays(wd);
+    apiPost("/class-days", { group, weekdays: wd }).catch(e => setErr("수업 요일을 저장하지 못했어요: " + e.message));
+  };
 
   /* 달력에서 과제를 끌어다 놓았을 때. moveRest 면 그 날짜부터 뒤 과제를 같은 일수만큼 함께 민다
      (진도가 통째로 밀린 경우가 대부분이라 이게 기본 쓰임새다). */
@@ -2145,7 +2160,8 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       </button>
 
       {calOpen && <>
-        <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload} busy={busy} />
+        <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload}
+          savedDays={savedDays} onClassDays={saveClassDays} group={group} busy={busy} />
 
         <div className="row" style={{ gap:6, flexWrap:"wrap", marginBottom:10 }}>
           {[["assign","📤 과제 내기"],
