@@ -1475,9 +1475,9 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
                 const tg = (withPast ? pastList.concat(futureList) : futureList);
                 if (!tg.length) return;
                 const msg = withPast
-                  ? `아직 안 한 밀린 과제 ${pastList.length}개까지 앞으로 가져와서,\n` +
+                  ? `마감 지난 과제 ${pastList.length}개까지 앞으로 가져와서,\n` +
                     `모두 ${tg.length}개를 ${reStart}부터 지금 수업 요일에 다시 줄 세울까요?\n\n` +
-                    `· ${reStart} 보다 앞의 끝난 과제는 건드리지 않아요.`
+                    `⚠ 마감 지난 것 중에 이미 끝낸 과제가 있으면 그것도 같이 옮겨져요.`
                   : `${reStart} 이후 일정 ${tg.length}개를 ${reStart}부터 지금 수업 요일에\n` +
                     `다시 줄 세울까요?\n\n· 지난 과제는 건드리지 않아요.`;
                 if (confirm(msg)) onRespread(tg.map(a => a.id), reStart);
