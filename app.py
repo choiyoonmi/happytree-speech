@@ -1659,6 +1659,8 @@ def treetalk_points(ym: str = "", days: str = ""):
         except Exception:
             subs = {}
         for aid, sub in subs.items():
+            if aid in archived:                     # 보관함으로 뺀 과제는 점수도 빠진다
+                continue
             if (sub or {}).get("status") not in ("submitted", "reviewed"):
                 continue
             dmd = _due_md(adue.get(aid))
@@ -1678,6 +1680,8 @@ def treetalk_points(ym: str = "", days: str = ""):
         except Exception:
             vocab = {}
         for aid, rec in vocab.items():
+            if aid in archived:                     # 보관함으로 뺀 과제는 점수도 빠진다
+                continue
             by = (rec or {}).get("byMode") or {}
             dmd = _due_md(adue.get(aid))
             if dmd is not None:

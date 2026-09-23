@@ -2322,13 +2322,17 @@ function AdminProgress({ students, assignments, reload }) {
   const wkT = list.reduce((n, r) => n + r.week.total, 0);
   const wkD = list.reduce((n, r) => n + r.week.done, 0);
 
+  /* ★교재 제목에 'Day N' 이 없으면(예: 요즘초등영단어1, Word Up 400) Day 0/0 이 떠서
+     아무 뜻이 없었다. 그럴 땐 완료 개수로 보여 준다. */
   const bar = (b) => {
-    const pct = b.maxDay ? Math.round(b.day * 100 / b.maxDay) : 0;
+    const hasDay = b.maxDay > 0;
+    const pct = hasDay ? Math.round(b.day * 100 / b.maxDay)
+              : (b.total ? Math.round(b.done * 100 / b.total) : 0);
     return (
       <div key={b.book} style={{ marginBottom:4 }}>
         <div style={{ display:"flex", justifyContent:"space-between", gap:6, fontSize:11, lineHeight:1.3 }}>
           <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:"var(--navy-soft)" }}>{b.book}</span>
-          <b style={{ whiteSpace:"nowrap", color:"var(--navy)" }}>Day {b.day}/{b.maxDay}</b>
+          <b style={{ whiteSpace:"nowrap", color:"var(--navy)" }}>{hasDay ? `Day ${b.day}/${b.maxDay}` : `${b.done}/${b.total}개`}</b>
         </div>
         <div style={{ height:5, borderRadius:3, background:"var(--cream-deep,#EFE7D6)", marginTop:2 }}>
           <div style={{ width:pct+"%", height:"100%", borderRadius:3,
@@ -2634,12 +2638,17 @@ function StudentReview({ student, assignments, reload, onBack }) {
       {!loading && books.length > 0 && (
         <div className="card" style={{ padding:"12px 13px", marginBottom:10 }}>
           {books.map(b => {
-            const pct = b.maxDay ? Math.round(b.day * 100 / b.maxDay) : 0;
+            const hasDay = b.maxDay > 0;   // 제목에 Day 번호가 없는 교재는 완료 개수로 보여 준다
+            const pct = hasDay ? Math.round(b.day * 100 / b.maxDay)
+                      : (b.total ? Math.round(b.done * 100 / b.total) : 0);
             return (
               <div key={b.book} style={{ marginBottom:8 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"baseline" }}>
                   <span style={{ fontWeight:700, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📗 {b.book}</span>
-                  <b style={{ fontSize:14, color:"var(--navy)", whiteSpace:"nowrap" }}>Day {b.day} <span className="muted" style={{fontWeight:400}}>/ {b.maxDay}</span></b>
+                  <b style={{ fontSize:14, color:"var(--navy)", whiteSpace:"nowrap" }}>
+                    {hasDay ? <>Day {b.day} <span className="muted" style={{fontWeight:400}}>/ {b.maxDay}</span></>
+                            : <>{b.done} <span className="muted" style={{fontWeight:400}}>/ {b.total}개</span></>}
+                  </b>
                 </div>
                 <div style={{ height:7, borderRadius:4, background:"var(--cream-deep,#EFE7D6)", marginTop:4 }}>
                   <div style={{ width:pct+"%", height:"100%", borderRadius:4,
