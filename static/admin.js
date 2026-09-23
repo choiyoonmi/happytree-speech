@@ -2279,6 +2279,119 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
 
 // ---------- Admin: review ----------
 
+// ---------- 반 전체 진도표 ----------
+/* 원장님 제보(2026-09-23): "학생 진도를 알기가 너무 어렵다".
+   전에는 학생 한 명을 보려면 반 → 학생 → 과제카드 수십~백 개를 스크롤해야 했고,
+   요약이 없어서 '어디까지 왔나'를 눈으로 세야 했다. 여기서 한 줄로 본다.
+   계산은 서버(/api/progress)가 한다 — 브라우저가 학생 수만큼 제출기록을 부르면 느리다. */
+function AdminProgress({ students, assignments, reload }) {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState("");
+  const [cls, setCls] = useState("");
+  const [sort, setSort] = useState("overdue");
+  const [sid, setSid] = useState(null);
+
+  const load = () => {
+    setErr("");
+    apiGet("/progress").then(d => setRows(d.students || [])).catch(e => { setErr(e.message); setRows([]); });
+  };
+  useEffect(() => { load(); }, []);
+
+  if (sid) {
+    const student = students.find(s => s.id === sid);
+    if (student) return <StudentReview student={student} assignments={assignments} reload={reload}
+      onBack={() => { setSid(null); load(); }} />;
+  }
+
+  if (rows === null) return <div className="center"><div className="spin" /></div>;
+
+  const classNames = [...new Set(rows.map(r => r.className).filter(Boolean))].sort();
+  let list = cls ? rows.filter(r => r.className === cls) : rows;
+  const pctOf = (r) => {
+    const b = r.books[0];
+    return b && b.maxDay ? b.day / b.maxDay : 0;
+  };
+  const mdKey = (t) => { const m = /(\d+)\/(\d+)/.exec(t || ""); return m ? (+m[1])*100 + (+m[2]) : 0; };
+  list = [...list].sort((a, b) =>
+    sort === "name"   ? (a.name || "").localeCompare(b.name || "")
+  : sort === "slow"   ? pctOf(a) - pctOf(b)
+  : sort === "stale"  ? mdKey(a.lastAt) - mdKey(b.lastAt)
+  :                     (b.overdue - a.overdue) || (a.name || "").localeCompare(b.name || ""));
+
+  const lateKids = list.filter(r => r.overdue > 0).length;
+  const wkT = list.reduce((n, r) => n + r.week.total, 0);
+  const wkD = list.reduce((n, r) => n + r.week.done, 0);
+
+  const bar = (b) => {
+    const pct = b.maxDay ? Math.round(b.day * 100 / b.maxDay) : 0;
+    return (
+      <div key={b.book} style={{ marginBottom:4 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", gap:6, fontSize:11, lineHeight:1.3 }}>
+          <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", color:"var(--navy-soft)" }}>{b.book}</span>
+          <b style={{ whiteSpace:"nowrap", color:"var(--navy)" }}>Day {b.day}/{b.maxDay}</b>
+        </div>
+        <div style={{ height:5, borderRadius:3, background:"var(--cream-deep,#EFE7D6)", marginTop:2 }}>
+          <div style={{ width:pct+"%", height:"100%", borderRadius:3,
+            background: pct>=80 ? "#2E7D5B" : pct>=40 ? "var(--gold)" : "#C98A2A" }} />
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="body">
+      <div className="row" style={{ gap:8, marginBottom:10, flexWrap:"wrap" }}>
+        <select className="field" style={{ flex:"1 1 130px", minWidth:120 }} value={cls} onChange={e=>setCls(e.target.value)}>
+          <option value="">전체 반 ({rows.length}명)</option>
+          {classNames.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select className="field" style={{ flex:"1 1 130px", minWidth:120 }} value={sort} onChange={e=>setSort(e.target.value)}>
+          <option value="overdue">밀린 순</option>
+          <option value="slow">진도 느린 순</option>
+          <option value="stale">오래 안 한 순</option>
+          <option value="name">이름순</option>
+        </select>
+        <button className="btn-ghost" style={{ flex:"0 0 auto" }} onClick={load}>🔄</button>
+      </div>
+
+      <div className="card" style={{ background:"var(--cream)", padding:"10px 12px", marginBottom:12 }}>
+        <div className="row" style={{ gap:14, flexWrap:"wrap", fontSize:13 }}>
+          <span>학생 <b>{list.length}</b>명</span>
+          <span style={{ color: lateKids ? "var(--danger)" : "#2E7D5B" }}>밀린 학생 <b>{lateKids}</b>명</span>
+          <span>이번 주 <b>{wkD}/{wkT}</b> 완료</span>
+        </div>
+      </div>
+
+      {err && <div className="card" style={{ color:"var(--danger)", fontSize:13 }}>불러오지 못했어요: {err}</div>}
+      {!list.length && !err && <div className="muted" style={{ textAlign:"center", padding:30 }}>학생이 없어요.</div>}
+
+      {list.map(r => (
+        <button key={r.id} className="card" onClick={()=>setSid(r.id)}
+          style={{ display:"block", width:"100%", textAlign:"left", padding:"11px 12px",
+            borderLeft: r.overdue ? "4px solid var(--danger)" : "4px solid transparent" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8, marginBottom:6 }}>
+            <div style={{ minWidth:0 }}>
+              <b style={{ fontSize:15 }}>{r.name}</b>
+              {r.className && <span className="muted" style={{ fontSize:11, marginLeft:6 }}>{r.className}</span>}
+            </div>
+            <div className="row" style={{ gap:6, flexShrink:0 }}>
+              {r.overdue > 0
+                ? <Badge tone="b-danger">밀림 {r.overdue}</Badge>
+                : <Badge tone="b-navy">밀림 없음</Badge>}
+              {r.recentAvg != null && <Badge tone={scoreTone(r.recentAvg)}>{r.recentAvg}점</Badge>}
+            </div>
+          </div>
+          {r.books.map(bar)}
+          <div className="muted" style={{ fontSize:11, marginTop:5 }}>
+            이번 주 {r.week.done}/{r.week.total} · 자습 단어 {r.study.word}·문장 {r.study.sent}
+            {r.lastAt ? ` · 마지막 ${r.lastAt}` : " · 기록 없음"}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AdminReview({ students, assignments, reload }) {
   const [view, setView] = useState("class");   // class | all
   const [cls, setCls] = useState(null);
@@ -2368,6 +2481,8 @@ function AdminReview({ students, assignments, reload }) {
 function StudentReview({ student, assignments, reload, onBack }) {
   const [tab, setTab] = useState("word");
   const [subs, setSubs] = useState({});
+  const [voc, setVoc] = useState({});
+  const [scope, setScope] = useState("now");   // now(지금 할 것) | late(밀린 것) | all
   const [loading, setLoading] = useState(true);
   const [openA, setOpenA] = useState(null);
   const [delBusy, setDelBusy] = useState(null);
@@ -2399,9 +2514,15 @@ function StudentReview({ student, assignments, reload, onBack }) {
     setBookBusy(false);
   };
 
+  /* ★녹음만 보여 주던 화면이라 자습 현황은 다른 탭(학습현황)에 가야 보였다.
+     한 아이를 보려고 두 화면을 왔다 갔다 하지 않게 여기서 같이 불러 준다(원장 2026-09-23). */
   useEffect(() => {
-    apiGet(`/student-submissions/${student.id}`)
-      .then(setSubs).catch(()=>setSubs({})).finally(()=>setLoading(false));
+    setLoading(true);
+    Promise.all([
+      apiGet(`/student-submissions/${student.id}`).catch(()=>({})),
+      apiGet(`/vocab/${student.id}`).catch(()=>({})),
+    ]).then(([sb, vc]) => { setSubs(sb || {}); setVoc(vc || {}); })
+      .finally(()=>setLoading(false));
   }, [student.id]);
 
   const mine = assignments.filter(a =>
@@ -2423,6 +2544,45 @@ function StudentReview({ student, assignments, reload, onBack }) {
     word: mine.filter(a => (a.type||"word") === "word").length,
     sentence: mine.filter(a => a.type === "sentence").length,
   };
+
+  /* ---- 진도 요약 + 보기 범위 (원장 2026-09-23) ----
+     전에는 과제 카드를 수십~백 개 쭉 뿌리기만 해서 '어디까지 왔나'를 눈으로 세야 했다. */
+  const todayKey = new Date().toISOString().slice(0,10);
+  const weekMon = (() => { const d = new Date(); const w = (d.getDay()+6)%7; d.setDate(d.getDate()-w); return d.toISOString().slice(0,10); })();
+  const weekSun = (() => { const d = new Date(); const w = (d.getDay()+6)%7; d.setDate(d.getDate()-w+6); return d.toISOString().slice(0,10); })();
+  const isDone = (a) => (subs[a.id]||{}).status === "submitted" || (subs[a.id]||{}).status === "reviewed";
+  const isLate = (a) => !isDone(a) && a.dueDate && a.dueDate < todayKey;
+  const inWeek = (a) => a.dueDate && a.dueDate >= weekMon && a.dueDate <= weekSun;
+  const studyOf = (a) => {   // 이 과제의 자습 단계 진행 (녹음과 같이 보여 주려고)
+    const rec = voc[a.id]; if (!rec) return null;
+    const by = rec.byMode || {};
+    const stages = a.type === "sentence" ? ["smeaning","unscramble"] : ["flash","choice","spell","test"];
+    return { done: stages.filter(k => by[k]).length, total: stages.length, best: rec.best };
+  };
+
+  const books = (() => {
+    const m = {};
+    mine.filter(a => (a.type||"word") === tab).forEach(a => {
+      const b = a.book || seriesOf(a.title) || "(책 없음)";
+      const o = m[b] = m[b] || { book:b, total:0, done:0, day:0, maxDay:0, late:0, next:null };
+      const dn = dayNum(a.title) || 0;
+      o.total++; o.maxDay = Math.max(o.maxDay, dn);
+      if (isDone(a)) { o.done++; o.day = Math.max(o.day, dn); }
+      else { if (isLate(a)) o.late++;
+             if (a.dueDate && (!o.next || a.dueDate < o.next.dueDate)) o.next = a; }
+    });
+    return Object.values(m).sort((x,y)=>y.total-x.total);
+  })();
+  const tabList = mine.filter(a => (a.type||"word") === tab);
+  const lateN = tabList.filter(isLate).length;
+  const weekN = tabList.filter(inWeek).length;
+  const weekDoneN = tabList.filter(a => inWeek(a) && isDone(a)).length;
+  const recentAvg = (() => {
+    const v = [...tabList].filter(isDone).sort((x,y)=>(y.dueDate||"").localeCompare(x.dueDate||""))
+      .map(a => (subs[a.id]||{}).average).filter(x => x != null).slice(0,5);
+    return v.length ? Math.round(v.reduce((a,b)=>a+b,0)/v.length) : null;
+  })();
+  const studyDoneN = tabList.filter(a => { const st = studyOf(a); return st && st.done/st.total >= 0.5; }).length;
 
   return (
     <div className="body">
@@ -2470,44 +2630,115 @@ function StudentReview({ student, assignments, reload, onBack }) {
 
       {loading && <div className="center"><div className="spin" /></div>}
 
+      {/* ---- 진도 요약: 이 학생이 어디까지 왔는지 한눈에 ---- */}
+      {!loading && books.length > 0 && (
+        <div className="card" style={{ padding:"12px 13px", marginBottom:10 }}>
+          {books.map(b => {
+            const pct = b.maxDay ? Math.round(b.day * 100 / b.maxDay) : 0;
+            return (
+              <div key={b.book} style={{ marginBottom:8 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"baseline" }}>
+                  <span style={{ fontWeight:700, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📗 {b.book}</span>
+                  <b style={{ fontSize:14, color:"var(--navy)", whiteSpace:"nowrap" }}>Day {b.day} <span className="muted" style={{fontWeight:400}}>/ {b.maxDay}</span></b>
+                </div>
+                <div style={{ height:7, borderRadius:4, background:"var(--cream-deep,#EFE7D6)", marginTop:4 }}>
+                  <div style={{ width:pct+"%", height:"100%", borderRadius:4,
+                    background: pct>=80 ? "#2E7D5B" : pct>=40 ? "var(--gold)" : "#C98A2A" }} />
+                </div>
+                <div className="muted" style={{ fontSize:11, marginTop:3 }}>
+                  {b.done}/{b.total}개 완료
+                  {b.late ? <span style={{ color:"var(--danger)", fontWeight:700 }}> · 밀림 {b.late}개</span> : null}
+                  {b.next ? ` · 다음 ${b.next.title}${b.next.dueDate ? ` (마감 ${formatDue(b.next.dueDate)})` : ""}` : " · 다 했어요 🎉"}
+                </div>
+              </div>
+            );
+          })}
+          <div className="row" style={{ gap:12, flexWrap:"wrap", fontSize:12, borderTop:"1px solid var(--line)", paddingTop:8, marginTop:2 }}>
+            <span style={{ color: lateN ? "var(--danger)" : "#2E7D5B", fontWeight:700 }}>밀림 {lateN}개</span>
+            <span>이번 주 {weekDoneN}/{weekN}</span>
+            <span>자습 {studyDoneN}개</span>
+            {recentAvg != null && <span>최근 평균 <b style={{ color:"var(--navy)" }}>{recentAvg}점</b></span>}
+          </div>
+        </div>
+      )}
+
+      {/* ---- 보기 범위: 기본은 '지금 할 것'. 전에는 무조건 전체를 뿌려서 스크롤이 길었다 ---- */}
+      {!loading && tabList.length > 0 && (
+        <div className="seg" style={{ marginTop:0, marginBottom:12 }}>
+          {[["now",`지금 할 것 (${lateN + tabList.filter(a=>inWeek(a)&&!isDone(a)).length})`],
+            ["late",`밀린 것 (${lateN})`],
+            ["all",`전체 (${tabList.length})`]].map(([k,l]) => (
+            <button key={k} className={scope===k ? "on" : ""} onClick={()=>setScope(k)}>{l}</button>
+          ))}
+        </div>
+      )}
+
       {!loading && !list.length && (
         <div className="muted" style={{ textAlign:"center", padding:30 }}>
           {tab==="word" ? "단어" : "문장"} 과제가 없어요.
         </div>
       )}
 
-      {!loading && list.map(a => {
-        const s = subs[a.id] || {};
-        const st = s.status || "none";
-        return (
-          <div key={a.id} className="card" onClick={()=>setOpenA(a)}
-            style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left", gap:10, cursor:"pointer", opacity: delBusy===a.id ? 0.5 : 1 }}>
-            <div style={{ minWidth:0 }}>
-              <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
-              <div className="muted" style={{ marginTop:3 }}>
-                {a.items.length}개 · {a.rounds||3}회
-                {a.dueDate ? ` · 마감 ${formatDue(a.dueDate)}` : ""}
-              </div>
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
-              <div style={{ textAlign:"right" }}>
-                {s.average != null && (
-                  <div style={{ fontSize:19, fontWeight:800, marginBottom:2,
-                    color: s.average>=85 ? "#2E7D5B" : s.average>=60 ? "#8A6D0F" : "var(--danger)" }}>
-                    {s.average}
-                  </div>
-                )}
-                <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
-                  {st==="none"?"미제출":st==="submitted"?"확인 대기":"확인완료"}
-                </Badge>
-              </div>
-              <button onClick={(e)=>{ e.stopPropagation(); delAssignment(a); }} disabled={delBusy===a.id}
-                title="이 과제 삭제 (배정된 모든 학생)"
-                style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
-            </div>
+      {!loading && list.length > 0 && (() => {
+        const shown = scope === "all" ? list
+          : scope === "late" ? list.filter(isLate)
+          : list.filter(a => isLate(a) || (inWeek(a) && !isDone(a)));
+        if (!shown.length) return (
+          <div className="card" style={{ textAlign:"center", padding:22, color:"#2E7D5B", fontWeight:700 }}>
+            {scope === "late" ? "밀린 과제가 없어요 🎉" : "지금 할 것이 없어요 🎉"}
           </div>
         );
-      })}
+        // 교재가 둘 이상이면 섞이지 않게 묶어서 보여 준다
+        const groups = {};
+        shown.forEach(a => { const b = a.book || seriesOf(a.title) || "(책 없음)"; (groups[b] = groups[b] || []).push(a); });
+        const keys = Object.keys(groups);
+        return keys.map(bk => (
+          <div key={bk}>
+            {keys.length > 1 && (
+              <div style={{ fontWeight:700, color:"var(--navy)", margin:"12px 4px 6px", fontSize:12 }}>📗 {bk}</div>
+            )}
+            {groups[bk].map(a => {
+              const sb = subs[a.id] || {};
+              const st = sb.status || "none";
+              const sv = studyOf(a);
+              const late = isLate(a);
+              return (
+                <div key={a.id} className="card" onClick={()=>setOpenA(a)}
+                  style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left", gap:10, cursor:"pointer",
+                    opacity: delBusy===a.id ? 0.5 : 1, borderLeft: late ? "4px solid var(--danger)" : "4px solid transparent" }}>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
+                    <div className="muted" style={{ marginTop:3 }}>
+                      {a.items.length}개 · {a.rounds||3}회
+                      {a.dueDate ? ` · 마감 ${formatDue(a.dueDate)}` : ""}
+                      {late ? <span style={{ color:"var(--danger)", fontWeight:700 }}> · 밀림</span> : null}
+                    </div>
+                    <div className="muted" style={{ marginTop:2, fontSize:11 }}>
+                      {sv ? `자습 ${sv.done}/${sv.total}단계${sv.best!=null ? ` · 최고 ${sv.best}점` : ""}` : "자습 시작 전"}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
+                    <div style={{ textAlign:"right" }}>
+                      {sb.average != null && (
+                        <div style={{ fontSize:19, fontWeight:800, marginBottom:2,
+                          color: sb.average>=85 ? "#2E7D5B" : sb.average>=60 ? "#8A6D0F" : "var(--danger)" }}>
+                          {sb.average}
+                        </div>
+                      )}
+                      <Badge tone={st==="none"?"b-gray":st==="submitted"?"b-gold":"b-navy"}>
+                        {st==="none"?"미제출":st==="submitted"?"확인 대기":"확인완료"}
+                      </Badge>
+                    </div>
+                    <button onClick={(e)=>{ e.stopPropagation(); delAssignment(a); }} disabled={delBusy===a.id}
+                      title="이 과제 삭제 (배정된 모든 학생)"
+                      style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ));
+      })()}
     </div>
   );
 }
@@ -3253,14 +3484,15 @@ function PeoplePanel({ students, reload }) {
 // 현황 탭: 학습현황과 제출확인을 소탭으로 (제출확인이 스크롤 아래 묻혀 '없어진 줄' 오해 방지)
 
 function HomePanel({ students, assignments, reload }) {
-  const [sub, setSub] = useState("dash");
+  const [sub, setSub] = useState("progress");   // 기본 = 진도(원장님이 가장 자주 찾는 화면)
   return (
     <>
       <div className="tabs" style={{ marginBottom:14 }}>
-        {[["dash","📊 학습현황"],["review","🎤 제출확인"]].map(([id,l]) => (
+        {[["progress","📈 진도"],["dash","📊 학습현황"],["review","🎤 제출확인"]].map(([id,l]) => (
           <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
         ))}
       </div>
+      {sub==="progress" && <AdminProgress students={students} assignments={assignments} reload={reload} />}
       {sub==="dash" && <AdminDashboard students={students} assignments={assignments} />}
       {sub==="review" && <AdminReview students={students} assignments={assignments} reload={reload} />}
     </>

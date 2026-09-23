@@ -1468,6 +1468,36 @@ def _treetalk_done_ids_today() -> set:
     return done
 
 
+# ---- 학원 휴무일(관리자 지정 LIT_HOLIDAYS + 국가공휴일) — 2026-09-23 원장 ----
+# 트리톡은 별도 서버라 휴무일을 몰랐다. 계정 백엔드의 열린 액션 getLitHolidays 에서 받아 1시간 캐시.
+# 휴무일엔 ① 달력에 '휴무' 표시(프런트가 /api/closed-days 로 받음) ② 마감이 그날인 과제는 미완료로 안 셈(due_today 제외).
+import time as _time_mod
+_CLOSED_CACHE = {"days": [], "at": 0.0}
+_CLOSED_TTL = 3600.0
+
+def get_closed_days() -> set:
+    """휴무일 집합(YYYY-MM-DD). getLitHolidays(holidays=학원 지정 + national=국가공휴일)에서 1시간 캐시.
+    실패해도 이전 캐시(없으면 빈 집합) — 조회 실패가 학습을 막지 않게."""
+    now = _time_mod.time()
+    if _CLOSED_CACHE["at"] and (now - _CLOSED_CACHE["at"]) < _CLOSED_TTL:
+        return set(_CLOSED_CACHE["days"])
+    try:
+        r = httpx.get(ACCOUNT_PROXY, params={"action": "getLitHolidays"}, timeout=8.0)
+        j = r.json()
+        days = list(set((j.get("holidays") or []) + (j.get("national") or [])))
+        _CLOSED_CACHE["days"] = days
+        _CLOSED_CACHE["at"] = now
+    except Exception:
+        pass   # 이전 캐시 유지(없으면 빈 집합)
+    return set(_CLOSED_CACHE["days"])
+
+
+@app.get("/api/closed-days")
+def api_closed_days():
+    """학생 달력이 '휴무' 표시에 쓴다 — 학원 휴무일 + 국가공휴일 목록(개인정보 없음)."""
+    return {"ok": True, "days": sorted(get_closed_days())}
+
+
 @app.get("/api/practiced-today")
 def practiced_today():
     """오늘(KST) 트리톡을 한 학생 id 목록만 돌려준다(이름·점수 등 개인정보 없음).
@@ -1510,10 +1540,13 @@ def due_today(back: int = 14):
             return None
 
     db = load_db()
+    closed = get_closed_days()   # ★휴무일(학원 지정+공휴일)엔 학습이 빠진다 — 마감이 그날인 과제는 미완료로 안 센다
     all_ids = [str(s.get("id")) for s in db.get("students", [])]
     due_by, over_by = {}, {}          # 학생 → 아직 안 끝난 과제 id (오늘 마감 / 지난 마감)
     for a in db.get("assignments", []):
         if not a.get("published", True) or a.get("type") not in ("word", "sentence"):
+            continue
+        if str(a.get("dueDate") or "") in closed:   # ★마감일이 휴무일이면 그날 학습은 빠진 것 → 미완료 제외
             continue
         dd = _iso(a.get("dueDate"))
         if dd is None or dd > today_d or dd < floor_d:   # 마감 없음·아직 안 옴·너무 오래됨
@@ -3149,6 +3182,143 @@ def ping_activity(student_id: str, payload: dict = Body(...)):
 def get_activity_all():
     """선생님 실시간 현황판용: {student_id: {kind: {at, ts, title}}}."""
     return {sid: load_activity(sid) for sid in all_activity_student_ids()}
+
+
+# ---------- 반 전체 진도표 ----------
+def _day_num(title) -> int:
+    """'... Day 12 (1/2)' 에서 12 를 꺼낸다. 없으면 0."""
+    import re
+    m = re.search(r"Day\s*(\d+)", str(title or ""), re.I)
+    return int(m.group(1)) if m else 0
+
+
+def _md_key(ts):
+    """'9/23 13:37' 같은 기록 시각을 비교 가능한 (월, 일) 로. 문자열 정렬은 틀리는게
+    '9/3' 이 '10/1' 보다 뒤로 가 버린다."""
+    s0 = str(ts or "").split(" ")[0]
+    try:
+        m, d = s0.split("/")[:2]
+        return (int(m), int(d))
+    except Exception:
+        return (0, 0)
+
+
+@app.get("/api/progress", dependencies=ADMIN_ONLY)
+def progress_all(request: Request):
+    """선생님 '진도' 화면용 요약 — 학생 한 명이 한 줄.
+
+    ★계산을 서버에서 하는 이유: 학생 60명 × 과제 100개를 브라우저가 훑으면 느리고,
+      제출 기록을 학생 수만큼 따로 부르면 요청이 60번 나간다. 여기서 한 번에 센다.
+    배정 판단은 학생 화면(mine)과 똑같은 규칙을 쓴다 — assignedIds 가 비면 전체 배정.
+    반환 students[]: {id,name,className, books[], overdue, week{total,done}, recentAvg, lastAt, study{word,sent}}
+    """
+    from datetime import datetime, timezone, timedelta, date as _date
+    now_kr = datetime.now(timezone.utc) + timedelta(hours=9)
+    today_d = now_kr.date()
+    today = today_d.strftime("%Y-%m-%d")
+    mon = today_d - timedelta(days=today_d.weekday())          # 이번 주 월요일
+    sun = mon + timedelta(days=6)
+    wk0, wk1 = mon.isoformat(), sun.isoformat()
+
+    ac = academy_of(request)
+    db = load_db()
+    students = only_academy(db.get("students", []), ac)
+    acts = [a for a in only_academy(db.get("assignments", []), ac)
+            if a.get("published", True) is not False and a.get("type") in ("word", "sentence")]
+
+    # 교재별 전체 Day 수(진도율 분모) — 과제 개수가 아니라 Day 번호 기준이라
+    # '(1/2)(2/2)' 로 쪼개져 있어도 'Day 24 / 32' 처럼 읽힌다.
+    book_of = lambda a: a.get("book") or "(책 없음)"
+    out = []
+    for st in students:
+        sid = str(st.get("id") or "")
+        if not sid:
+            continue
+        mine = [a for a in acts
+                if (not a.get("assignedIds")) or sid in [str(x) for x in a["assignedIds"]]]
+        if not mine:
+            continue
+        try:
+            subs = load_student_subs(sid) or {}
+        except Exception:
+            subs = {}
+        try:
+            voc = load_vocab(sid) or {}
+        except Exception:
+            voc = {}
+        done = lambda a: (subs.get(a["id"]) or {}).get("status") in ("submitted", "reviewed")
+
+        books = {}
+        overdue = 0
+        wk_total = wk_done = 0
+        for a in mine:
+            b = books.setdefault(book_of(a), {"book": book_of(a), "total": 0, "done": 0,
+                                              "day": 0, "maxDay": 0, "nextDue": "", "nextTitle": ""})
+            b["total"] += 1
+            dn = _day_num(a.get("title"))
+            b["maxDay"] = max(b["maxDay"], dn)
+            due = a.get("dueDate") or ""
+            if done(a):
+                b["done"] += 1
+                b["day"] = max(b["day"], dn)
+            else:
+                if due and due < today:
+                    overdue += 1
+                if due and (not b["nextDue"] or due < b["nextDue"]):
+                    b["nextDue"], b["nextTitle"] = due, a.get("title") or ""
+            if due and wk0 <= due <= wk1:
+                wk_total += 1
+                if done(a):
+                    wk_done += 1
+
+        # 최근 점수: 마감일이 가까운 제출분 5개 평균
+        scored = []
+        for a in sorted(mine, key=lambda x: x.get("dueDate") or "", reverse=True):
+            if not done(a):
+                continue
+            av = _avg_score_from_sub(subs.get(a["id"]))
+            if av is not None:
+                scored.append(av)
+            if len(scored) >= 5:
+                break
+        recent = round(sum(scored) / len(scored)) if scored else None
+
+        # 마지막 활동(녹음·자습 통합) — '언제 마지막으로 손대었나'
+        last_key, last_at = (0, 0), ""
+        for sub in subs.values():
+            for t in ((sub or {}).get("submittedAt"), (sub or {}).get("completedAt")):
+                k = _md_key(t)
+                if k > last_key:
+                    last_key, last_at = k, str(t or "").split(" ")[0]
+        atype = {a["id"]: a.get("type", "word") for a in mine}
+        w_done = s_done = 0
+        for aid, rec in voc.items():
+            by = (rec or {}).get("byMode") or {}
+            for bm in by.values():
+                k = _md_key(((bm or {}).get("last") or {}).get("at"))
+                if k > last_key:
+                    last_key, last_at = k, str(((bm or {}).get("last") or {}).get("at") or "").split(" ")[0]
+            if atype.get(aid, "word") == "sentence":
+                stages = ["smeaning", "unscramble"]
+            else:
+                stages = ["flash", "choice", "spell", "test"]
+            if stages and sum(1 for x in stages if by.get(x)) / len(stages) >= 0.5:
+                if atype.get(aid, "word") == "sentence":
+                    s_done += 1
+                else:
+                    w_done += 1
+
+        blist = sorted(books.values(), key=lambda b: -b["total"])
+        out.append({
+            "id": sid, "name": st.get("name") or sid, "className": st.get("className") or "",
+            "books": blist, "overdue": overdue,
+            "week": {"total": wk_total, "done": wk_done},
+            "recentAvg": recent, "lastAt": last_at,
+            "study": {"word": w_done, "sent": s_done},
+        })
+
+    out.sort(key=lambda r: (-r["overdue"], r["name"]))
+    return {"ok": True, "date": today, "week": {"from": wk0, "to": wk1}, "students": out}
 
 
 # ---------- 웹 푸시 알림 ----------
