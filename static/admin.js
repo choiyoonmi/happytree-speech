@@ -1333,7 +1333,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, busy }) {
+function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   const [ym, setYm] = useState(() => {
     const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
@@ -1345,6 +1345,7 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
   const [closed, setClosed] = useState({ days: new Set(), names: {} });
   const [reStart, setReStart] = useState(() => new Date().toISOString().slice(0,10));
   const [withPast, setWithPast] = useState(false);   // 밀린 것까지 끌어올지
+  const [hist, setHist] = useState([]);   // 최근 일정 변경(되돌리기용)
   const dragRef = useRef(null);
   dragRef.current = drag;
   const navRef = useRef(0);   // 드래그 중 달 넘김 과속 방지
@@ -1362,6 +1363,8 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
   }, [list]);
   const dueOf = (a) => local[a.id] || a.dueDate;
 
+  const loadHist = () => apiGet("/schedule-history").then(d => setHist(d.items || [])).catch(()=>{});
+  useEffect(() => { loadHist(); }, [list]);   // 일정이 바뀔 때마다 다시
   useEffect(() => {
     apiGet("/closed-days")
       .then(d => setClosed({ days: new Set(d.days || []), names: d.names || {} }))
@@ -1446,6 +1449,28 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
         </div>
         <button data-nav="next" onClick={() => move(1)} style={{ background: "none", fontSize: 20, color: "var(--navy)", padding: "2px 14px" }}>›</button>
       </div>
+
+      {/* ★잘못 누른 일정 변경을 통째 되돌린다(원장 2026-09-23).
+           서버가 바꾸기 전 날짜를 적어 두고 그대로 되돌려 놓는다. 최근 20번까지. */}
+      {hist.length > 0 && (
+        <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8,
+          background: "#FFF3F0", border: "1px solid #F0C9BF", borderRadius: 8, padding: "6px 9px" }}>
+          <span style={{ fontSize: 12, color: "#9A4B36" }}>
+            방금: <b>{hist[0].op}</b> · {hist[0].n}개 · {hist[0].at}
+          </span>
+          <button className="btn-ghost" style={{ fontSize: 12, padding: "4px 10px", marginLeft: "auto" }}
+            disabled={busy}
+            onClick={async () => {
+              if (!confirm(`'${hist[0].op}' 로 바꾼 과제 ${hist[0].n}개를 전부 원래 날짜로 되돌릴까요?`)) return;
+              try {
+                const r = await apiPost("/schedule-undo", { id: hist[0].id });
+                await onReload();
+                loadHist();
+                alert(`${r.restored}개를 되돌렸어요.`);
+              } catch (e) { alert("되돌리지 못했어요: " + e.message); }
+            }}>↩ 되돌리기</button>
+        </div>
+      )}
 
       <label className="row" style={{ gap: 6, fontSize: 12, marginBottom: 8, cursor: "pointer", alignItems: "center" }}>
         <input type="checkbox" checked={moveRest} onChange={e => setMoveRest(e.target.checked)} />
@@ -2087,7 +2112,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       </button>
 
       {calOpen && <>
-        <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} busy={busy} />
+        <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload} busy={busy} />
 
         <div className="row" style={{ gap:6, flexWrap:"wrap", marginBottom:10 }}>
           {[["assign","📤 과제 내기"],

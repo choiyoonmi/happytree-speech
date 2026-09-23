@@ -1176,6 +1176,7 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
         db = load_db()
         for a in db["assignments"]:
             if a["id"] == assignment_id:
+                _due0 = a.get("dueDate")     # 되돌리기용(달력에서 끌어 옮긴 것도 포함)
                 for k, v in payload.items():
                     if k not in allowed:
                         continue
@@ -1194,9 +1195,64 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
                     a["autoDate"] = False
                 else:
                     _sync_exam_dates(db)
+                if "dueDate" in payload:
+                    _hist_push(db, "날짜 옮기기", [{"id": a["id"], "from": _due0, "to": a.get("dueDate")}])
                 save_db(db)
                 return a
     raise HTTPException(404, "과제를 찾을 수 없어요.")
+
+
+SCHEDULE_HISTORY_MAX = 20     # 마지막 20번까지 되돌릴 수 있게
+
+
+def _hist_push(db, op, changes):
+    """마감일을 바꿔 놓고 어떤 것이 어떻게 바뀌었는지 적어 둔다(되돌리기용).
+    원장 2026-09-23: "잘못 눌렀을 때 되돌리기 기능도 있으면 좋겠네."
+    changes = [{id, from, to}...] — 실제로 바뀐 것만 쌓는다."""
+    changes = [c for c in (changes or []) if c.get("from") != c.get("to")]
+    if not changes:
+        return
+    import uuid
+    h = db.setdefault("scheduleHistory", [])
+    h.append({"id": uuid.uuid4().hex[:10], "op": op, "at": _now_kr(),
+              "n": len(changes), "changes": changes})
+    del h[:-SCHEDULE_HISTORY_MAX]
+
+
+@app.get("/api/schedule-history", dependencies=ADMIN_ONLY)
+def schedule_history():
+    """최근 일정 변경 목록(최신순). 되돌리기 버튼이 쓴다."""
+    h = list(load_db().get("scheduleHistory") or [])
+    h.reverse()
+    return {"ok": True, "items": [{k: v for k, v in x.items() if k != "changes"} for x in h]}
+
+
+@app.post("/api/schedule-undo", dependencies=ADMIN_ONLY)
+def schedule_undo(payload: dict = Body(default=None)):
+    """일정 변경 한 건을 통째로 되돌린다. id 를 안 주면 마지막 것.
+    ★되돌린 것은 이력에서 지운다 — 안 그러면 같은 걸 두 번 되돌려 엉뚱해진다."""
+    want = (payload or {}).get("id")
+    with _lock:
+        db = load_db()
+        h = db.get("scheduleHistory") or []
+        if not h:
+            raise HTTPException(400, "되돌릴 변경이 없어요.")
+        idx = len(h) - 1
+        if want:
+            idx = next((i for i, x in enumerate(h) if x.get("id") == want), -1)
+            if idx < 0:
+                raise HTTPException(404, "그 변경 기록을 못 찾았어요.")
+        rec = h[idx]
+        by = {a.get("id"): a for a in db.get("assignments", [])}
+        back = 0
+        for c in rec.get("changes", []):
+            a = by.get(c.get("id"))
+            if a is not None:
+                a["dueDate"] = c.get("from")
+                back += 1
+        del h[idx]
+        save_db(db)
+    return {"ok": True, "restored": back, "op": rec.get("op"), "at": rec.get("at")}
 
 
 @app.post("/api/assignments/reschedule", dependencies=ADMIN_ONLY)
@@ -1222,6 +1278,7 @@ def reschedule(payload: dict = Body(...)):
         targets = [a for a in db["assignments"] if a["id"] in ids]
         # 기존 마감일 순서 유지 (없는 건 뒤로)
         targets.sort(key=lambda a: (a.get("dueDate") is None, a.get("dueDate") or ""))
+        _before = {a["id"]: a.get("dueDate") for a in targets}   # 되돌리기용 스냅샷
 
         if mode == "shift":
             days = int(payload.get("days") or 0)
@@ -1271,6 +1328,9 @@ def reschedule(payload: dict = Body(...)):
         else:
             raise HTTPException(400, "알 수 없는 방식이에요.")
 
+        _hist_push(db, {"shift": "뒤로 미루기", "shift_sessions": "회차로 미루기",
+                        "respread": "일정 다시 짜기"}.get(mode, mode),
+                   [{"id": a["id"], "from": _before.get(a["id"]), "to": a.get("dueDate")} for a in targets])
         _sync_exam_dates(db)   # 책 일정이 바뀌면 권말 시험을 마지막 날 다음날로 재조정
         save_db(db)
     return {"updated": len(targets), "assignments": targets}
@@ -1591,6 +1651,8 @@ def _shift_off_days(only_days=None, limit_from=None):
                                   "from": a["dueDate"], "to": t.isoformat()})
                     a["dueDate"] = t.isoformat()
         if moved:
+            _hist_push(db, "휴무일 자동 밀기",
+                       [{"id": m["id"], "from": m["from"], "to": m["to"]} for m in moved])
             _sync_exam_dates(db)
             save_db(db)
     if moved:
