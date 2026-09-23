@@ -1482,7 +1482,7 @@ def _refresh_closed():
     if _CLOSED_CACHE["at"] and (now - _CLOSED_CACHE["at"]) < _CLOSED_TTL:
         return
     try:
-        r = httpx.get(ACCOUNT_PROXY, params={"action": "getLitHolidays"}, timeout=8.0)
+        r = httpx.get(ACCOUNT_PROXY, params={"action": "getLitHolidays", "fresh": "1"}, timeout=8.0)   # fresh=1: 워커 5분 캐시 우회(우린 1시간 캐시라 부담 없음)
         j = r.json()
         _CLOSED_CACHE["days"] = list(set((j.get("holidays") or []) + (j.get("national") or [])))
         _CLOSED_CACHE["names"] = j.get("names") or {}   # 공휴일 이름(학원 지정 휴무일은 이름 없음→'휴무')
