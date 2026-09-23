@@ -1652,6 +1652,7 @@ def due_today(back: int = 14):
     closed = get_closed_days()   # ★휴무일(학원 지정+공휴일)엔 학습이 빠진다 — 마감이 그날인 과제는 미완료로 안 센다
     all_ids = [str(s.get("id")) for s in db.get("students", [])]
     due_by, over_by = {}, {}          # 학생 → 아직 안 끝난 과제 id (오늘 마감 / 지난 마감)
+    due_of = {}                       # 과제 id → 마감일(밀림 주간 판정용)
     for a in db.get("assignments", []):
         if not a.get("published", True) or a.get("type") not in ("word", "sentence"):
             continue
@@ -1661,6 +1662,7 @@ def due_today(back: int = 14):
         if dd is None or dd > today_d or dd < floor_d:   # 마감 없음·아직 안 옴·너무 오래됨
             continue
         bucket = due_by if dd == today_d else over_by
+        due_of[a["id"]] = a.get("dueDate")
         ids = a.get("assignedIds") or []
         targets = [str(x) for x in ids] if ids else all_ids     # 비면 전체 배정
         for sid in targets:
@@ -1681,8 +1683,13 @@ def due_today(back: int = 14):
 
     not_done = sorted(sid for sid, aids in due_by.items() if _has_unfinished(sid, aids))
     overdue  = sorted(sid for sid, aids in over_by.items() if _has_unfinished(sid, aids))
+    # ★밀림 배지용: 이번 주(월~오늘) 마감을 놓친 학생만(원장 2026-09-23 "밀림은 해당 주간에 밀린 것만").
+    #   지난주 마감 미제출은 명단(notDoneAll)엔 그대로 남지만 밀림 배지는 안 붙는다.
+    week_d = today_d - timedelta(days=today_d.weekday())
+    overdue_week = sorted(sid for sid, aids in over_by.items()
+                          if _has_unfinished(sid, [x for x in aids if (_iso(due_of.get(x)) or floor_d) >= week_d]))
     return {"ok": True, "date": today, "back": back_n,
-            "notDone": not_done, "overdue": overdue,
+            "notDone": not_done, "overdue": overdue, "overdueWeek": overdue_week,
             "notDoneAll": sorted(set(not_done) | set(overdue))}
 
 
