@@ -1328,6 +1328,155 @@ function AssignmentBrowser({ students, assignments, reload }) {
 
 // ---------- 교재 상세 + 일정 조정 ----------
 
+/* ---------- 교재 일정 달력: 과제를 끌어다 다른 날로 옮긴다 ----------
+   원장님 요청(2026-09-23): "학생 달력처럼 어느 날 무슨 학습이 있는지 보이고, 끌어다 옮기고 싶다".
+   전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
+   ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
+     touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
+function BookCalendar({ list, onMove, busy }) {
+  const dated = list.filter(a => a.dueDate);
+  const [ym, setYm] = useState(() => {
+    const first = dated.map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
+    return { y: +first.slice(0, 4), m: +first.slice(5, 7) - 1 };
+  });
+  const [moveRest, setMoveRest] = useState(false);   // 켜면 그 날짜부터 뒤 과제를 같은 간격으로 함께 민다
+  const [sel, setSel] = useState(null);              // 톡 눌러서 고른 과제(누른 뒤 날짜를 누르면 이동)
+  const [drag, setDrag] = useState(null);
+  const [closed, setClosed] = useState({ days: new Set(), names: {} });
+  const dragRef = useRef(null);
+  dragRef.current = drag;
+
+  useEffect(() => {
+    apiGet("/closed-days")
+      .then(d => setClosed({ days: new Set(d.days || []), names: d.names || {} }))
+      .catch(() => {});
+  }, []);
+
+  const key = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const byDate = {};
+  dated.forEach(a => { (byDate[a.dueDate] = byDate[a.dueDate] || []).push(a); });
+  Object.values(byDate).forEach(v => v.sort((x, y) => (dayNum(x.title) || 0) - (dayNum(y.title) || 0)));
+
+  const shortOf = (t) => {
+    const m = /(?:day|unit|lesson)\s*\d+\s*(?:\(\s*\d+\s*\/\s*\d+\s*\))?/i.exec(t || "");
+    return m ? m[0].replace(/\s+/g, " ") : (t || "").slice(0, 10);
+  };
+
+  const move = (delta) => setYm(({ y, m }) => {
+    let mm = m + delta, yy = y;
+    if (mm < 0) { mm = 11; yy--; }
+    if (mm > 11) { mm = 0; yy++; }
+    return { y: yy, m: mm };
+  });
+
+  const doMove = (a, to) => {
+    if (!a || !to || to === a.dueDate) { setSel(null); return; }
+    const off = closed.days.has(to);
+    if (off && !confirm(`${to} 은 ${closed.names[to] || "휴무일"} 이에요. 그래도 그 날로 옮길까요?`)) { setSel(null); return; }
+    setSel(null);
+    onMove(a, to, moveRest);
+  };
+
+  const onDown = (e, a) => {
+    if (busy) return;
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY;
+    let moved = false;
+    const onMoveEv = (ev) => {
+      if (!moved && Math.abs(ev.clientX - sx) < 6 && Math.abs(ev.clientY - sy) < 6) return;
+      moved = true;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const cell = el && el.closest ? el.closest("[data-day]") : null;
+      setDrag({ a, x: ev.clientX, y: ev.clientY, over: cell ? cell.getAttribute("data-day") : null });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMoveEv);
+      window.removeEventListener("pointerup", onUp);
+      const d = dragRef.current;
+      setDrag(null);
+      if (!moved) { setSel(s => (s && s.id === a.id) ? null : a); return; }   // 톡 누른 것 = 고르기
+      if (d && d.over) doMove(a, d.over);
+    };
+    window.addEventListener("pointermove", onMoveEv);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
+  const startDow = new Date(ym.y, ym.m, 1).getDay();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const inMonth = dated.filter(a => a.dueDate.slice(0, 7) === `${ym.y}-${String(ym.m + 1).padStart(2, "0")}`).length;
+
+  return (
+    <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <button onClick={() => move(-1)} style={{ background: "none", fontSize: 20, color: "var(--navy)", padding: "0 10px" }}>‹</button>
+        <div style={{ fontWeight: 800, fontSize: 15, color: "var(--navy)" }}>
+          {ym.y}년 {ym.m + 1}월 <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>· 과제 {inMonth}개</span>
+        </div>
+        <button onClick={() => move(1)} style={{ background: "none", fontSize: 20, color: "var(--navy)", padding: "0 10px" }}>›</button>
+      </div>
+
+      <label className="row" style={{ gap: 6, fontSize: 12, marginBottom: 8, cursor: "pointer", alignItems: "center" }}>
+        <input type="checkbox" checked={moveRest} onChange={e => setMoveRest(e.target.checked)} />
+        <span>옮긴 날짜부터 <b>뒤 과제도 같이</b> 밀기</span>
+      </label>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>
+        과제를 끌어다 다른 날에 놓으세요. 톡 누른 뒤 날짜를 눌러도 옮겨집니다.
+        {sel && <b style={{ color: "var(--gold)" }}> · 고른 과제: {shortOf(sel.title)} (날짜를 누르세요)</b>}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3, marginBottom: 4 }}>
+        {["일", "월", "화", "수", "목", "금", "토"].map((n, i) => (
+          <div key={n} style={{ textAlign: "center", fontSize: 11, fontWeight: 700,
+            color: i === 0 ? "var(--danger)" : i === 6 ? "#3B6FA0" : "var(--navy-soft)" }}>{n}</div>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={"e" + i} />;
+          const k = key(ym.y, ym.m, d);
+          const items = byDate[k] || [];
+          const off = closed.days.has(k);
+          const over = drag && drag.over === k;
+          return (
+            <div key={k} data-day={k} onClick={() => sel && doMove(sel, k)}
+              style={{ minHeight: 62, borderRadius: 8, padding: "3px 3px 4px", cursor: sel ? "pointer" : "default",
+                border: over ? "2px solid var(--gold)" : k === todayKey ? "1px solid var(--gold)" : "1px solid var(--line)",
+                background: over ? "#FFF6E0" : off ? "#F1F3F5" : "#fff" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: off ? "#9aa7ae" : "var(--navy-soft)", textAlign: "right", paddingRight: 2 }}>
+                {d}{off && <span style={{ fontSize: 9, marginLeft: 2 }}>{closed.names[k] || "휴무"}</span>}
+              </div>
+              {items.map(a => (
+                <div key={a.id} onPointerDown={(e) => onDown(e, a)}
+                  style={{ touchAction: "none", userSelect: "none", cursor: "grab", marginTop: 2,
+                    fontSize: 10, fontWeight: 700, lineHeight: 1.35, borderRadius: 5, padding: "2px 4px",
+                    color: "#fff", background: a.type === "sentence" ? "var(--gold)" : "var(--navy)",
+                    outline: sel && sel.id === a.id ? "2px solid var(--danger)" : "none",
+                    opacity: drag && drag.a.id === a.id ? 0.4 : 1,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {shortOf(a.title)}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+
+      {drag && (
+        <div style={{ position: "fixed", left: drag.x + 8, top: drag.y - 10, zIndex: 9999, pointerEvents: "none",
+          fontSize: 11, fontWeight: 800, color: "#fff", padding: "3px 7px", borderRadius: 6,
+          background: drag.a.type === "sentence" ? "var(--gold)" : "var(--navy)", boxShadow: "0 4px 12px rgba(0,0,0,.25)" }}>
+          {shortOf(drag.a.title)}{drag.over ? ` → ${+drag.over.slice(5,7)}/${+drag.over.slice(8,10)}` : ""}
+        </div>
+      )}
+      {busy && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>옮기는 중…</div>}
+    </div>
+  );
+}
+
 function BookDetail({ book, group, list, reload, onBack, students }) {
   const [panel, setPanel] = useState(null);   // 'shift' | 'respread' | null
   const [days, setDays] = useState(7);
@@ -1360,6 +1509,28 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [editItems, setEditItems] = useState("");      // "단어 / 뜻" 줄들
   const [showItems, setShowItems] = useState(false);
   const classNames = [...new Set((students || []).map(s => s.className).filter(Boolean))];
+
+  /* 달력에서 과제를 끌어다 놓았을 때. moveRest 면 그 날짜부터 뒤 과제를 같은 일수만큼 함께 민다
+     (진도가 통째로 밀린 경우가 대부분이라 이게 기본 쓰임새다). */
+  const moveOnCalendar = async (a, toDate, moveRest) => {
+    if (!a.dueDate || toDate === a.dueDate) return;
+    setBusy(true); setErr("");
+    try {
+      if (moveRest) {
+        const delta = Math.round((new Date(toDate + "T00:00:00") - new Date(a.dueDate + "T00:00:00")) / 86400000);
+        const ids = list.filter(x => x.dueDate && x.dueDate >= a.dueDate).map(x => x.id);
+        await apiPost("/assignments/reschedule", { mode: "shift", ids, days: delta });
+      } else {
+        const r = await fetch("/api/assignments/" + a.id, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dueDate: toDate }),
+        });
+        if (!r.ok) throw new Error("옮기지 못했어요.");
+      }
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
   const [roundsFrom, setRoundsFrom] = useState("");   // 회차 일괄변경 시작 과제 id ("" = 전체)
   const [newRounds, setNewRounds] = useState(2);
   const [newRecordMode, setNewRecordMode] = useState("");   // "" 그대로 | each | whole
@@ -1813,6 +1984,10 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       </div>
 
       <div className="row" style={{ gap:6, marginBottom:6 }}>
+        <button className={panel==="cal" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
+          onClick={()=>{ setPanel(panel==="cal"?null:"cal"); setErr(""); }}>📅 달력에서 옮기기</button>
+      </div>
+      <div className="row" style={{ gap:6, marginBottom:6 }}>
         <button className={panel==="shift" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
           onClick={()=>{ setPanel(panel==="shift"?null:"shift"); setErr(""); }}>⏭ 뒤로 미루기</button>
         <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ flex:1, fontSize:13 }}
@@ -2020,6 +2195,10 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
             {busy ? "변경 중..." : `${roundsTargets.length}개 과제 변경 (${newRounds}회${newRecordMode ? " · " + (newRecordMode==="whole"?"통문장 말하기":"문장별") : ""})`}
           </button>
         </div>
+      )}
+
+      {panel === "cal" && (
+        <BookCalendar list={list} onMove={moveOnCalendar} busy={busy} />
       )}
 
       {panel === "shift" && (
