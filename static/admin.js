@@ -1334,9 +1334,9 @@ function AssignmentBrowser({ students, assignments, reload }) {
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
 function BookCalendar({ list, onMove, onRespread, busy }) {
-  const dated = list.filter(a => a.dueDate);
+  const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   const [ym, setYm] = useState(() => {
-    const first = dated.map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
+    const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
     return { y: +first.slice(0, 4), m: +first.slice(5, 7) - 1 };
   });
   const [moveRest, setMoveRest] = useState(false);   // 켜면 그 날짜부터 뒤 과제를 같은 간격으로 함께 민다
@@ -1347,6 +1347,19 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
   const dragRef = useRef(null);
   dragRef.current = drag;
   const navRef = useRef(0);   // 드래그 중 달 넘김 과속 방지
+  /* 서버 저장을 기다리지 않고 칩을 먼저 옮겨 보여 준다. 진짜 데이터가 따라오면 지운다. */
+  const [local, setLocal] = useState({});
+  useEffect(() => {
+    setLocal(prev => {
+      const next = {};
+      Object.keys(prev).forEach(id => {
+        const a = list.find(x => x.id === id);
+        if (a && a.dueDate !== prev[id]) next[id] = prev[id];   // 아직 뒤따라오지 않았으면 유지
+      });
+      return next;
+    });
+  }, [list]);
+  const dueOf = (a) => local[a.id] || a.dueDate;
 
   useEffect(() => {
     apiGet("/closed-days")
@@ -1357,10 +1370,10 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
   const key = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   const todayKey = new Date().toISOString().slice(0, 10);
   const byDate = {};
-  dated.forEach(a => { (byDate[a.dueDate] = byDate[a.dueDate] || []).push(a); });
+  dated.forEach(a => { const d = dueOf(a); (byDate[d] = byDate[d] || []).push(a); });
   Object.values(byDate).forEach(v => v.sort((x, y) => (dayNum(x.title) || 0) - (dayNum(y.title) || 0)));
 
-  const pastList = dated.filter(a => a.dueDate < todayKey).sort((x, y) => x.dueDate.localeCompare(y.dueDate));
+  const pastList = dated.filter(a => dueOf(a) < todayKey).sort((x, y) => dueOf(x).localeCompare(dueOf(y)));
 
   const shortOf = (t) => {
     const m = /(?:day|unit|lesson)\s*\d+\s*(?:\(\s*\d+\s*\/\s*\d+\s*\))?/i.exec(t || "");
@@ -1375,16 +1388,16 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
   });
 
   const doMove = (a, to) => {
-    if (!a || !to || to === a.dueDate) { setSel(null); return; }
+    if (!a || !to || to === dueOf(a)) { setSel(null); return; }
     const off = closed.days.has(to);
     if (off && !confirm(`${to} 은 ${closed.names[to] || "휴무일"} 이에요. 그래도 그 날로 옮길까요?`)) { setSel(null); return; }
     setSel(null);
+    if (!moveRest) setLocal(p => ({ ...p, [a.id]: to }));   // 단일 이동은 바로 보여 준다
     onMove(a, to, moveRest);
   };
 
   const onDown = (e, a) => {
-    if (busy) return;
-    e.preventDefault();
+    e.preventDefault();   // ★busy 로 막지 않는다 — 저장 기다리느라 달력이 죽어 보였다
     const sx = e.clientX, sy = e.clientY;
     let moved = false;
     const onMoveEv = (ev) => {
@@ -1420,7 +1433,7 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
   const cells = [];
   for (let i = 0; i < startDow; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  const inMonth = dated.filter(a => a.dueDate.slice(0, 7) === `${ym.y}-${String(ym.m + 1).padStart(2, "0")}`).length;
+  const inMonth = dated.filter(a => dueOf(a).slice(0, 7) === `${ym.y}-${String(ym.m + 1).padStart(2, "0")}`).length;
 
   return (
     <div className="card" style={{ padding: 12, marginBottom: 12 }}>
@@ -1476,16 +1489,16 @@ ${reStart} 부터 지금 수업 요일에 다시 줄 세울까요?`))
           const over = drag && drag.over === k;
           return (
             <div key={k} data-day={k} onClick={() => sel && doMove(sel, k)}
-              style={{ minHeight: 62, borderRadius: 8, padding: "3px 3px 4px", cursor: sel ? "pointer" : "default",
+              style={{ minHeight: 76, borderRadius: 8, padding: "3px 3px 5px", cursor: sel ? "pointer" : "default",
                 border: over ? "2px solid var(--gold)" : k === todayKey ? "1px solid var(--gold)" : "1px solid var(--line)",
                 background: over ? "#FFF6E0" : off ? "#F1F3F5" : "#fff" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: off ? "#9aa7ae" : "var(--navy-soft)", textAlign: "right", paddingRight: 2 }}>
                 {d}{off && <span style={{ fontSize: 9, marginLeft: 2 }}>{closed.names[k] || "휴무"}</span>}
               </div>
               {items.map(a => (
-                <div key={a.id} onPointerDown={(e) => onDown(e, a)}
-                  style={{ touchAction: "none", userSelect: "none", cursor: "grab", marginTop: 2,
-                    fontSize: 10, fontWeight: 700, lineHeight: 1.35, borderRadius: 5, padding: "2px 4px",
+                <div key={a.id} onPointerDown={(e) => onDown(e, a)} onClick={(e) => e.stopPropagation()}
+                  style={{ touchAction: "none", userSelect: "none", cursor: "grab", marginTop: 3,
+                    fontSize: 11, fontWeight: 700, lineHeight: 1.5, borderRadius: 6, padding: "4px 5px",
                     color: "#fff", background: a.type === "sentence" ? "var(--gold)" : "var(--navy)",
                     outline: sel && sel.id === a.id ? "2px solid var(--danger)" : "none",
                     opacity: drag && drag.a.id === a.id ? 0.4 : 1,
@@ -1505,7 +1518,7 @@ ${reStart} 부터 지금 수업 요일에 다시 줄 세울까요?`))
           {shortOf(drag.a.title)}{drag.over ? ` → ${+drag.over.slice(5,7)}/${+drag.over.slice(8,10)}` : ""}
         </div>
       )}
-      {busy && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>옮기는 중…</div>}
+      {busy && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>일정 다시 잡는 중… (잠시만요)</div>}
     </div>
   );
 }
@@ -1545,9 +1558,15 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
 
   /* 달력에서 과제를 끌어다 놓았을 때. moveRest 면 그 날짜부터 뒤 과제를 같은 일수만큼 함께 민다
      (진도가 통째로 밀린 경우가 대부분이라 이게 기본 쓰임새다). */
+  /* ★한 개만 옮길 땐 화면을 잠그지 않는다(원장 2026-09-23 "클릭이 잘 안 돼").
+     reload() 가 과제 1,000개를 다시 받아오느라 몇 초가 걸리는데,
+     그 동안 busy 로 달력을 통째 막아 '옮기는 중…'에서 멈춰 보였다.
+     이제 칩은 놓자마자 그 날로 옮겨 보이고(달력이 직접 처리), 저장은 뒤에서 돌아간다.
+     여러 개를 옮리는 때(뒤 과제도 같이)만 busy 를 쓴다. */
   const moveOnCalendar = async (a, toDate, moveRest) => {
     if (!a.dueDate || toDate === a.dueDate) return;
-    setBusy(true); setErr("");
+    if (moveRest) setBusy(true);
+    setErr("");
     try {
       if (moveRest) {
         const delta = Math.round((new Date(toDate + "T00:00:00") - new Date(a.dueDate + "T00:00:00")) / 86400000);
@@ -1561,7 +1580,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
         if (!r.ok) throw new Error("옮기지 못했어요.");
       }
       await reload();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { setErr(e.message); alert("옮기지 못했어요: " + e.message); }
     setBusy(false);
   };
 
