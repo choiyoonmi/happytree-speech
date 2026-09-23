@@ -1333,7 +1333,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
+function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, busy }) {
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   const [ym, setYm] = useState(() => {
     const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
@@ -1346,6 +1346,19 @@ function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
   const [reStart, setReStart] = useState(() => new Date().toISOString().slice(0,10));
   const [withPast, setWithPast] = useState(false);   // 밀린 것까지 끌어올지
   const [hist, setHist] = useState([]);   // 최근 일정 변경(되돌리기용)
+  /* ★수업 요일 — 원장님 제안(2026-09-23): "수업 없는 요일을 끕어 두면
+     그 뒤 주·다음 달까지 자동으로 과제가 안 들어가게." 요일 하나만 끄면 끝까지 적용된다.
+     안 정해 두면 지금 마감일들이 쓰는 요일을 그대로 본다. */
+  const [classDays, setClassDays] = useState(savedDays || null);
+  const inferred = [...new Set(dated.map(a => new Date(dueOf(a) + "T00:00:00").getDay()))].filter(w => w >= 1 && w <= 5);
+  const days = classDays || (inferred.length ? inferred : [1, 2, 3, 4, 5]);
+  const isClassDay = (w) => days.indexOf(w) >= 0;
+  const toggleDay = (w) => {
+    const next = isClassDay(w) ? days.filter(x => x !== w) : days.concat([w]).sort();
+    if (!next.length) return;          // 전부 끄면 놓을 데가 없다
+    setClassDays(next);
+    if (onClassDays) onClassDays(next);
+  };
   const dragRef = useRef(null);
   dragRef.current = drag;
   const navRef = useRef(0);   // 드래그 중 달 넘김 과속 방지
@@ -1378,7 +1391,9 @@ function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
   Object.values(byDate).forEach(v => v.sort((x, y) => (dayNum(x.title) || 0) - (dayNum(y.title) || 0)));
 
   const pastList = dated.filter(a => dueOf(a) < todayKey).sort((x, y) => dueOf(x).localeCompare(dueOf(y)));
-  const futureList = dated.filter(a => dueOf(a) >= todayKey).sort((x, y) => dueOf(x).localeCompare(dueOf(y)));
+  /* ★대상은 '기준 날짜 이후'로 고른다. 예전엔 '오늘 이후'로 골라서,
+     10/2 부터라고 적어도 9월 마지막 주 과제까지 같이 움직였다(원장 2026-09-23 제보). */
+  const fromList = dated.filter(a => dueOf(a) >= reStart).sort((x, y) => dueOf(x).localeCompare(dueOf(y)));
 
   const shortOf = (t) => {
     const m = /(?:day|unit|lesson)\s*\d+\s*(?:\(\s*\d+\s*\/\s*\d+\s*\))?/i.exec(t || "");
@@ -1479,6 +1494,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
       <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>
         과제를 끌어다 다른 날에 놓으세요. 톡 누른 뒤 날짜를 눌러도 옮겨집니다.
         끌고 있는 동안 ‹ › 위에 머물면 다른 달로 넘어갑니다.
+        <br /><b>요일 머리글(월·화·수…)을 누르면</b> 그 요일은 수업 없는 날로 바뀝니다 — 다음 주·다음 달까지 과제가 안 들어가요.
         {sel && <b style={{ color: "var(--gold)" }}> · 고른 과제: {shortOf(sel.title)} (날짜를 누르세요)</b>}
       </div>
 
@@ -1486,7 +1502,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
            예전 버튼은 '마감 지난 것부터 교재 끝까지'를 통째로 다시 깔았다. 그래서
            이미 끝낸 과거 과제까지 미래로 끌려 나왔다. 선생님이 고치고 싶은 건 거의 언제나
            '앞으로 남은 일정'이다 → 기본은 오늘 이후만. 밀린 것을 끌어오려면 따로 체크한다. */}
-      {onRespread && (futureList.length > 0 || pastList.length > 0) && (
+      {onRespread && (fromList.length > 0 || pastList.length > 0) && (
         <div style={{ background: "#F7F9FA", border: "1px solid var(--line)", borderRadius: 8,
           padding: "8px 10px", marginBottom: 10 }}>
           <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -1495,9 +1511,9 @@ function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
               style={{ width: 146, padding: "4px 6px", fontSize: 12, margin: 0 }} />
             <span style={{ fontSize: 12 }}>부터</span>
             <button className="btn" style={{ fontSize: 12, padding: "5px 10px" }}
-              disabled={busy || (!futureList.length && !(withPast && pastList.length))}
+              disabled={busy || (!fromList.length && !(withPast && pastList.length))}
               onClick={() => {
-                const tg = (withPast ? pastList.concat(futureList) : futureList);
+                const tg = (withPast ? pastList.concat(fromList) : fromList);
                 if (!tg.length) return;
                 const msg = withPast
                   ? `마감 지난 과제 ${pastList.length}개까지 앞으로 가져와서,\n` +
@@ -1505,11 +1521,11 @@ function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
                     `⚠ 마감 지난 것 중에 이미 끝낸 과제가 있으면 그것도 같이 옮겨져요.`
                   : `${reStart} 이후 일정 ${tg.length}개를 ${reStart}부터 지금 수업 요일에\n` +
                     `다시 줄 세울까요?\n\n· 지난 과제는 건드리지 않아요.`;
-                if (confirm(msg)) onRespread(tg.map(a => a.id), reStart);
+                if (confirm(msg)) onRespread(tg.map(a => a.id), reStart, days);
               }}>다시 줄 세우기</button>
           </div>
           <div className="muted" style={{ fontSize: 11, marginTop: 5 }}>
-            오늘 이후 남은 과제 <b>{futureList.length}개</b>가 대상이에요. 지난 과제는 그대로 둡니다.
+            <b>{reStart}</b> 부터의 과제 <b>{fromList.length}개</b>만 움직여요. 그 앞은 그대로 둡니다.
           </div>
           {pastList.length > 0 && (
             <label className="row" style={{ gap: 6, fontSize: 12, marginTop: 5, cursor: "pointer", alignItems: "center" }}>
@@ -1521,10 +1537,19 @@ function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3, marginBottom: 4 }}>
-        {["일", "월", "화", "수", "목", "금", "토"].map((n, i) => (
-          <div key={n} style={{ textAlign: "center", fontSize: 11, fontWeight: 700,
-            color: i === 0 ? "var(--danger)" : i === 6 ? "#3B6FA0" : "var(--navy-soft)" }}>{n}</div>
-        ))}
+        {["일", "월", "화", "수", "목", "금", "토"].map((n, i) => {
+          const wk = (i === 0 || i === 6);
+          const on = !wk && isClassDay(i);
+          return (
+            <button key={n} onClick={() => { if (!wk) toggleDay(i); }} title={wk ? "주말은 원래 숙제가 안 들어가요" : (on ? "누르면 이 요일은 수업 없는 날로" : "누르면 다시 수업하는 날로")}
+              style={{ textAlign: "center", fontSize: 11, fontWeight: 700, padding: "3px 0", borderRadius: 6,
+                background: on ? "var(--navy)" : "transparent", cursor: wk ? "default" : "pointer",
+                color: on ? "#fff" : wk ? "#B9C4CE" : "#B9C4CE",
+                border: on ? "none" : "1px dashed #D8DFE4" }}>
+              {n}{!wk && !on ? " ✕" : ""}
+            </button>
+          );
+        })}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
         {cells.map((d, i) => {
@@ -1532,14 +1557,17 @@ function BookCalendar({ list, onMove, onRespread, onReload, busy }) {
           const k = key(ym.y, ym.m, d);
           const items = byDate[k] || [];
           const off = closed.days.has(k);
+          const wd = new Date(k + "T00:00:00").getDay();
+          const noClass = off || wd === 0 || wd === 6 || !isClassDay(wd);   // 수업 없는 날엔 과제를 못 놓는다
           const over = drag && drag.over === k;
           return (
-            <div key={k} data-day={k} onClick={() => sel && doMove(sel, k)}
+            <div key={k} data-day={noClass ? "" : k} onClick={() => { if (!noClass) sel && doMove(sel, k); }}
               style={{ minHeight: 76, borderRadius: 8, padding: "3px 3px 5px", cursor: sel ? "pointer" : "default",
                 border: over ? "2px solid var(--gold)" : k === todayKey ? "1px solid var(--gold)" : "1px solid var(--line)",
-                background: over ? "#FFF6E0" : off ? "#F1F3F5" : "#fff" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: off ? "#9aa7ae" : "var(--navy-soft)", textAlign: "right", paddingRight: 2 }}>
-                {d}{off && <span style={{ fontSize: 9, marginLeft: 2 }}>{closed.names[k] || "휴무"}</span>}
+                background: over ? "#FFF6E0" : noClass ? "#F1F3F5" : "#fff" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: noClass ? "#9aa7ae" : "var(--navy-soft)", textAlign: "right", paddingRight: 2 }}>
+                {d}{off ? <span style={{ fontSize: 9, marginLeft: 2 }}>{closed.names[k] || "휴무"}</span>
+                       : (noClass && <span style={{ fontSize: 9, marginLeft: 2 }}>✕</span>)}
               </div>
               {items.map(a => (
                 <div key={a.id} onPointerDown={(e) => onDown(e, a)} onClick={(e) => e.stopPropagation()}
@@ -1638,11 +1666,15 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
      ★예전엔 '어느 날짜 이후 전부'를 서버가 골랐는데, 그러면 이미 끝난 과거 과제까지
        미래로 끌려나왔다(원장 2026-09-23 제보). 이제 화면이 골라 준 id 만 손대다.
      요일은 지금 마감일들이 쓰는 요일을 그대로 따른다. */
-  const respreadFrom = async (ids, startDate) => {
+  const respreadFrom = async (ids, startDate, weekdays) => {
     if (!ids || !ids.length) return;
     setBusy(true); setErr("");
     try {
-      const wds = [...new Set(list.filter(x => x.dueDate).map(x => new Date(x.dueDate + "T00:00:00").getDay()))];
+      /* ★수업 요일은 달력에서 정한 것을 그대로 쓴다. 예전엔 지금 마감일들의 요일을
+         추리했는데, 그 날짜가 이미 흔트러져 있으면 수업 없는 요일까지 수업일로 알고 거기 넣었다
+         (원장 2026-09-23 "수업없는 날짜에는 왜 들어간 거야"). */
+      const wds = (weekdays && weekdays.length) ? weekdays
+        : [...new Set(list.filter(x => x.dueDate).map(x => new Date(x.dueDate + "T00:00:00").getDay()))];
       await apiPost("/assignments/reschedule", {
         mode: "respread", ids, startDate,
         weekdays: wds.length ? wds : [1, 2, 3, 4, 5],
