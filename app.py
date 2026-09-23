@@ -1485,9 +1485,21 @@ def _refresh_closed():
     try:
         r = httpx.get(ACCOUNT_PROXY, params={"action": "getLitHolidays", "fresh": "1"}, timeout=8.0)   # fresh=1: 워커 5분 캐시 우회(우린 1시간 캐시라 부담 없음)
         j = r.json()
-        _CLOSED_CACHE["days"] = list(set((j.get("holidays") or []) + (j.get("national") or [])))
+        prev = set(_CLOSED_CACHE["days"] or [])
+        fresh = set((j.get("holidays") or []) + (j.get("national") or []))
+        _CLOSED_CACHE["days"] = list(fresh)
         _CLOSED_CACHE["names"] = j.get("names") or {}   # 공휴일 이름(학원 지정 휴무일은 이름 없음→'휴무')
         _CLOSED_CACHE["at"] = now
+        # ★관리자 포털에서 휴무일을 새로 지정하면, 그날에 잡혀 있던 과제를 스스로 밀어 둔다
+        #   (원장 2026-09-23). 처음 부팅할 때(prev 가 비었을 때)는 돌리지 않는다 — 기존 일정을
+        #   서버 올라올 때마다 건드리면 안 되니까. 늘어난 날짜만 본다.
+        added = sorted(x for x in (fresh - prev) if x >= _today_kr())
+        if prev and added:
+            try:
+                import threading
+                threading.Thread(target=_shift_off_days, kwargs={"only_days": added}, daemon=True).start()
+            except Exception as e:
+                print("[closed-days] 자동 밀기 실패:", e)
     except Exception:
         pass
 
@@ -1513,6 +1525,79 @@ def _open_due(iso):
             return cur.isoformat()
         cur += timedelta(days=1)
     return cur.isoformat()
+
+
+def _shift_off_days(only_days=None, limit_from=None):
+    """토·일·휴무일에 놀인 과제를 다음 가능한 날로 미는다(오늘 이후만).
+
+    원장 2026-09-23: "관리자 포털에서 휴무일을 지정하면 자동으로 학습이 뒤로 밀렸으면 좋겠다."
+    ★규칙: **앞으로는 절대 당기지 않는다.** 원래 날짜와 과제 사이 간격을 지키고,
+      금지일에 걸린 것만 뒤로 밀다. 묶음은 (배정받은 학생 × 교재) — 같은 교재를 여러 학생이
+      각자 다른 날짜로 받기 때문에 한 줄로 묶으면 섞인다.
+    only_days 를 주면 그 날짜에 걸린 과제가 있는 묶음만 손대어 불필요한 이동을 줄인다.
+    돌려주는 값: {"moved": [{id,title,from,to}...]}"""
+    from datetime import date as _d, timedelta
+    today = _today_kr()
+    off = get_closed_days()
+
+    def allowed(k):
+        try:
+            y, m, dd = map(int, k.split("-"))
+        except Exception:
+            return True
+        return _d(y, m, dd).weekday() < 5 and k not in off
+
+    only = set(only_days or [])
+    moved = []
+    with _lock:
+        db = load_db()
+        groups = {}
+        for a in db.get("assignments", []):
+            if not a.get("dueDate"):
+                continue
+            key = (",".join(sorted(str(x) for x in (a.get("assignedIds") or ["*"]))),
+                   a.get("book") or a.get("title") or "")
+            groups.setdefault(key, []).append(a)
+
+        for key, v in groups.items():
+            v.sort(key=lambda a: a["dueDate"])
+            bad = [a for a in v if a["dueDate"] >= today and not allowed(a["dueDate"])
+                   and (not only or a["dueDate"] in only)]
+            if not bad:
+                continue
+            used = {a["dueDate"] for a in v if a["dueDate"] < today}
+            cursor = None
+            start = min(a["dueDate"] for a in bad)
+            for a in v:
+                if a["dueDate"] < start:          # 밀린 것보다 앞선 건 건드리지 않는다
+                    used.add(a["dueDate"])
+                    continue
+                y, m, dd = map(int, a["dueDate"].split("-"))
+                t = _d(y, m, dd)
+                if cursor and t <= cursor:        # 앞 과제가 밀려 겹치면 그 다음날부터
+                    t = cursor + timedelta(days=1)
+                guard = 0
+                while (not allowed(t.isoformat()) or t.isoformat() in used) and guard < 200:
+                    t += timedelta(days=1); guard += 1
+                used.add(t.isoformat()); cursor = t
+                if t.isoformat() != a["dueDate"]:
+                    moved.append({"id": a["id"], "title": a.get("title", ""),
+                                  "from": a["dueDate"], "to": t.isoformat()})
+                    a["dueDate"] = t.isoformat()
+        if moved:
+            _sync_exam_dates(db)
+            save_db(db)
+    if moved:
+        print("[closed-days] 휴무일로 과제 %d개 밀음" % len(moved))
+    return {"ok": True, "moved": moved, "count": len(moved)}
+
+
+@app.post("/api/apply-closed-days", dependencies=ADMIN_ONLY)
+def apply_closed_days(payload: dict = Body(default=None)):
+    """휴무일을 새로 지정한 뒤 지금 바로 밀고 싶을 때. body 없으면 전체 검사."""
+    _CLOSED_CACHE["at"] = 0          # 방금 지정한 휴무일을 즉시 반영하려고 캐시 비움
+    days = (payload or {}).get("days")
+    return _shift_off_days(only_days=days)
 
 
 @app.get("/api/closed-days")
@@ -1733,7 +1818,7 @@ def treetalk_points(ym: str = "", days: str = ""):
     return {"ok": True, "ym": cur_ym, "points": out}
 
 
-def _notify_treetalk(student_id, lesson="", due=""):
+def _notify_treetalk(student_id, lesson="", due="", score=None):
     """트리톡 활동 완료 시 담당쌤(학년별, 입력봇이 결정)+원장께 4활동 현황 알림. best-effort."""
     try:
         db = load_db()
@@ -1747,6 +1832,11 @@ def _notify_treetalk(student_id, lesson="", due=""):
         sr = ("%d점" % st["sent_rec"]) if st["sent_rec"] is not None else "⬜"
         what = ("단어녹음 %s · 문장녹음 %s\n단어익힘 %s · 문장익힘 %s"
                 % (wr, sr, "✅" if st["word_study"] else "⬜", "✅" if st["sent_study"] else "⬜"))
+        # ★위는 '오늘 최고점' 보드라, 한 학생이 연속으로 끝내면 알림마다 같은 점수가 찍힌다
+        #   (원장 2026-09-23 "위지아가 반복적으로 39점으로 알림이 온다" — 밤에 5개를 연달아 했는데
+        #   전부 '단어녹음 39점'으로 보였다). 방금 끝낸 것의 점수를 한 줄 더 붙여 구분되게 한다.
+        if isinstance(score, (int, float)):
+            what += "\n방금 끝낸 것: %d점" % round(score)
         import urllib.request, urllib.parse
         _params = {"learndone": "1", "app": "트리톡", "student": name, "cls": cls, "what": what}
         if lesson:
@@ -1851,7 +1941,8 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     # 이번 저장으로 '제출됨' 상태가 새로 된 경우에만 알림 (중간 저장·재저장 시엔 안 보냄)
     if payload.get("status") == "submitted" and prev_status != "submitted":
         try:
-            _notify_treetalk(student_id, lesson=a_title, due=(assignment or {}).get("dueDate", ""))   # 담당쌤(학년별)+원장께 4활동 현황
+            _notify_treetalk(student_id, lesson=a_title, due=(assignment or {}).get("dueDate", ""),
+                             score=_avg_score_from_sub(existing))   # 담당쌀과 원장께 4활동 현황 + 방금 점수
         except Exception as e:
             print("[telegram] 트리톡 제출 알림 실패:", e)
 
