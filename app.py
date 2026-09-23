@@ -803,7 +803,7 @@ def add_assignment(request: Request, payload: dict = Body(...)):
             "examples": payload.get("examples", []),
             "exampleKo": payload.get("exampleKo", []),
             "passScore": int(payload.get("passScore") or 70),
-            "dueDate": payload.get("dueDate") or None,
+            "dueDate": _open_due(payload.get("dueDate")) or None,   # 토·일·휴무일엔 안 넣는다
             "rounds": max(1, min(3, int(payload.get("rounds") or 3))),
             "assignedIds": payload.get("assignedIds", []),
             "assignedClasses": payload.get("assignedClasses", []),
@@ -863,7 +863,7 @@ def add_assignments_bulk(request: Request, payload: dict = Body(...)):
                 "examples": p.get("examples", []),
                 "exampleKo": p.get("exampleKo", []),
                 "passScore": int(p.get("passScore") or 70),
-                "dueDate": p.get("dueDate") or None,
+                "dueDate": _open_due(p.get("dueDate")) or None,   # 토·일·휴무일엔 안 넣는다
                 "rounds": max(1, min(3, int(p.get("rounds") or 3))),
                 "assignedIds": p.get("assignedIds", []),
                 "assignedClasses": p.get("assignedClasses", []),
@@ -1159,7 +1159,7 @@ def _sync_exam_dates(db):
         if not days:
             continue
         last = max(parse(a["dueDate"]) for a in days)
-        ex["dueDate"] = (last + timedelta(days=1)).isoformat()
+        ex["dueDate"] = _open_due((last + timedelta(days=1)).isoformat())   # 시험도 토·일·휴무일엔 안 놓는다
 
 
 @app.patch("/api/assignments/{assignment_id}")
@@ -1176,7 +1176,7 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
                     if k == "rounds":
                         a[k] = max(1, min(3, int(v or 3)))
                     elif k == "dueDate":
-                        a[k] = v or None
+                        a[k] = _open_due(v) if v else None   # 토·일·휴무일에 놓이면 다음 평일로
                     elif k == "published":
                         a[k] = bool(v)
                     elif k in ("assignedIds", "assignedClasses", "items", "meanings", "exampleAudio"):
@@ -1223,7 +1223,7 @@ def reschedule(payload: dict = Body(...)):
                 raise HTTPException(400, "미룰 일수를 입력해주세요.")
             for a in targets:
                 if a.get("dueDate"):
-                    a["dueDate"] = (parse(a["dueDate"]) + timedelta(days=days)).isoformat()
+                    a["dueDate"] = _open_due((parse(a["dueDate"]) + timedelta(days=days)).isoformat())
 
         elif mode == "shift_sessions":
             # 요일 패턴 유지: 대상들의 현재 요일 집합을 패턴으로 삼아, 각 과제를 그 패턴에서 N칸 뒤로.
@@ -1243,7 +1243,7 @@ def reschedule(payload: dict = Body(...)):
                     if d.weekday() in pattern:
                         cnt += 1
                     guard += 1
-                a["dueDate"] = d.isoformat()
+                a["dueDate"] = _open_due(d.isoformat())
 
         elif mode == "respread":
             start = payload.get("startDate")
@@ -1252,11 +1252,12 @@ def reschedule(payload: dict = Body(...)):
                 raise HTTPException(400, "시작일을 입력해주세요.")
             # python: 월=0 → js: 일=0 이므로 변환
             js_wd = set(int(w) for w in weekdays)
+            off = get_closed_days()          # 토·일·휴무일에는 안 놓는다
             cur = parse(start)
             assigned = 0
             guard = 0
             while assigned < len(targets) and guard < 800:
-                if ((cur.weekday() + 1) % 7) in js_wd:
+                if ((cur.weekday() + 1) % 7) in js_wd and cur.weekday() < 5 and cur.isoformat() not in off:
                     targets[assigned]["dueDate"] = cur.isoformat()
                     assigned += 1
                 cur += timedelta(days=1)
@@ -1493,6 +1494,25 @@ def _refresh_closed():
 def get_closed_days() -> set:
     _refresh_closed()
     return set(_CLOSED_CACHE["days"])
+
+
+def _open_due(iso):
+    """마감일을 '숙제 넣을 수 있는 날'로 맞춘다 — 토·일·휴무일(공휴일+학원휴무)이면
+    다음 평일로 밀어 둔다. 원장 2026-09-23: "휴무일엔 숙제를 안 넣고 싶다."
+    ★마감일을 쓰는 곳은 전부 이 함수를 거친다(과제 생성·교재 통째 등록·수정·일정조정).
+    값이 없거나 모양이 이상하면 그대로 돌려준다."""
+    from datetime import date as _d, timedelta
+    try:
+        y, m, dd = map(int, str(iso).split("-"))
+        cur = _d(y, m, dd)
+    except Exception:
+        return iso
+    off = get_closed_days()
+    for _ in range(90):
+        if cur.weekday() < 5 and cur.isoformat() not in off:
+            return cur.isoformat()
+        cur += timedelta(days=1)
+    return cur.isoformat()
 
 
 @app.get("/api/closed-days")
