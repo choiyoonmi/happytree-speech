@@ -1344,6 +1344,7 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
   const [drag, setDrag] = useState(null);
   const [closed, setClosed] = useState({ days: new Set(), names: {} });
   const [reStart, setReStart] = useState(() => new Date().toISOString().slice(0,10));
+  const [withPast, setWithPast] = useState(false);   // 밀린 것까지 끌어올지
   const dragRef = useRef(null);
   dragRef.current = drag;
   const navRef = useRef(0);   // 드래그 중 달 넘김 과속 방지
@@ -1374,6 +1375,7 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
   Object.values(byDate).forEach(v => v.sort((x, y) => (dayNum(x.title) || 0) - (dayNum(y.title) || 0)));
 
   const pastList = dated.filter(a => dueOf(a) < todayKey).sort((x, y) => dueOf(x).localeCompare(dueOf(y)));
+  const futureList = dated.filter(a => dueOf(a) >= todayKey).sort((x, y) => dueOf(x).localeCompare(dueOf(y)));
 
   const shortOf = (t) => {
     const m = /(?:day|unit|lesson)\s*\d+\s*(?:\(\s*\d+\s*\/\s*\d+\s*\))?/i.exec(t || "");
@@ -1455,22 +1457,41 @@ function BookCalendar({ list, onMove, onRespread, busy }) {
         {sel && <b style={{ color: "var(--gold)" }}> · 고른 과제: {shortOf(sel.title)} (날짜를 누르세요)</b>}
       </div>
 
-      {/* ★마감이 지난 과제를 한꺼번에 앞으로 끌어오기(원장 2026-09-23).
-           하나씩 끌어 옮기기엔 밀린 게 너무 많을 때 쓴다. 지난 것부터 뒤 과제까지
-           지금 쓰는 수업 요일에 다시 줄 세운다. */}
-      {onRespread && pastList.length > 0 && (
-        <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10,
-          background: "#FFF6E0", border: "1px solid #F0D9A8", borderRadius: 8, padding: "7px 9px" }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "#8A6D0F" }}>⏰ 마감 지난 과제 {pastList.length}개</span>
-          <input className="field" type="date" value={reStart} onChange={e => setReStart(e.target.value)}
-            style={{ width: 148, padding: "4px 6px", fontSize: 12, margin: 0 }} />
-          <button className="btn" style={{ fontSize: 12, padding: "5px 10px" }} disabled={busy}
-            onClick={() => {
-              const n = list.filter(x => x.dueDate && x.dueDate >= pastList[0].dueDate).length;
-              if (confirm(`마감이 지난 ${pastList.length}개를 포함해, ${pastList[0].dueDate} 부터의 과제 ${n}개를
-${reStart} 부터 지금 수업 요일에 다시 줄 세울까요?`))
-                onRespread(pastList[0].dueDate, reStart);
-            }}>이 날짜부터 다시 배치</button>
+      {/* ★일정 다시 짜기 — 원장님 지적(2026-09-23)으로 다시 만든 것.
+           예전 버튼은 '마감 지난 것부터 교재 끝까지'를 통째로 다시 깔았다. 그래서
+           이미 끝낸 과거 과제까지 미래로 끌려 나왔다. 선생님이 고치고 싶은 건 거의 언제나
+           '앞으로 남은 일정'이다 → 기본은 오늘 이후만. 밀린 것을 끌어오려면 따로 체크한다. */}
+      {onRespread && (futureList.length > 0 || pastList.length > 0) && (
+        <div style={{ background: "#F7F9FA", border: "1px solid var(--line)", borderRadius: 8,
+          padding: "8px 10px", marginBottom: 10 }}>
+          <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--navy)" }}>🗓 일정 다시 짜기</span>
+            <input className="field" type="date" value={reStart} onChange={e => setReStart(e.target.value)}
+              style={{ width: 146, padding: "4px 6px", fontSize: 12, margin: 0 }} />
+            <span style={{ fontSize: 12 }}>부터</span>
+            <button className="btn" style={{ fontSize: 12, padding: "5px 10px" }}
+              disabled={busy || (!futureList.length && !(withPast && pastList.length))}
+              onClick={() => {
+                const tg = (withPast ? pastList.concat(futureList) : futureList);
+                if (!tg.length) return;
+                const msg = withPast
+                  ? `아직 안 한 밀린 과제 ${pastList.length}개까지 앞으로 가져와서,\n` +
+                    `모두 ${tg.length}개를 ${reStart}부터 지금 수업 요일에 다시 줄 세울까요?\n\n` +
+                    `· ${reStart} 보다 앞의 끝난 과제는 건드리지 않아요.`
+                  : `${reStart} 이후 일정 ${tg.length}개를 ${reStart}부터 지금 수업 요일에\n` +
+                    `다시 줄 세울까요?\n\n· 지난 과제는 건드리지 않아요.`;
+                if (confirm(msg)) onRespread(tg.map(a => a.id), reStart);
+              }}>다시 줄 세우기</button>
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 5 }}>
+            오늘 이후 남은 과제 <b>{futureList.length}개</b>가 대상이에요. 지난 과제는 그대로 둡니다.
+          </div>
+          {pastList.length > 0 && (
+            <label className="row" style={{ gap: 6, fontSize: 12, marginTop: 5, cursor: "pointer", alignItems: "center" }}>
+              <input type="checkbox" checked={withPast} onChange={e => setWithPast(e.target.checked)} />
+              <span>⏰ 마감 지난 <b>{pastList.length}개</b>도 앞으로 가져오기</span>
+            </label>
+          )}
         </div>
       )}
 
@@ -1588,17 +1609,21 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   /* 달력의 '이 날짜부터 다시 배치' — 마감 지난 과제부터 끝까지를
      지금 쓰는 수업 요일에 다시 줄 세운다(기존 respread 재사용).
      요일은 지금 마감일들이 쓰는 요일을 그대로 따른다 — 선생님이 따로 고를 것 없게. */
-  const respreadFrom = async (fromDue, startDate) => {
+  /* 달력의 '다시 줄 세우기' — 고를 과제를 **명시적으로 받아** 그것만 다시 배치한다.
+     ★예전엔 '어느 날짜 이후 전부'를 서버가 골랐는데, 그러면 이미 끝난 과거 과제까지
+       미래로 끌려나왔다(원장 2026-09-23 제보). 이제 화면이 골라 준 id 만 손대다.
+     요일은 지금 마감일들이 쓰는 요일을 그대로 따른다. */
+  const respreadFrom = async (ids, startDate) => {
+    if (!ids || !ids.length) return;
     setBusy(true); setErr("");
     try {
-      const targets = list.filter(x => x.dueDate && x.dueDate >= fromDue);
       const wds = [...new Set(list.filter(x => x.dueDate).map(x => new Date(x.dueDate + "T00:00:00").getDay()))];
       await apiPost("/assignments/reschedule", {
-        mode: "respread", ids: targets.map(x => x.id), startDate,
+        mode: "respread", ids, startDate,
         weekdays: wds.length ? wds : [1, 2, 3, 4, 5],
       });
       await reload();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { setErr(e.message); alert("일정을 다시 짜지 못했어요: " + e.message); }
     setBusy(false);
   };
   const [roundsFrom, setRoundsFrom] = useState("");   // 회차 일괄변경 시작 과제 id ("" = 전체)
