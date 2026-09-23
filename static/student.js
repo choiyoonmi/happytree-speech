@@ -632,11 +632,19 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
     ? studyDone(a)
     : (statusMap[a.id] || "none") !== "none";
 
+  /* ★미리 학습 창: 과제 날짜는 마감일이라 미리 해도 되지만, 마감 3일 전부터만 열린다
+     (원장 2026-09-23 — 한 달치를 몰아 해 버리는 것을 막기 위해). 열리는 날(openFrom)은
+     서버가 과제마다 넣어 준다 — 그래야 화면과 서버 판단이 어긋나지 않는다.
+     마감이 지난 과제는 계속 열려 있다(밀린 거 따라잡기). */
+  const lockedOf = (a) => !!(a.openFrom && todayKey < a.openFrom);
+  const openLabel = (a) => `${+a.openFrom.slice(5,7)}월 ${+a.openFrom.slice(8,10)}일`;
+
   const dayState = (d) => {
     const list = byDate[key(d)] || [];
     if (!list.length) return null;
     if (list.every(doneOf)) return "done";
     if (key(d) < todayKey) return "late";
+    if (list.every(lockedOf)) return "soon";     // 아직 안 열린 날 — '해야 할 일'로 보이면 안 된다
     return "todo";
   };
 
@@ -710,7 +718,23 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
     );
   };
   const vocabOrExam = (a) => a.type === "exam" ? examCard(a) : vocabCard(a);
-  const card = isVocab ? vocabOrExam : isSentence ? sentenceCard : recordCard;
+  /* 아직 안 열린 과제 — 누를 수 없게 하고 언제부터 되는지 알려 준다. */
+  const lockedCard = (a) => (
+    <div key={a.id} className="card"
+      style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", gap:10,
+        opacity:.62, background:"#F4F6F8" }}>
+      <div style={{ minWidth:0 }}>
+        <div className="row" style={{ marginBottom:5 }}>
+          <Badge tone="b-gray">{a.type==="sentence"?"문장":a.type==="exam"?"진급시험":"단어"}</Badge>
+          <span className="muted">{openLabel(a)}부터 열려요</span>
+        </div>
+        <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
+      </div>
+      <span style={{ fontSize:20 }}>🔒</span>
+    </div>
+  );
+  const baseCard = isVocab ? vocabOrExam : isSentence ? sentenceCard : recordCard;
+  const card = (a) => lockedOf(a) ? lockedCard(a) : baseCard(a);
 
   return (
     <>
@@ -743,7 +767,7 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
             const isPicked = k === picked;
             const bs = dayBadges(k);
             const hasBadges = bs.length > 0;
-            const colors = { done:"#2E7D5B", todo:"var(--gold)", late:"var(--danger)" };
+            const colors = { done:"#2E7D5B", todo:"var(--gold)", late:"var(--danger)", soon:"#B9C4CE" };
             return (
               <button key={k} onClick={()=>setPicked(k)}
                 style={{ minHeight:54, padding:"5px 0", borderRadius:10, position:"relative",
@@ -804,8 +828,8 @@ function StudentHome({ mine, statusMap, vocabProgress, onOpenRecord, onOpenVocab
           <span className="muted">이 날은 {isStudy ? studyLabel+"이" : "숙제가"} 없어요 🎈</span>
         </div>
       )}
-      {/* 트리톡 과제 날짜는 '마감일'이라 그 전에 미리 해도 된다(선생님 방침). 미래 잠금 없음.
-         몰아하기로 이번 주 점수 부풀리는 건 점수 집계가 '마감일 주' 기준이라 막힌다. */}
+      {/* 과제 날짜는 '마감일'이라 미리 해도 되지만, 마감 3일 전부터만 열린다(lockedOf).
+         그보다 먼 건 자물쇠로 보여주고, 서버(_too_early)도 같은 기준으로 막는다. */}
       {pickedList.map(card)}
 
       {noDate.length > 0 && (

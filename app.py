@@ -722,6 +722,39 @@ def get_assignments(request: Request):
     return _light_assignments(rows)
 
 
+# ---------- 미리 학습 창 (마감 며칠 전부터 열리나) ----------
+# 트리톡 과제 날짜는 '마감일'이라 그 전에 미리 해도 된다. 다만 한 달치를 몰아 해 버리는 건 막는다
+# → 마감 EARLY_OPEN_DAYS일 전부터 열린다(원장 2026-09-23, 기본 3일).
+# ★마감이 지난 과제는 계속 열려 있다 — 밀린 것을 따라잡을 수 있어야 하므로.
+# 값은 Render 환경변수 EARLY_OPEN_DAYS 로 바꿀 수 있다(0 = 마감일 당일부터).
+try:
+    EARLY_OPEN_DAYS = max(0, int(os.environ.get("EARLY_OPEN_DAYS", "3")))
+except Exception:
+    EARLY_OPEN_DAYS = 3
+
+
+def _open_from(a) -> str:
+    """이 과제가 열리는 날(YYYY-MM-DD). 마감일이 없는 과제는 '' (언제나 열림)."""
+    from datetime import date as _date, timedelta
+    try:
+        y, m, d = str((a or {}).get("dueDate") or "").split("-")
+        return (_date(int(y), int(m), int(d)) - timedelta(days=EARLY_OPEN_DAYS)).isoformat()
+    except Exception:
+        return ""
+
+
+def _too_early(a) -> bool:
+    """아직 안 열린 과제인가(학생이 너무 미리 하려는 것인가)."""
+    o = _open_from(a)
+    return bool(o) and _today_kr() < o
+
+
+def _too_early_msg(a) -> str:
+    o = _open_from(a)
+    return ("이 숙제는 %d월 %d일부터 할 수 있어요. (마감 %d일 전부터 열려요)"
+            % (int(o[5:7]), int(o[8:10]), EARLY_OPEN_DAYS))
+
+
 def _light_assignments(lst):
     """목록 응답 경량화: 권말 시험(type=exam)의 무거운 문제은행(items/meanings/examples/exampleKo)을
     빼고 poolSize만 남긴다(응시할 때 /api/assignment/{id}로 전체를 받음). 예문 배열은 전 과제에서 제거."""
@@ -734,6 +767,7 @@ def _light_assignments(lst):
                 b[k] = []
         else:
             b.pop("examples", None); b.pop("exampleKo", None)
+        b["openFrom"] = _open_from(b)
         out.append(b)
     return out
 
@@ -1700,9 +1734,10 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     # 과제 정보(회차·항목 수)
     db = load_db()
     assignment = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
-    # ※트리톡의 과제 날짜는 '마감일'이라 학생이 그 전에 미리 해도 된다(선생님 방침, 2026-09-21).
-    #   그래서 미래 잠금은 두지 않는다 — 몰아하기로 이번 주 점수를 부풀리는 건 /api/points 가
-    #   '마감일이 속한 주'로 세서 막는다(미리 해도 그 과제는 마감 주에만 잡힘).
+    # ※과제 날짜는 '마감일'이라 미리 해도 되지만, 마감 3일 전부터만 열린다(EARLY_OPEN_DAYS).
+    #   화면에서도 잠그지만 서버에서도 막아야 직접 호출로 우회를 못 한다.
+    if _too_early(assignment):
+        raise HTTPException(403, _too_early_msg(assignment))
     rounds_total = int((assignment or {}).get("rounds", 3) or 3)
     item_count = len((assignment or {}).get("items", []))
     a_title = (assignment or {}).get("title", "")
@@ -2882,6 +2917,9 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
         correct = min(correct, total)
         score = round(correct * 100 / total)
     now = _now_kr()
+    _early = next((x for x in load_db().get("assignments", []) if x.get("id") == assignment_id), None)
+    if _too_early(_early):
+        raise HTTPException(403, _too_early_msg(_early))
     with _sub_lock(student_id):
         data = load_vocab(student_id)
         rec = data.get(assignment_id) or {"attempts": 0, "best": 0, "byMode": {}}
@@ -2996,6 +3034,9 @@ def submit_exam(assignment_id: str, student_id: str, payload: dict = Body(...)):
     seconds = max(0, int(payload.get("seconds") or 0))
     by_type = payload.get("byType") or {}
     now = _now_kr()
+    _early = next((x for x in load_db().get("assignments", []) if x.get("id") == assignment_id), None)
+    if _too_early(_early):
+        raise HTTPException(403, _too_early_msg(_early))
     with _sub_lock(student_id):
         data = load_exam(student_id)
         rec = data.get(assignment_id) or {"attempts": 0, "best": None, "bestSeconds": None}
