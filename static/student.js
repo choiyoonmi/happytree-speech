@@ -389,7 +389,7 @@ function StudentView({ student, onLogout }) {
             <div>
               <div style={{ fontWeight:700, fontSize:15 }}>{open.title}</div>
               <div style={{ fontSize:11, color:"var(--gold-soft)" }}>
-                {open.type==="word"?"단어":"문장"} {open.items.length}개 · {open.rounds || 3}회 녹음{open.dueDate ? ` · 마감 ${formatDue(open.dueDate)}` : ""}
+                {open.type==="word"?"단어녹음":"문장녹음"} · {open.items.length}개 · {open.rounds || 3}회{open.dueDate ? ` · 마감 ${formatDue(open.dueDate)}` : ""}
               </div>
             </div>
           </div>
@@ -481,7 +481,7 @@ function StudentView({ student, onLogout }) {
             <button onClick={()=>{ setOpenVocab(null); reloadVocab(); }} style={{ background:"none", color:"var(--cream)", fontSize:22 }}>‹</button>
             <div>
               <div style={{ fontWeight:700, fontSize:15 }}>{openVocab.title}</div>
-              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>단어 자습 · {openVocab.items.length}단어</div>
+              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>단어익힘 · {openVocab.items.length}단어</div>
             </div>
           </div>
         </div>
@@ -501,7 +501,7 @@ function StudentView({ student, onLogout }) {
             <button onClick={()=>{ setOpenSentence(null); reloadVocab(); }} style={{ background:"none", color:"var(--cream)", fontSize:22 }}>‹</button>
             <div>
               <div style={{ fontWeight:700, fontSize:15 }}>{openSentence.title}</div>
-              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>문장 자습 · {openSentence.items.length}문장</div>
+              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>문장익힘 · {openSentence.items.length}문장</div>
             </div>
           </div>
         </div>
@@ -557,7 +557,7 @@ function StudentView({ student, onLogout }) {
   );
 }
 
-// ---------- 학생 홈: 달력 + [녹음 숙제 / 단어 자습] 두 탭 (같은 달력 공유) ----------
+// ---------- 학생 홈: 달력 + [녹음 / 단어익힘 / 문장익힘] 탭 (같은 달력 공유) ----------
 
 function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam }) {
   const today = new Date();
@@ -572,7 +572,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
   const isVocab = tab === "vocab";
   const isSentence = tab === "sentence";
   const isStudy = isVocab || isSentence;
-  const studyLabel = isSentence ? "문장 자습" : "단어 자습";
+  const studyLabel = isSentence ? "문장익힘" : "단어익힘";   // 원장 2026-09-23: '자습' → '익힘'
   const source = isVocab
     ? mine.filter(a => a.type === "exam" ? (a.poolSize || (a.items||[]).length) : ((a.type || "word") === "word" && (a.items || []).length))
     : isSentence
@@ -593,7 +593,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
   Object.keys(byDate).forEach(k => byDate[k].sort(dayCmp));
   noDate.sort(dayCmp);
 
-  // 자습 완료 기준: 단계의 50% 이상 완료 (단어 4단계 중 2개↑, 문장 2단계 중 1개↑)
+  // 익힘 완료 기준: 단계의 50% 이상 완료 (단어 4단계 중 2개↑, 문장 2단계 중 1개↑)
   const studyDone = (a) => {
     const rec = vocabProgress[a.id];
     if (!rec || !rec.byMode) return false;
@@ -665,7 +665,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
         style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
         <div style={{ minWidth:0 }}>
           <div className="row" style={{ marginBottom:5 }}>
-            <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어":"문장"}</Badge>
+            <Badge tone={a.type==="word"?"b-navy":"b-gold"}>{a.type==="word"?"단어녹음":"문장녹음"}</Badge>
             <span className="muted">{a.items.length}개 · {a.rounds||3}회</span>
           </div>
           <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
@@ -683,7 +683,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
         style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
         <div style={{ minWidth:0 }}>
           <div className="row" style={{ marginBottom:5 }}>
-            <Badge tone="b-navy">단어</Badge>
+            <Badge tone="b-navy">단어익힘</Badge>
             <span className="muted">{a.items.length}단어</span>
           </div>
           <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
@@ -699,7 +699,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
         style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10 }}>
         <div style={{ minWidth:0 }}>
           <div className="row" style={{ marginBottom:5 }}>
-            <Badge tone="b-gold">문장</Badge>
+            <Badge tone="b-gold">문장익힘</Badge>
             <span className="muted">{a.items.length}문장</span>
           </div>
           <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
@@ -733,7 +733,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
         opacity:.62, background:"#F4F6F8" }}>
       <div style={{ minWidth:0 }}>
         <div className="row" style={{ marginBottom:5 }}>
-          <Badge tone="b-gray">{a.type==="sentence"?"문장":"단어"}</Badge>   {/* 진급시험은 이 창을 안 타서 여기 안 온다 */}
+          <Badge tone="b-gray">{isStudy ? (isSentence?"문장익힘":"단어익힘") : (a.type==="sentence"?"문장녹음":"단어녹음")}</Badge>   {/* 진급시험은 이 창을 안 타서 여기 안 온다 */}
           <span className="muted">{openLabel(a)}부터 열려요</span>
         </div>
         <div style={{ fontWeight:700, fontSize:15 }}>{a.title}</div>
@@ -748,8 +748,8 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
     <>
       <div className="seg" style={{ marginBottom:12 }}>
         <button className={tab==="record" ? "on" : ""} onClick={()=>setTab("record")}>📅 녹음</button>
-        <button className={tab==="vocab" ? "on" : ""} onClick={()=>setTab("vocab")}>📚 단어</button>
-        <button className={tab==="sentence" ? "on" : ""} onClick={()=>setTab("sentence")}>📝 문장</button>
+        <button className={tab==="vocab" ? "on" : ""} onClick={()=>setTab("vocab")}>📚 단어익힘</button>
+        <button className={tab==="sentence" ? "on" : ""} onClick={()=>setTab("sentence")}>📝 문장익힘</button>
       </div>
 
       <div className="card" style={{ padding:14 }}>
@@ -819,7 +819,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
             <span style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
               <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"var(--good)", borderRadius:4, padding:"1px 4px" }}>단</span>
               <span style={{ fontSize:11, fontWeight:800, color:"#fff", background:"var(--good)", borderRadius:4, padding:"1px 4px" }}>문</span>
-              📚 자습 완료
+              📚 익힘 완료
             </span>
           </div>
           <div className="row" style={{ gap:12, justifyContent:"center" }}>
@@ -999,7 +999,7 @@ function Unscramble({ pairs, title, voice, onBack, onDone }) {
   </>;
 }
 
-// ---------- 단어 자습 ----------
+// ---------- 단어익힘 ----------
 
 function VocabSetStudy({ assignment, student, voice, onClose }) {
   const cur = assignment;
@@ -1062,7 +1062,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
       <div onClick={()=>setDoneMsg(false)} style={{ position:"fixed", inset:0, display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, background:"rgba(0,0,0,.3)" }}>
         <div style={{ background:"#fff", borderRadius:20, padding:"34px 30px", textAlign:"center", maxWidth:320, boxShadow:"0 12px 40px rgba(0,0,0,.3)" }}>
           <div style={{ fontSize:56 }}>🎉</div>
-          <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginTop:8 }}>자습 4단계 완료!</div>
+          <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginTop:8 }}>익힘 4단계 완료!</div>
           <div className="muted" style={{ marginTop:8, fontSize:14 }}>카드암기·뜻고르기·스펠링·미니테스트를 모두 마쳤어요. 기록이 저장됐어요. 정말 잘했어요! 👏</div>
           <button className="btn full" style={{ marginTop:16 }} onClick={()=>setDoneMsg(false)}>확인</button>
           <a href={STUDENT_PORTAL} className="btn full" style={{ display:"block", marginTop:10, background:"var(--navy)", color:"#fff", textDecoration:"none" }}>🏠 학생 메인으로 — 다른 학습 하러 가기</a>
@@ -1460,7 +1460,7 @@ function ExamReport({ report, title, pass, wrong, onClose }) {
   </>;
 }
 
-// ---------- Admin: 학습 현황 (실시간 현황판 + 학생별 자습 점수) ----------
+// ---------- Admin: 학습 현황 (실시간 현황판 + 학생별 익힘 점수) ----------
 
 function makeBattleMusic() {
   let ctx = null, timer = null, muted = false, step = 0;

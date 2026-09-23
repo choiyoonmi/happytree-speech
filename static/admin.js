@@ -2387,7 +2387,7 @@ function AdminProgress({ students, assignments, reload }) {
           </div>
           {r.books.map(bar)}
           <div className="muted" style={{ fontSize:11, marginTop:5 }}>
-            이번 주 {r.week.done}/{r.week.total} · 자습 단어 {r.study.word}·문장 {r.study.sent}
+            이번 주 {r.week.done}/{r.week.total} · 단어익힘 {r.study.word}·문장익힘 {r.study.sent}
             {r.lastAt ? ` · 마지막 ${r.lastAt}` : " · 기록 없음"}
           </div>
         </button>
@@ -2518,7 +2518,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
     setBookBusy(false);
   };
 
-  /* ★녹음만 보여 주던 화면이라 자습 현황은 다른 탭(학습현황)에 가야 보였다.
+  /* ★녹음만 보여 주던 화면이라 익힘 현황은 다른 탭(학습현황)에 가야 보였다.
      한 아이를 보려고 두 화면을 왔다 갔다 하지 않게 여기서 같이 불러 준다(원장 2026-09-23). */
   useEffect(() => {
     setLoading(true);
@@ -2557,7 +2557,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
   const isDone = (a) => (subs[a.id]||{}).status === "submitted" || (subs[a.id]||{}).status === "reviewed";
   const isLate = (a) => !isDone(a) && a.dueDate && a.dueDate < todayKey;
   const inWeek = (a) => a.dueDate && a.dueDate >= weekMon && a.dueDate <= weekSun;
-  const studyOf = (a) => {   // 이 과제의 자습 단계 진행 (녹음과 같이 보여 주려고)
+  const studyOf = (a) => {   // 이 과제의 익힘 단계 진행 (녹음과 같이 보여 주려고)
     const rec = voc[a.id]; if (!rec) return null;
     const by = rec.byMode || {};
     const stages = a.type === "sentence" ? ["smeaning","unscramble"] : ["flash","choice","spell","test"];
@@ -2598,10 +2598,10 @@ function StudentReview({ student, assignments, reload, onBack }) {
 
       <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
         <button className={tab==="word" ? "on" : ""} onClick={()=>setTab("word")}>
-          단어 ({counts.word})
+          단어녹음 ({counts.word})
         </button>
         <button className={tab==="sentence" ? "on" : ""} onClick={()=>setTab("sentence")}>
-          문장 ({counts.sentence})
+          문장녹음 ({counts.sentence})
         </button>
       </div>
 
@@ -2665,7 +2665,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
           <div className="row" style={{ gap:12, flexWrap:"wrap", fontSize:12, borderTop:"1px solid var(--line)", paddingTop:8, marginTop:2 }}>
             <span style={{ color: lateN ? "var(--danger)" : "#2E7D5B", fontWeight:700 }}>밀림 {lateN}개</span>
             <span>이번 주 {weekDoneN}/{weekN}</span>
-            <span>자습 {studyDoneN}개</span>
+            <span>익힘 {studyDoneN}개</span>
             {recentAvg != null && <span>최근 평균 <b style={{ color:"var(--navy)" }}>{recentAvg}점</b></span>}
           </div>
         </div>
@@ -2684,7 +2684,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
 
       {!loading && !list.length && (
         <div className="muted" style={{ textAlign:"center", padding:30 }}>
-          {tab==="word" ? "단어" : "문장"} 과제가 없어요.
+          {tab==="word" ? "단어녹음" : "문장녹음"} 과제가 없어요.
         </div>
       )}
 
@@ -2723,7 +2723,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
                       {late ? <span style={{ color:"var(--danger)", fontWeight:700 }}> · 밀림</span> : null}
                     </div>
                     <div className="muted" style={{ marginTop:2, fontSize:11 }}>
-                      {sv ? `자습 ${sv.done}/${sv.total}단계${sv.best!=null ? ` · 최고 ${sv.best}점` : ""}` : "자습 시작 전"}
+                      {sv ? `익힘 ${sv.done}/${sv.total}단계${sv.best!=null ? ` · 최고 ${sv.best}점` : ""}` : "익힘 시작 전"}
                     </div>
                   </div>
                   <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
@@ -3120,10 +3120,10 @@ function AdminReport({ students }) {
 
             {rep.vocab && rep.vocab.studiedSets > 0 && (
               <div style={{ marginBottom:18 }}>
-                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>단어 자습 성취도</div>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>단어익힘 성취도</div>
                 <div className="row" style={{ gap:10, marginBottom:10, flexWrap:"wrap" }}>
                   {[["평균 최고점", rep.vocab.avgBest != null ? `${rep.vocab.avgBest}점` : "-"],
-                    ["자습한 단어장", `${rep.vocab.studiedSets}개`],
+                    ["익힌 단어장", `${rep.vocab.studiedSets}개`],
                     ["뜻고르기", rep.vocab.byMode && rep.vocab.byMode.choice != null ? `${rep.vocab.byMode.choice}점` : "-"],
                     ["스펠링", rep.vocab.byMode && rep.vocab.byMode.spell != null ? `${rep.vocab.byMode.spell}점` : "-"],
                     ["미니테스트", rep.vocab.byMode && rep.vocab.byMode.test != null ? `${rep.vocab.byMode.test}점` : "-"]].map(([l,v]) => (
@@ -3567,7 +3567,7 @@ function AdminView({ onLogout }) {
   );
 }
 
-// ---------- 단어 자습 ----------
+// ---------- 단어익힘 ----------
 
 const ACT_COLS = [["record","녹음"],["flash","카드암기"],["choice","뜻고르기"],["spell","스펠링"],["test","미니테스트"]];
 
@@ -3591,7 +3591,7 @@ function AdminDashboard({ students, assignments }) {
   const titleOf = (aid) => { const a = assignments.find(x => x.id === aid); return a ? a.title : aid; };
   const nameOf = (id) => { const s = students.find(x => x.id === id); return s ? s.name : id; };
   const isLive = (ts) => ts && (nowTs - ts) < 300;   // 5분 이내면 '학습중'
-  // 학생의 단어 자습 완료 요약: 완료 세트 수·최근 완료시간·진행중 최대 단계
+  // 학생의 단어익힘 완료 요약: 완료 세트 수·최근 완료시간·진행중 최대 단계
   const vocabInfo = (id) => {
     const vals = Object.values(vocab[id] || {});
     const comps = vals.filter(r => r.completedAt).map(r => r.completedAt).sort();
@@ -3607,8 +3607,8 @@ function AdminDashboard({ students, assignments }) {
       .sort((a, b) => (((b[1].last && b[1].last.at) || "")).localeCompare((a[1].last && a[1].last.at) || ""));
     return <div className="body">
       <button onClick={()=>setSid(null)} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 현황판</button>
-      <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>{nameOf(sid)} · 단어 자습 점수</div>
-      {!entries.length && <div className="muted" style={{ textAlign:"center", padding:24 }}>아직 자습 점수 기록이 없어요.</div>}
+      <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>{nameOf(sid)} · 단어익힘 점수</div>
+      {!entries.length && <div className="muted" style={{ textAlign:"center", padding:24 }}>아직 익힘 점수 기록이 없어요.</div>}
       {entries.map(([aid, rec]) => {
         const by = rec.byMode || {};
         return <div key={aid} className="card" style={{ padding:12 }}>
@@ -3668,7 +3668,7 @@ function AdminDashboard({ students, assignments }) {
             {ACT_COLS.map(([k,l]) => (
               <th key={k} style={{ padding:"8px 6px", textAlign:"center", color:"var(--navy-soft)", fontWeight:700, whiteSpace:"nowrap" }}>{l}</th>
             ))}
-            <th style={{ padding:"8px 6px", textAlign:"center", color:"var(--navy-soft)", fontWeight:700, whiteSpace:"nowrap" }}>자습완료</th>
+            <th style={{ padding:"8px 6px", textAlign:"center", color:"var(--navy-soft)", fontWeight:700, whiteSpace:"nowrap" }}>익힘완료</th>
           </tr>
         </thead>
         <tbody>
@@ -3719,7 +3719,7 @@ function AdminDashboard({ students, assignments }) {
         </tbody>
       </table>
     </div>
-    <div className="muted" style={{ marginTop:10, fontSize:11 }}>학생 이름을 누르면 단어 자습 점수 상세를 볼 수 있어요.</div>
+    <div className="muted" style={{ marginTop:10, fontSize:11 }}>학생 이름을 누르면 단어익힘 점수 상세를 볼 수 있어요.</div>
   </div>;
 }
 

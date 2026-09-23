@@ -67,7 +67,7 @@ DEFAULT_DB = {"students": [], "assignments": [], "submissions": {}}
 SUB_DIR = DATA_DIR / "submissions"
 SUB_DIR.mkdir(parents=True, exist_ok=True)
 
-VOCAB_DIR = DATA_DIR / "vocab"   # 단어 자습 점수/진도 (학생별 파일)
+VOCAB_DIR = DATA_DIR / "vocab"   # 단어익힘 점수/진도 (학생별 파일)
 VOCAB_DIR.mkdir(parents=True, exist_ok=True)
 
 ACT_DIR = DATA_DIR / "activity"  # 실시간 학습 현황 (학생별, 활동종류별 최근 기록)
@@ -182,7 +182,7 @@ def all_student_ids() -> list:
     return store.ids("subs", SUB_DIR)
 
 
-# ---------- 단어 자습 저장소 (학생별 파일, assignment_id별 기록) ----------
+# ---------- 단어익힘 저장소 (학생별 파일, assignment_id별 기록) ----------
 def _vocab_path(student_id: str) -> Path:
     return VOCAB_DIR / f"{_safe_id(student_id)}.json"
 
@@ -1329,12 +1329,12 @@ def _avg_score_from_sub(sub):
     return round(sum(scores) / len(scores)) if scores else None
 
 
-# ---------- 트리톡 알림: 오늘의 4활동(단어녹음·문장녹음·단어자습·문장자습) 현황 ----------
+# ---------- 트리톡 알림: 오늘의 4활동(단어녹음·문장녹음·단어익힘·문장익힘) 현황 ----------
 BOT_NOTIFY_URL = os.environ.get("BOT_NOTIFY_URL",
     "https://script.google.com/macros/s/AKfycbwHxEXK4Lz80L8A9zDiqIE8CNzNKSSiFCk6HYevmRdhde5eSRmSVATwHuRxsHBnv7Uh/exec")
 
 def _treetalk_today_status(student_id):
-    """오늘 트리톡 4활동 현황: 단어녹음/문장녹음 점수 + 단어자습/문장자습 완료(50%↑)."""
+    """오늘 트리톡 4활동 현황: 단어녹음/문장녹음 점수 + 단어익힘/문장익힘 완료(50%↑)."""
     from datetime import datetime, timezone, timedelta
     d = datetime.now(timezone.utc) + timedelta(hours=9)
     today = "%d/%d" % (d.month, d.day)   # _now_kr()과 같은 'M/D'
@@ -1385,8 +1385,8 @@ def _treetalk_done_ids_today() -> set:
       '지금 문장 하는 학생' = 최근(14일 내)~예정 마감의 published 문장 과제가 배정된 학생.
       · 그래서 지금 문장반(예: 초6)은 오늘 문장녹음까지 해야 완료 · 옛날에 한 번 문장 해본 학생(김의진 초5, 8월 초)은 제외.
       · 커리큘럼이 바뀌어 다른 학년이 문장을 시작/중단하면 과제 마감일로 자동 반영된다(학년 하드코딩 아님).
-      문장 안 하는 학생은 오늘 녹음이든 자습이든 하나라도 있으면 완료.
-    db·제출·자습 파일은 학생당 한 번씩만 읽는다."""
+      문장 안 하는 학생은 오늘 녹음이든 익힘이든 하나라도 있으면 완료.
+    db·제출·익힘 파일은 학생당 한 번씩만 읽는다."""
     from datetime import datetime, timezone, timedelta, date
     now_kr = datetime.now(timezone.utc) + timedelta(hours=9)
     today = "%d/%d" % (now_kr.month, now_kr.day)
@@ -1418,7 +1418,7 @@ def _treetalk_done_ids_today() -> set:
             sent_ids.update(str(x) for x in ids)
     need_sent = lambda sid: sent_all or (sid in sent_ids)
 
-    # (2) 오늘 자습한 학생(문장 안 하는 학생의 완료 판정용)
+    # (2) 오늘 익힘한 학생(문장 안 하는 학생의 완료 판정용)
     studied = set()
     for sid in all_vocab_student_ids():
         try:
@@ -1459,9 +1459,9 @@ def _treetalk_done_ids_today() -> set:
             if rec_s:                                  # 문장반: 오늘 문장녹음까지 해야 완료
                 done.add(sid)
         else:
-            if rec_w or rec_s or (sid in studied):     # 문장 불필요: 녹음이든 자습이든 하나라도
+            if rec_w or rec_s or (sid in studied):     # 문장 불필요: 녹음이든 익힘이든 하나라도
                 done.add(sid)
-    # 제출 파일이 없고 자습만 한 학생(문장 불필요)도 완료 처리
+    # 제출 파일이 없고 익힘만 한 학생(문장 불필요)도 완료 처리
     for sid in studied:
         if sid not in seen and not need_sent(sid):
             done.add(sid)
@@ -1587,7 +1587,7 @@ def treetalk_points(ym: str = "", days: str = ""):
     days='9/15,9/16,...' 를 주면 그 날짜들(주간)만 집계(월별 대신). 주간 랭킹용.
     활동(회차)마다: 1점 + (만점 +5 · 80점↑ +3), 만점이면 +5만.
     - 녹음(단어/문장): 제출/완료된 submission 마다 1회, 점수=발음 평균(_avg_score_from_sub).
-    - 자습(단어/문장): 완료(스테이지 50%↑)된 과제마다 1회, 점수=best(없으면 기본 1점)."""
+    - 익힘(단어/문장): 완료(스테이지 50%↑)된 과제마다 1회, 점수=best(없으면 기본 1점)."""
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc) + timedelta(hours=9)
     cur_ym = ym.strip() if ym else now.strftime("%Y-%m")
@@ -1683,7 +1683,7 @@ def treetalk_points(ym: str = "", days: str = ""):
             if avg is None:
                 continue
             p += pts(avg)
-        # 자습(단어/문장)
+        # 익힘(단어/문장)
         try:
             vocab = load_vocab(sid) or {}
         except Exception:
@@ -1725,7 +1725,7 @@ def _notify_treetalk(student_id, lesson="", due=""):
         st = _treetalk_today_status(student_id)
         wr = ("%d점" % st["word_rec"]) if st["word_rec"] is not None else "⬜"
         sr = ("%d점" % st["sent_rec"]) if st["sent_rec"] is not None else "⬜"
-        what = ("단어 녹음 %s · 문장 녹음 %s\n단어 자습 %s · 문장 자습 %s"
+        what = ("단어녹음 %s · 문장녹음 %s\n단어익힘 %s · 문장익힘 %s"
                 % (wr, sr, "✅" if st["word_study"] else "⬜", "✅" if st["sent_study"] else "⬜"))
         import urllib.request, urllib.parse
         _params = {"learndone": "1", "app": "트리톡", "student": name, "cls": cls, "what": what}
@@ -2662,7 +2662,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             "submitRate": round(v["done"] / v["total"] * 100) if v["total"] else 0,
         })
 
-    # 단어 자습 요약 (기간 내 배정된 단어 과제 기준)
+    # 단어익힘 요약 (기간 내 배정된 단어 과제 기준)
     vocab = load_vocab(student_id)
     vocab_rows = []
     vocab_bests = []
@@ -2699,7 +2699,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     }
     if vocab_summary["studiedSets"] and vocab_summary["avgBest"] is not None:
         lines.append(
-            f"단어 자습도 {vocab_summary['studiedSets']}개 단어장에서 평균 {vocab_summary['avgBest']}점을 기록하며 스스로 복습했어요."
+            f"단어익힘도 {vocab_summary['studiedSets']}개 단어장에서 평균 {vocab_summary['avgBest']}점을 기록하며 스스로 복습했어요."
         )
 
     return {
@@ -2945,19 +2945,19 @@ async def vocab_test(payload: dict = Body(...)):
     )
 
 
-# ---------- 단어 자습 (같은 과제 단어를 자습·시험, 점수 저장) ----------
+# ---------- 단어익힘 (같은 과제 단어를 익힘·시험, 점수 저장) ----------
 def _now_kr() -> str:
     from datetime import datetime, timezone, timedelta
     d = datetime.now(timezone.utc) + timedelta(hours=9)  # 서버 UTC → 한국시간(KST)
     return f"{d.month}/{d.day} {d.hour:02d}:{d.minute:02d}"
 
 
-VOCAB_STAGES = {"flash", "choice", "spell", "test"}   # 자습 4단계
+VOCAB_STAGES = {"flash", "choice", "spell", "test"}   # 익힘 4단계
 
 
 @app.post("/api/vocab/{assignment_id}/{student_id}")
 def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(...)):
-    """단어 자습 한 판 결과 저장. body: {mode, correct, total}
+    """단어익힘 한 판 결과 저장. body: {mode, correct, total}
     mode='flash'(카드암기)는 점수 없이 '했음'만 기록. 4단계 모두 하면 completedAt 기록."""
     mode = str(payload.get("mode") or "test")[:20]
     is_noscore = mode in ("flash", "smeaning")   # 점수 없이 '했음'만 기록하는 모드(카드암기·문장 뜻확인)
@@ -2997,7 +2997,7 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
             bm["last"] = {"correct": correct, "total": total, "score": score, "at": now}
             by[mode] = bm
         rec["byMode"] = by
-        # 자습 완료(단계 50%↑) 새로 도달 시 트리톡 알림 트리거
+        # 익힘 완료(단계 50%↑) 새로 도달 시 트리톡 알림 트리거
         _adb = load_db()
         _a = next((x for x in _adb.get("assignments", []) if x.get("id") == assignment_id), None)
         _stg = ["smeaning", "unscramble"] if (_a or {}).get("type", "word") == "sentence" else ["flash", "choice", "spell", "test"]
@@ -3010,15 +3010,15 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
         save_vocab(student_id, data)
     if _fire_study:
         try:
-            _notify_treetalk(student_id, lesson=(_a or {}).get("title", ""), due=(_a or {}).get("dueDate", ""))   # 자습 완료 → 담당쌤(학년별)+원장께
+            _notify_treetalk(student_id, lesson=(_a or {}).get("title", ""), due=(_a or {}).get("dueDate", ""))   # 익힘 완료 → 담당쌤(학년별)+원장께
         except Exception as e:
-            print("[treetalk] 자습 알림 실패:", e)
+            print("[treetalk] 익힘 알림 실패:", e)
     return rec
 
 
 @app.delete("/api/vocab/{assignment_id}/{student_id}")
 def delete_vocab(assignment_id: str, student_id: str):
-    """한 학생의 특정 과제 자습 기록 삭제 → 그 과제 자습을 '안 한 것'으로 되돌림.
+    """한 학생의 특정 과제 익힘 기록 삭제 → 그 과제 익힘을 '안 한 것'으로 되돌림.
     (미리 한 미래 과제 정리·선생님 취소용. 제출 삭제(delete_submission)와 짝.)"""
     with _sub_lock(student_id):
         voc = load_vocab(student_id)
@@ -3031,13 +3031,13 @@ def delete_vocab(assignment_id: str, student_id: str):
 
 @app.get("/api/vocab/{student_id}")
 def get_vocab(student_id: str):
-    """한 학생의 단어 자습 기록 전체 {assignment_id: record}."""
+    """한 학생의 단어익힘 기록 전체 {assignment_id: record}."""
     return load_vocab(student_id)
 
 
 @app.get("/api/vocab-all", dependencies=ADMIN_ONLY)
 def get_vocab_all():
-    """선생님 대시보드용: 모든 학생의 단어 자습 기록 {student_id: {aid: record}}."""
+    """선생님 대시보드용: 모든 학생의 단어익힘 기록 {student_id: {aid: record}}."""
     return {sid: load_vocab(sid) for sid in all_vocab_student_ids()}
 
 
@@ -3296,7 +3296,7 @@ def progress_all(request: Request):
                 break
         recent = round(sum(scored) / len(scored)) if scored else None
 
-        # 마지막 활동(녹음·자습 통합) — '언제 마지막으로 손대었나'
+        # 마지막 활동(녹음·익힘 통합) — '언제 마지막으로 손대었나'
         last_key, last_at = (0, 0), ""
         for sub in subs.values():
             for t in ((sub or {}).get("submittedAt"), (sub or {}).get("completedAt")):
