@@ -2197,6 +2197,12 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
           📗 {book} <span style={{ color:"var(--gold)", fontSize:14 }}>✏️</span>
         </button>
         <div className="row" style={{ gap:6, flexShrink:0 }}>
+          {/* ★합치기가 '달력에서 과제 내기 → 교재 나누기' 속에 묻혀 못 찾으셨다(원장 2026-09-28 "없어!").
+              (1/2)(2/2) 조각이 있을 때만 제목 줄에 바로 보이게 꺼냈다. */}
+          {mergeGroups.length > 0 && (
+            <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--navy)", fontWeight:700 }}
+              onClick={doMergeAll} disabled={busy}>{busy ? "합치는 중..." : `🔗 Day 합치기 (${mergeGroups.length})`}</button>
+          )}
           <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px" }}
             onClick={cleanDupes} disabled={dupBusy}>{dupBusy ? "검사 중..." : "🧹 중복 정리"}</button>
           <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }}
