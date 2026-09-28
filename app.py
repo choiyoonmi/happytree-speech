@@ -3077,6 +3077,44 @@ async def translate(payload: dict = Body(...)):
     return {"translations": out}
 
 
+@app.post("/api/dict-lookup")
+async def dict_lookup(payload: dict = Body(...)):
+    """영어 낱말의 '사전' 뜻을 품사와 함께 돌려준다(Azure Translator dictionary/lookup).
+    ★그냥 번역(translate)은 낱말 하나를 문장처럼 옮겨서 자주 틀린다
+      (handle→핸들, burn→불, quite→조용히). 사전 조회는 품사별 후보를 주므로
+      우리가 이미 아는 품사(noun/verb/adj…)에 맞는 뜻을 고를 수 있다.
+    body: {texts:[...]}  →  {results:[{text, entries:[{target, pos, confidence}]}]}"""
+    texts = [str(t).strip() for t in (payload.get("texts") or []) if str(t).strip()]
+    if not texts:
+        return {"results": []}
+    if not TRANSLATOR_KEY:
+        raise HTTPException(400, "번역 키가 없어요. Render 환경변수 AZURE_TRANSLATOR_KEY 를 확인해 주세요.")
+    url = "https://api.cognitive.microsofttranslator.com/dictionary/lookup"
+    headers = {
+        "Ocp-Apim-Subscription-Key": TRANSLATOR_KEY,
+        "Ocp-Apim-Subscription-Region": TRANSLATOR_REGION,
+        "Content-Type": "application/json",
+    }
+    out = []
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            for i in range(0, len(texts), 10):        # 사전 조회는 한 번에 10개까지
+                chunk = texts[i:i+10]
+                r = await client.post(url, params={"api-version": "3.0", "from": "en", "to": "ko"},
+                                      headers=headers, json=[{"Text": t} for t in chunk])
+                if r.status_code != 200:
+                    raise HTTPException(502, f"사전 조회 오류 ({r.status_code}): {r.text[:200]}")
+                for src, item in zip(chunk, r.json()):
+                    ents = [{"target": e.get("displayTarget") or e.get("normalizedTarget") or "",
+                             "pos": e.get("posTag") or "",
+                             "confidence": e.get("confidence") or 0}
+                            for e in (item.get("translations") or [])]
+                    out.append({"text": src, "entries": ents})
+    except httpx.RequestError as e:
+        raise HTTPException(502, f"번역 서버에 연결하지 못했어요: {e}")
+    return {"results": out}
+
+
 VOCAB_BASE_URL = "https://vocab-test-generator.onrender.com"
 VOCAB_TEST_URL = VOCAB_BASE_URL + "/api/generate-all"
 VOCAB_PARSE_URL = VOCAB_BASE_URL + "/api/parse"
