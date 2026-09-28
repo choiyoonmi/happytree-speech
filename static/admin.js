@@ -2062,6 +2062,53 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     setBusy(false);
   };
 
+  /* ★'교재 전체 나누기'의 반대 — 쪼개진 Day 를 도로 하나로 (원장 2026-09-28
+     "브릭스 900 교재 두 개로 쪼개진 거 하나로 합치고 싶어").
+     같은 base 제목의 (1/2)·(2/2) 짝을 찾아, 앞쪽에 뒤쪽 단어를 이어 붙이고 뒤쪽은 지운다.
+     조각이 셋 이상(1/3·2/3·3/3)이어도 번호 순서대로 다 이어 붙인다. */
+  const mergeGroups = (() => {
+    const g = {};
+    list.forEach(a => {
+      const m = /\((\d+)\s*\/\s*(\d+)\)\s*$/.exec(a.title || "");
+      if (!m) return;
+      const base = baseTitle(a.title);
+      if (!base) return;
+      (g[base] = g[base] || []).push({ a, no: +m[1] });
+    });
+    return Object.entries(g)
+      .filter(([, v]) => v.length > 1)
+      .map(([base, v]) => ({ base, parts: v.sort((x, y) => x.no - y.no).map(x => x.a) }));
+  })();
+
+  const doMergeAll = async () => {
+    if (!mergeGroups.length) return setErr("합칠 조각이 없어요. (제목이 \"… (1/2)\" 처럼 나뉜 Day 만 대상)");
+    const total = mergeGroups.reduce((n, g) => n + g.parts.length, 0);
+    if (!confirm(`쪼개진 ${mergeGroups.length}개 Day(조각 ${total}개)를 각각 하나로 합칠까요?\n\n` +
+                 `· 단어와 뜻은 순서대로 이어 붙여요\n` +
+                 `· 마감일은 앞 조각(1/2)의 날짜를 씁니다\n` +
+                 `· 뒤 조각은 지워져요 — 되돌릴 수 없어요`)) return;
+    setBusy(true); setErr("");
+    let done = 0;
+    try {
+      for (const g of mergeGroups) {
+        const [head, ...rest] = g.parts;
+        const items = [].concat(...g.parts.map(p => p.items || []));
+        const meanings = [].concat(...g.parts.map(p => p.meanings || []));
+        const ea = [].concat(...g.parts.map(p => p.exampleAudio || []));
+        const r = await fetch("/api/assignments/" + head.id, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: g.base, items, meanings, exampleAudio: ea }),
+        });
+        if (!r.ok) throw new Error(g.base + " 합치기 실패");
+        for (const p of rest) await apiDelete("/assignments/" + p.id);
+        done++;
+      }
+      await reload(); setPanel(null);
+      alert(`${done}개 Day를 하나로 합쳤어요!`);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
   // 회차 일괄변경 대상: 선택한 과제부터 끝까지 (list는 마감일 순 정렬됨), 비우면 전체
   const roundsStartIdx = roundsFrom ? list.findIndex(a => a.id === roundsFrom) : 0;
   const roundsTargets = roundsStartIdx >= 0 ? list.slice(roundsStartIdx) : list;
@@ -2244,6 +2291,19 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
               onClick={doSplitAll}>{busy ? "나누는 중... (조금 걸려요)" : "✂️ 전체 둘로 나누기"}</button>
             <button className="btn-ghost" style={{ flex:1 }} onClick={()=>setPanel(null)}>취소</button>
           </div>
+
+          {/* ★나누기의 반대 — 쪼개진 Day 를 도로 하나로 (원장 2026-09-28) */}
+          {mergeGroups.length > 0 && (
+            <div style={{ borderTop:"1px solid var(--line)", marginTop:14, paddingTop:12 }}>
+              <div style={{ fontWeight:700, fontSize:13, color:"var(--navy)" }}>🔗 쪼개진 Day 다시 합치기</div>
+              <div className="muted" style={{ fontSize:12, marginTop:4, lineHeight:1.6 }}>
+                제목이 <b>… (1/2)</b> · <b>… (2/2)</b> 로 나뉜 Day가 <b style={{ color:"var(--navy)" }}>{mergeGroups.length}개</b> 있어요.
+                단어를 순서대로 이어 붙여 하나로 만들고, 마감일은 앞 조각 날짜를 씁니다.
+              </div>
+              <button className="btn full" style={{ marginTop:10 }} disabled={busy}
+                onClick={doMergeAll}>{busy ? "합치는 중..." : `🔗 ${mergeGroups.length}개 Day 하나로 합치기`}</button>
+            </div>
+          )}
           {err && <div className="err" style={{ marginTop:8 }}>{err}</div>}
         </div>
       )}
