@@ -751,9 +751,12 @@ def _open_from(a) -> str:
         return ""
     try:
         y, m, d = str((a or {}).get("dueDate") or "").split("-")
-        return (_date(int(y), int(m), int(d)) - timedelta(days=EARLY_OPEN_DAYS)).isoformat()
+        due = _date(int(y), int(m), int(d))
     except Exception:
         return ""
+    # ★다음 주 과제는 앞 주(금·토·일)에 미리 못 한다(원장 2026-09-28 — 월요일 과제를 앞 주 금토일에
+    #   해 버리면 점수·기록이 주를 넘나든다). 마감일이 있는 주의 월요일보다 먼저 열리지 않게 한다.
+    return max(due - timedelta(days=EARLY_OPEN_DAYS), due - timedelta(days=due.weekday())).isoformat()
 
 
 def _too_early(a) -> bool:
@@ -764,8 +767,8 @@ def _too_early(a) -> bool:
 
 def _too_early_msg(a) -> str:
     o = _open_from(a)
-    return ("이 숙제는 %d월 %d일부터 할 수 있어요. (마감 %d일 전부터 열려요)"
-            % (int(o[5:7]), int(o[8:10]), EARLY_OPEN_DAYS))
+    return ("이 숙제는 %d월 %d일부터 할 수 있어요. (다음 주 숙제는 그 주가 되어야 열려요)"
+            % (int(o[5:7]), int(o[8:10])))
 
 
 def _light_assignments(lst):
