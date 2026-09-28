@@ -1329,7 +1329,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
   });
 
   return <BookDetail book={book} group={group} list={list} reload={reload} students={students}
-    onBack={()=>setBook(null)} />;
+    all={assignments} onBack={()=>setBook(null)} />;
 }
 
 // ---------- 교재 상세 + 일정 조정 ----------
@@ -1608,7 +1608,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
   );
 }
 
-function BookDetail({ book, group, list, reload, onBack, students }) {
+function BookDetail({ book, group, list, reload, onBack, students, all }) {
   const [panel, setPanel] = useState(null);   // 열려 있는 도구 패널
   const [calOpen, setCalOpen] = useState(false);   // 달력에서 과제 내기 상자를 여느냐
   const [days, setDays] = useState(7);
@@ -1631,6 +1631,14 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
   const [splitAllN, setSplitAllN] = useState(10);             // fixed일 때 앞쪽 개수
   const [splitAllReschedule, setSplitAllReschedule] = useState(true); // 나눈 뒤 하루에 하나씩 다시 배치
   const [splitAllStartIdx, setSplitAllStartIdx] = useState(0);        // 시작일에 놓을 Day(목록 인덱스)
+  /* 학생별 나누기·합치기 — 원본·반 공용 과제는 그대로, 고른 학생에게만 (원장 2026-09-28) */
+  const [pcSid, setPcSid] = useState("");
+  const [pcMode, setPcMode] = useState("split");        // split | merge
+  const [pcSplitMode, setPcSplitMode] = useState("half");
+  const [pcSplitN, setPcSplitN] = useState(10);
+  const [pcFrom, setPcFrom] = useState("");             // 이 과제부터(빈 값 = 처음부터)
+  const [pcResched, setPcResched] = useState(false);
+  const [pcPreview, setPcPreview] = useState(null);
   const [editing, setEditing] = useState(null);
   const [editDue, setEditDue] = useState("");
   const [editRounds, setEditRounds] = useState(3);
@@ -1838,7 +1846,24 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
       const k = (a.title||"");
       (groups[k] = groups[k] || []).push(a);
     });
-    const dupGroups = Object.values(groups).filter(g => g.length > 1);
+    /* ★제목이 같아도 받는 학생이 겹치지 않으면 중복이 아니다 — 학생별 나누기·합치기로 만든
+       개인 사본(예: 반 공용 "Day 3" 과 한 학생 전용 "Day 3")을 지우면 안 된다(2026-09-28).
+       받는 학생이 겹치는 것끼리만 한 묶음으로 본다(비어 있으면 전체 = 누구와도 겹침). */
+    const overlap = (x, y) => {
+      const a = x.assignedIds || [], b = y.assignedIds || [];
+      return !a.length || !b.length || a.some(id => b.includes(id));
+    };
+    const dupGroups = [];
+    Object.values(groups).forEach(g => {
+      const left = g.slice();
+      while (left.length) {
+        const cl = [left.shift()];
+        for (let k = 0; k < left.length; ) {
+          if (cl.some(c => overlap(c, left[k]))) { cl.push(left.splice(k, 1)[0]); k = 0; } else k++;
+        }
+        if (cl.length > 1) dupGroups.push(cl);
+      }
+    });
     if (!dupGroups.length) { alert("중복된 과제가 없어요. 👍"); return; }
     const dupCount = dupGroups.reduce((s,g)=>s+(g.length-1), 0);
     if (!confirm(`같은 Day가 두 번 이상 들어간 게 ${dupGroups.length}종류 있어요.\n중복 ${dupCount}개를 지워서 Day마다 하나씩만 남길까요?\n(학생 녹음이 있는 것을 우선 남기고, 없으면 마감일이 이른 것을 남겨요.)\n\n정리 후 "🗓 일정 다시 짜기"로 날짜를 맞춰주세요.`)) return;
@@ -2109,6 +2134,42 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
     setBusy(false);
   };
 
+  /* ---- 학생별 나누기·합치기 ----
+     서버(/students/<sid>/book-pieces)가 그 학생이 받는 이 교재의 과제 중 **아직 안 한 것만**
+     그 학생 전용 사본으로 떼어 내 나누거나 합친다. 다른 학생·보관함 원본은 손대지 않는다. */
+  const sees = (a, sid) => !(a.assignedIds || []).length || a.assignedIds.includes(sid);
+  const pcList = (sid) => (all || []).filter(a => a.published !== false && sid && sees(a, sid) &&
+      (a.book || seriesOf(a.title)) === book)
+    .sort((x, y) => {
+      const dx = dayNum(x.title), dy = dayNum(y.title);
+      if (dx != null && dy != null && dx !== dy) return dx - dy;
+      const dd = (x.dueDate||"").localeCompare(y.dueDate||"");
+      if (dd !== 0) return dd;
+      return (x.title||"").localeCompare(y.title||"");
+    });
+  const pcStudents = (students || []).filter(st => (all || []).some(a => a.published !== false && sees(a, st.id) &&
+      (a.book || seriesOf(a.title)) === book))
+    .sort((x, y) => (x.className||"").localeCompare(y.className||"") || (x.name||"").localeCompare(y.name||""));
+  const pcBody = (dryRun) => ({
+    book, mode: pcMode, fromId: pcFrom || null, splitMode: pcSplitMode, splitN: Number(pcSplitN) || 10,
+    reschedule: pcResched, start: startDate, weekdays, dryRun,
+  });
+  const pcRun = async (dryRun) => {
+    if (!pcSid) return setErr("학생을 골라 주세요.");
+    if (pcResched && !weekdays.length) return setErr("배치할 요일을 하나 이상 골라 주세요.");
+    setBusy(true); setErr("");
+    try {
+      const r = await apiPost("/students/" + encodeURIComponent(pcSid) + "/book-pieces", pcBody(dryRun));
+      if (dryRun) { setPcPreview(r); setBusy(false); return; }
+      await reload(); setPcPreview(null);
+      const nm = ((students||[]).find(x => x.id === pcSid) || {}).name || "";
+      alert(r.changed
+        ? `${nm} 학생만 ${pcMode === "split" ? "나눴어요" : "합쳤어요"}! (Day ${r.changed}개 → 과제 ${r.created}개)\n원본과 다른 학생 과제는 그대로예요.`
+        : "바꿀 Day가 없었어요.");
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
   // 회차 일괄변경 대상: 선택한 과제부터 끝까지 (list는 마감일 순 정렬됨), 비우면 전체
   const roundsStartIdx = roundsFrom ? list.findIndex(a => a.id === roundsFrom) : 0;
   const roundsTargets = roundsStartIdx >= 0 ? list.slice(roundsStartIdx) : list;
@@ -2197,12 +2258,10 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
           📗 {book} <span style={{ color:"var(--gold)", fontSize:14 }}>✏️</span>
         </button>
         <div className="row" style={{ gap:6, flexShrink:0 }}>
-          {/* ★합치기가 '달력에서 과제 내기 → 교재 나누기' 속에 묻혀 못 찾으셨다(원장 2026-09-28 "없어!").
-              (1/2)(2/2) 조각이 있을 때만 제목 줄에 바로 보이게 꺼냈다. */}
-          {mergeGroups.length > 0 && (
-            <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--navy)", fontWeight:700 }}
-              onClick={doMergeAll} disabled={busy}>{busy ? "합치는 중..." : `🔗 Day 합치기 (${mergeGroups.length})`}</button>
-          )}
+          {/* ★나누기·합치기는 **학생 한 명씩** 한다(원장 2026-09-28 "원본은 그대로 두고 해당 학생에게만").
+              처음엔 원본을 통째로 합치는 버튼을 여기 꺼냈었는데, 그러면 보관함 원본과 반 전체가 같이 바뀐다. */}
+          <button className={panel==="pieces" ? "btn" : "btn-ghost"} style={{ fontSize:11, padding:"5px 10px", fontWeight:700 }}
+            onClick={()=>{ setPanel(panel==="pieces"?null:"pieces"); setErr(""); setPcPreview(null); }}>👤 학생별 나누기·합치기</button>
           <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px" }}
             onClick={cleanDupes} disabled={dupBusy}>{dupBusy ? "검사 중..." : "🧹 중복 정리"}</button>
           <button className="btn-ghost" style={{ fontSize:11, padding:"5px 10px", color:"var(--danger)", borderColor:"#E8C4BC" }}
@@ -2247,9 +2306,92 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
 
       {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
 
+      {panel === "pieces" && (
+        <div className="card" style={{ background:"var(--cream)" }}>
+          <div className="muted" style={{ marginBottom:10, lineHeight:1.6 }}>
+            고른 <b style={{ color:"var(--navy)" }}>학생 한 명에게만</b> Day를 나누거나 합쳐요.
+            📦 보관함 원본과 <b>다른 학생 과제는 그대로</b>예요. 이미 녹음한 Day는 건드리지 않아요.
+          </div>
+          <label className="label">학생 <span className="muted" style={{ fontWeight:400 }}>(이 교재를 받고 있는 학생)</span></label>
+          <select className="field" style={{ margin:0 }} value={pcSid}
+            onChange={e=>{ setPcSid(e.target.value); setPcFrom(""); setPcPreview(null); }}>
+            <option value="">— 학생 고르기 —</option>
+            {pcStudents.map(st => (<option key={st.id} value={st.id}>{st.className ? st.className + " · " : ""}{st.name}</option>))}
+          </select>
+          {pcSid && <>
+            <label className="label" style={{ marginTop:10 }}>무엇을 할까요</label>
+            <div className="seg" style={{ marginTop:0 }}>
+              {[["split","✂️ 나누기"],["merge","🔗 합치기"]].map(([m,l]) => (
+                <button key={m} className={pcMode===m?"on":""} onClick={()=>{ setPcMode(m); setPcPreview(null); }}>{l}</button>
+              ))}
+            </div>
+            <div className="muted" style={{ fontSize:12, marginTop:6 }}>
+              {pcMode === "split"
+                ? "Day마다 앞·뒤 둘로 — (1/2)(2/2). 이미 나뉜 Day는 건너뛰어요."
+                : "(1/2)(2/2)로 나뉜 Day를 하나로. 조각 중 하나라도 이미 했으면 그 Day는 그대로 둬요."}
+            </div>
+            {pcMode === "split" && (
+              <div className="row" style={{ gap:6, marginTop:8, alignItems:"center", flexWrap:"wrap" }}>
+                <div className="seg" style={{ marginTop:0 }}>
+                  {[["half","절반씩"],["fixed","앞쪽 개수"]].map(([m,l]) => (
+                    <button key={m} className={pcSplitMode===m?"on":""} onClick={()=>{ setPcSplitMode(m); setPcPreview(null); }}>{l}</button>
+                  ))}
+                </div>
+                {pcSplitMode === "fixed" && (
+                  <input className="field" type="number" min={1} value={pcSplitN} style={{ width:80, margin:0 }}
+                    onChange={e=>{ setPcSplitN(Math.max(1, Number(e.target.value)||1)); setPcPreview(null); }} />
+                )}
+              </div>
+            )}
+            <label className="label" style={{ marginTop:10 }}>어느 Day부터</label>
+            <select className="field" style={{ margin:0 }} value={pcFrom} onChange={e=>{ setPcFrom(e.target.value); setPcPreview(null); }}>
+              <option value="">처음부터 (이미 한 Day는 알아서 건너뜀)</option>
+              {pcList(pcSid).map(a => (<option key={a.id} value={a.id}>{a.title}{a.dueDate ? " · " + formatDue(a.dueDate) : ""}</option>))}
+            </select>
+            <label className="label" style={{ marginTop:10 }}>
+              <input type="checkbox" checked={pcResched} onChange={e=>{ setPcResched(e.target.checked); setPcPreview(null); }} /> 바꾼 뒤 <b>하루에 하나씩</b> 날짜 다시 배치
+              <span className="muted" style={{ fontWeight:400 }}> (안 하면 나눈 조각은 원래 날짜에 둘 다, 합친 Day는 앞 조각 날짜)</span>
+            </label>
+            {pcResched && <>
+              <label className="label" style={{ marginTop:8 }}>시작일</label>
+              <input className="field" type="date" value={startDate} onChange={e=>{ setStartDate(e.target.value); setPcPreview(null); }} style={{ margin:0 }} />
+              <div className="row" style={{ gap:5, marginTop:8 }}>
+                {DAYNAMES.map((n,i) => (
+                  <button key={i} onClick={()=>{ toggle(i); setPcPreview(null); }}
+                    style={{ width:38, height:38, borderRadius:"50%", fontSize:13, fontWeight:700, border:"1px solid var(--navy)",
+                      background: weekdays.includes(i) ? "var(--navy)" : "#fff", color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
+                ))}
+              </div>
+              <div className="muted" style={{ fontSize:12, marginTop:4 }}>휴무일·공휴일은 알아서 건너뛰어요.</div>
+            </>}
+            {pcPreview && (
+              <div style={{ marginTop:12, padding:10, background:"#fff", borderRadius:10, border:"1px solid var(--line)", fontSize:12.5, lineHeight:1.6 }}>
+                {pcPreview.changed ? <>
+                  <b style={{ color:"var(--navy)" }}>Day {pcPreview.changed}개 → 이 학생 과제 {pcPreview.created}개</b>
+                  {pcPreview.skippedDone ? <span className="muted"> · 이미 한 {pcPreview.skippedDone}개는 그대로</span> : null}
+                  <div style={{ maxHeight:160, overflowY:"auto", marginTop:6 }}>
+                    {pcPreview.pieces.map((x,i) => (
+                      <div key={i}>{x.title} <span className="muted">· {x.n}개{x.dueDate ? " · " + formatDue(x.dueDate) : ""}</span></div>
+                    ))}
+                  </div>
+                </> : <span>바꿀 Day가 없어요.{pcPreview.skippedDone ? ` (이미 한 ${pcPreview.skippedDone}개는 건드리지 않아요)` : ""}</span>}
+              </div>
+            )}
+            <div className="row" style={{ gap:6, marginTop:12 }}>
+              {!pcPreview || !pcPreview.changed
+                ? <button className="btn" style={{ flex:1 }} disabled={busy} onClick={()=>pcRun(true)}>{busy ? "살펴보는 중..." : "미리 보기"}</button>
+                : <button className="btn" style={{ flex:1 }} disabled={busy} onClick={()=>pcRun(false)}>{busy ? "바꾸는 중..." : (pcMode==="split" ? "✂️ 이 학생만 나누기" : "🔗 이 학생만 합치기")}</button>}
+              <button className="btn-ghost" style={{ flex:1 }} onClick={()=>{ setPanel(null); setPcPreview(null); }}>닫기</button>
+            </div>
+          </>}
+          {err && <div className="err" style={{ marginTop:8 }}>{err}</div>}
+        </div>
+      )}
+
       {panel === "splitall" && (
         <div className="card" style={{ background:"var(--cream)" }}>
           <div className="muted" style={{ marginBottom:10 }}>
+            ⚠️ 여기는 <b>이 목록 전체</b>(보관함이면 원본, 반이면 그 반 모두)를 바꿔요. 학생 한 명만이면 위의 <b>👤 학생별 나누기·합치기</b>를 쓰세요.<br/>
             이 교재의 <b style={{ color:"var(--navy)" }}>모든 Day</b>를 앞·뒤 둘로 나눠요. 각 Day가 <b>(1/2)</b>와 <b>(2/2)</b>로 바뀌고, 마감·회차·배정·음원은 그대로 복사돼요. 이미 나뉜 Day는 건너뜁니다.
           </div>
           <label className="label">나누는 기준</label>
@@ -2618,7 +2760,7 @@ function BookDetail({ book, group, list, reload, onBack, students }) {
               ) : (
                 <button onClick={()=>openEdit(a)}
                   style={{ background:"none", padding:0, marginTop:3, color:"var(--navy-soft)", fontSize:12, textAlign:"left" }}>
-                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회{a.type==="sentence" && a.recordMode==="whole" ? " · 통문장" : ""} · {a.published===false ? "📦 보관함" : (a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? `개별 ${a.assignedIds.length}명` : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
+                  마감 {a.dueDate ? formatDue(a.dueDate) : "없음"} · {a.rounds || 3}회{a.type==="sentence" && a.recordMode==="whole" ? " · 통문장" : ""} · {a.published===false ? "📦 보관함" : (a.assignedClasses||[]).length ? a.assignedClasses.join(",") : (a.assignedIds||[]).length ? (a.assignedIds.length <= 2 ? "👤 " + a.assignedIds.map(id => ((students||[]).find(x=>x.id===id)||{}).name || id).join(",") : `개별 ${a.assignedIds.length}명`) : "전체"} <span style={{ color:"var(--gold)" }}>✏️</span>
                 </button>
               )}
             </div>

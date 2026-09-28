@@ -1083,6 +1083,183 @@ def clean_student_books(sid: str, payload: dict = Body(...)):
     return {"unassigned": unassigned + converted, "deleted": deleted}
 
 
+_PIECE_RE = re.compile(r"\s*\((\d+)\s*/\s*(\d+)\)\s*$")
+
+
+def _piece_base(title):
+    """'… Day 3 (2/2)' → ('… Day 3', 2). 조각이 아니면 (제목, 0)."""
+    t = str(title or "")
+    m = _PIECE_RE.search(t)
+    return (t[:m.start()].strip(), int(m.group(1))) if m else (t.strip(), 0)
+
+
+@app.post("/api/students/{sid}/book-pieces", dependencies=ADMIN_ONLY)
+def student_book_pieces(sid: str, request: Request, payload: dict = Body(...)):
+    """★학생 한 명에게만 Day 를 나누거나 합친다(원장 2026-09-28).
+    "원본은 그대로 두고 해당하는 학생에게만 나누고 합치기가 적용되었으면."
+    전에는 교재 화면의 나누기/합치기가 보관함 원본(또는 반 전체 과제)을 통째로 바꿨다.
+
+    하는 일: 이 학생이 받는 그 교재의 과제 중 **아직 손대지 않은 것**(제출 기록 없음)을
+    이 학생 전용 사본으로 떼어 내고, 사본을 나누거나(split) 합친다(merge).
+    원래 과제에서는 이 학생만 빠진다 — 다른 학생·보관함 원본은 그대로.
+    이미 녹음한 Day 는 기록이 걸려 있으니 건드리지 않는다(합치기는 조각 중 하나라도 했으면 그 Day 통째로 둔다).
+
+    body {book, mode:'split'|'merge', fromId?, splitMode:'half'|'fixed', splitN,
+          reschedule:bool, start:'YYYY-MM-DD', weekdays:[0..6 (일=0)], dryRun:bool}"""
+    from datetime import date as _d, timedelta
+    import copy as _copy
+    ac = academy_of(request)
+    book = str(payload.get("book") or "").strip()
+    mode = payload.get("mode")
+    if not book or mode not in ("split", "merge"):
+        raise HTTPException(400, "교재와 방식(split/merge)을 지정해주세요.")
+    split_fixed = payload.get("splitMode") == "fixed"
+    split_n = max(1, int(payload.get("splitN") or 10))
+    resched = bool(payload.get("reschedule"))
+    dry = bool(payload.get("dryRun"))
+    touched = set((load_student_subs(sid) or {}).keys())      # 기록이 하나라도 있는 과제
+
+    with _lock:
+        db = load_db()
+        studs = only_academy(db.get("students", []), ac)
+        if not any(s.get("id") == sid for s in studs):
+            raise HTTPException(404, "학생을 찾을 수 없어요.")
+        all_ids = [s.get("id") for s in studs if s.get("id")]
+
+        def sees(a):
+            ids = a.get("assignedIds") or []
+            return (not ids) or sid in [str(x) for x in ids]
+
+        mine = [a for a in db["assignments"]
+                if academy_of_student(a) == ac and a.get("published") is not False
+                and (a.get("book") or "") == book and sees(a)]
+        mine.sort(key=lambda a: (_day_num(a.get("title")), _piece_base(a.get("title"))[1],
+                                 a.get("dueDate") or "9999", a.get("title") or ""))
+        start = 0
+        if payload.get("fromId"):
+            for i, a in enumerate(mine):
+                if a.get("id") == payload["fromId"]:
+                    start = i
+                    break
+        seq = mine[start:]
+
+        # 단위(unit) = 새로 만들 조각의 원천. split=둘로, merge=여럿을 하나로, copy=날짜만 새로(다시 배치할 때)
+        units = []
+        i = 0
+        while i < len(seq):
+            a = seq[i]
+            if a.get("id") in touched:
+                i += 1
+                continue
+            base, no = _piece_base(a.get("title"))
+            if mode == "merge" and no:
+                grp = [a]
+                j = i + 1
+                while j < len(seq) and _piece_base(seq[j].get("title"))[1] and _piece_base(seq[j].get("title"))[0] == base:
+                    grp.append(seq[j])
+                    j += 1
+                if len(grp) > 1 and not any(g.get("id") in touched for g in grp):
+                    units.append({"src": grp, "kind": "merge", "title": base})
+                    i = j
+                    continue
+            n = len(a.get("items") or [])
+            if mode == "split" and not no and n >= 2 and (not split_fixed or n > split_n):
+                at = (n + 1) // 2 if not split_fixed else max(1, min(split_n, n - 1))
+                units.append({"src": [a], "kind": "split", "title": base, "at": at})
+            elif resched:
+                units.append({"src": [a], "kind": "copy", "title": a.get("title")})
+            i += 1
+
+        skipped = sum(1 for a in seq if a.get("id") in touched)
+        changed = [u for u in units if u["kind"] != "copy"]
+        if not changed:
+            return {"ok": True, "changed": 0, "created": 0, "pieces": [], "skippedDone": skipped}
+
+        # 새 마감일 — 고른 요일에, 휴무일은 건너뛰며 하루에 하나씩
+        need = sum(2 if u["kind"] == "split" else 1 for u in units)
+        dates = []
+        if resched:
+            wd = [int(x) for x in (payload.get("weekdays") or [1, 2, 3, 4, 5])]
+            off = get_closed_days()
+            try:
+                y, m, dd = map(int, str(payload.get("start")).split("-"))
+                cur = _d(y, m, dd)
+            except Exception:
+                raise HTTPException(400, "시작일이 올바르지 않아요.")
+            guard = 0
+            while len(dates) < need and guard < 3000:
+                if ((cur.weekday() + 1) % 7) in wd and cur.isoformat() not in off:
+                    dates.append(cur.isoformat())
+                cur += timedelta(days=1)
+                guard += 1
+
+        PER_ITEM = ("items", "meanings", "exampleAudio", "examples", "exampleKo")
+
+        def piece(src, title, lo, hi, due):
+            b = _copy.deepcopy(src)
+            n = len(src.get("items") or [])
+            for k in PER_ITEM:
+                v = src.get(k)
+                if isinstance(v, list) and len(v) == n:
+                    b[k] = v[lo:hi]
+            b.update({"id": "a" + uuid.uuid4().hex[:10], "title": title, "dueDate": due,
+                      "assignedIds": [sid], "assignedClasses": [], "published": True,
+                      "personalOf": sid})
+            return b
+
+        def next_date(fallback):
+            nonlocal di
+            v = dates[di] if resched and di < len(dates) else fallback
+            di += 1
+            return v
+
+        new, di = [], 0
+        for u in units:
+            src = u["src"]
+            if u["kind"] == "split":
+                a, at = src[0], u["at"]
+                n = len(a.get("items") or [])
+                new.append(piece(a, u["title"] + " (1/2)", 0, at, next_date(a.get("dueDate"))))
+                new.append(piece(a, u["title"] + " (2/2)", at, n, next_date(a.get("dueDate"))))
+            elif u["kind"] == "merge":
+                head = src[0]
+                b = piece(head, u["title"], 0, len(head.get("items") or []), next_date(head.get("dueDate")))
+                for k in PER_ITEM:
+                    if all(isinstance(g.get(k), list) and len(g.get(k)) == len(g.get("items") or []) for g in src):
+                        b[k] = [x for g in src for x in g.get(k)]
+                new.append(b)
+            else:
+                a = src[0]
+                new.append(piece(a, a.get("title"), 0, len(a.get("items") or []), next_date(a.get("dueDate"))))
+
+        summary = {"ok": True, "changed": len(changed), "created": len(new), "skippedDone": skipped,
+                   "pieces": [{"title": b["title"], "dueDate": b.get("dueDate"), "n": len(b.get("items") or [])}
+                              for b in new]}
+        if dry:
+            return summary
+
+        # 원래 과제에서 이 학생만 뺀다. 이 학생 전용이던 것만 지운다.
+        src_ids = {a["id"] for u in units for a in u["src"]}
+        keep, deleted, unassigned = [], 0, 0
+        for a in db["assignments"]:
+            if a.get("id") not in src_ids:
+                keep.append(a)
+                continue
+            ids = [str(x) for x in (a.get("assignedIds") or [])]
+            rest = [x for x in (ids if ids else all_ids) if x != sid]
+            if not rest:
+                deleted += 1
+                continue
+            a["assignedIds"] = rest
+            a["assignedClasses"] = []     # 반 배정으로 다시 저장하면 이 학생이 도로 들어가므로 개별로 바꾼다
+            unassigned += 1
+            keep.append(a)
+        db["assignments"] = new + keep
+        save_db(db)
+    summary.update({"deleted": deleted, "unassigned": unassigned})
+    return summary
+
+
 @app.post("/api/assignments/fill-meanings", dependencies=ADMIN_ONLY)
 async def fill_assignment_meanings():
     """기존 과제에서 비어 있는 한글 뜻만 자동 번역해 채운다."""
