@@ -1013,6 +1013,16 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
 
   const pairs = cur.items.map((w, i) => ({ word: w, kor: (cur.meanings && cur.meanings[i]) || "", audio: (cur.exampleAudio && cur.exampleAudio[i]) || null }));
 
+  /* ★뜻 칸에 품사(verb·noun·동사…)만 들어 있거나 아예 비어 있는 단어가 섞여 있다.
+     교재 엑셀에 품사 열이 따로 있는데 그걸 뜻으로 읽어 들인 탓(원장 2026-09-28 제보
+     "스펠링에서 verb 이런 게 나온다"). 그런 단어는 '뜻을 보고 영어 쓰기'가 성립하지 않으니
+     뜻이 필요한 세 모드(뜻 고르기·스펠링·미니테스트)에서는 뺀다.
+     카드 암기는 단어만으로도 쓸 수 있으니 그대로 둔다. */
+  const POS_ONLY = /^(?:(?:v|n|a|adj|adv|prep|pron|conj|int|interj)\.?|verb|noun|adjective|adverb|preposition|pronoun|conjunction|interjection|명사|동사|형용사|부사|대명사|전치사|접속사|감탄사|관사|수사|조동사)$/i;
+  const usableKor = (k) => { const s = String(k || "").trim(); return !!s && !POS_ONLY.test(s); };
+  const quizPairs = pairs.filter(p => usableKor(p.kor));
+  const dropped = pairs.length - quizPairs.length;
+
   const backToModes = () => { setMode(null); };
   // 결과 저장 후, 이번 저장으로 4단계가 처음 완성되면 완료 메시지
   const persist = async (body) => {
@@ -1027,10 +1037,23 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const saveResult = (correct, total) => persist({ mode, correct, total });
   const saveFlash = () => persist({ mode: "flash" });
 
+  // 뜻이 있어야 풀 수 있는 모드인데 쓸 수 있는 단어가 너무 적으면, 깨진 화면 대신 사정을 알려 준다
+  const needMeaning = (label) => (
+    <>
+      <button onClick={backToModes} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
+      <div className="card" style={{ padding:24, textAlign:"center" }}>
+        <div style={{ fontSize:34 }}>🙏</div>
+        <div style={{ fontWeight:800, marginTop:8, color:"var(--navy)" }}>{label}은 아직 못 해요</div>
+        <div className="muted" style={{ marginTop:6, fontSize:13, lineHeight:1.6 }}>
+          이 단어장에 <b>한글 뜻이 빠진 단어</b>가 있어서예요.<br />선생님께 말씀드리면 금방 고쳐 주실 거예요.
+        </div>
+      </div>
+    </>
+  );
   if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} label="카드 암기" voice={voice} onBack={backToModes} onDone={saveFlash} />;
-  if (mode === "choice") return <ChoiceQuiz pairs={pairs} title={cur.title} label="뜻 고르기" onBack={backToModes} onDone={saveResult} />;
-  if (mode === "spell") return <SpellQuiz pairs={pairs} title={cur.title} label="스펠링" onBack={backToModes} onDone={saveResult} />;
-  if (mode === "test") return <ChoiceQuiz pairs={pairs} title={cur.title} label="미니 테스트" onBack={backToModes} onDone={saveResult} limit={Math.min(20, pairs.length)} />;
+  if (mode === "choice") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="뜻 고르기" onBack={backToModes} onDone={saveResult} /> : needMeaning("뜻 고르기");
+  if (mode === "spell") return quizPairs.length >= 1 ? <SpellQuiz pairs={quizPairs} title={cur.title} label="스펠링" onBack={backToModes} onDone={saveResult} /> : needMeaning("스펠링");
+  if (mode === "test") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="미니 테스트" onBack={backToModes} onDone={saveResult} limit={Math.min(20, quizPairs.length)} /> : needMeaning("미니 테스트");
 
   const bm = (rec && rec.byMode) || {};
   const doneCount = ["flash","choice","spell","test"].filter(k => bm[k]).length;
@@ -1042,6 +1065,11 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   ];
   return <>
     <div className="muted" style={{ marginBottom:6 }}>{pairs.length}단어{rec ? ` · 최고 ${rec.best}점 · ${rec.attempts}회` : ""}</div>
+    {dropped > 0 && (
+      <div className="muted" style={{ marginBottom:8, fontSize:12, color:"#8A6D0F" }}>
+        ⚠ 한글 뜻이 빠진 단어 {dropped}개는 뜻 고르기·스펠링·미니 테스트에서 빠져요.
+      </div>
+    )}
     <div style={{ marginBottom:12, fontSize:13, fontWeight:700, color: doneCount===4 ? "var(--good)" : "var(--navy-soft)" }}>
       진행 {doneCount}/4 단계 {doneCount===4 ? "· 완료 ✅" : ""}
     </div>

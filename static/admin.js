@@ -443,7 +443,13 @@ function BulkUpload({ students, reload, onClose }) {
         const numberedRow = /^\d+$/.test(c0) && c1;
         const wordCell = numberedRow ? c1 : (c0 || c1);
         if (!wordCell) continue;
-        const meaningCell = numberedRow ? c2 : (c0 ? c1 : c2);
+        /* ★뜻 칸은 '자리'가 아니라 '한글이 든 칸'으로 고른다.
+           교재 엑셀이 [번호][단어][품사][뜻] 처럼 품사 열을 끼고 있으면 자리로만 집을 때
+           뜻 대신 'verb' 가 들어갔다(원장 2026-09-28 "스펠링에 verb 이런 게 나온다").
+           한글이 든 칸이 없을 때만 예전처럼 자리로 집는다. */
+        const korCell = r.map(x => String(x ?? "").trim()).slice(numberedRow ? 2 : 1)
+                         .find(v => /[가-힣]/.test(v)) || "";
+        const meaningCell = korCell || (numberedRow ? c2 : (c0 ? c1 : c2));
         const sp = splitMeaning(wordCell);
         parsed.push({ day: currentDay, text: sp.text || wordCell, meaning: sp.meaning || meaningCell });
       }
