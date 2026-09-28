@@ -1037,13 +1037,19 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const saveResult = (correct, total) => persist({ mode, correct, total });
   const saveFlash = () => persist({ mode: "flash" });
 
+  // 받침에 따라 '은/는' — "뜻 고르기은" 처럼 어색해지지 않게
+  const josaEunNeun = (w) => {
+    const s = String(w || "");
+    const c = s.charCodeAt(s.length - 1) - 0xAC00;
+    return (c >= 0 && c < 11172 && c % 28) ? "은" : "는";
+  };
   // 뜻이 있어야 풀 수 있는 모드인데 쓸 수 있는 단어가 너무 적으면, 깨진 화면 대신 사정을 알려 준다
   const needMeaning = (label) => (
     <>
       <button onClick={backToModes} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
       <div className="card" style={{ padding:24, textAlign:"center" }}>
         <div style={{ fontSize:34 }}>🙏</div>
-        <div style={{ fontWeight:800, marginTop:8, color:"var(--navy)" }}>{label}은 아직 못 해요</div>
+        <div style={{ fontWeight:800, marginTop:8, color:"var(--navy)" }}>{label}{josaEunNeun(label)} 아직 못 해요</div>
         <div className="muted" style={{ marginTop:6, fontSize:13, lineHeight:1.6 }}>
           이 단어장에 <b>한글 뜻이 빠진 단어</b>가 있어서예요.<br />선생님께 말씀드리면 금방 고쳐 주실 거예요.
         </div>
