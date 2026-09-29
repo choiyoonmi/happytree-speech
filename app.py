@@ -263,6 +263,31 @@ async def fetch_shared_accounts(params: dict) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _norm_class(cls: str) -> str:
+    """반 이름을 트리톡이 쓰는 모양으로 다듬는다.
+
+    공용 학생계정(Apps Script)이 보내 주는 cls 가 학생마다 다른 모양이다 —
+        "초6A"                                     (짧은 것)
+        "초6 | 영어 초6A · 국어 초등6 · 수학 초등6"     (국·영·수를 다 붙인 것)
+    글자가 다르면 트리톡은 **다른 반**으로 본다. 그래서 한 반 아이가 혼자
+    따로 떨어져 보였다(원장님 2026-09-29 "정석원 학생은 초6A반인데 왜 따로 반이 되어있어?").
+
+    트리톡은 영어 앱이니 **영어 반**만 쓴다. 영어 반이 없으면 앞쪽 학년(초6)을 쓴다.
+    ★학생계정 쪽 값은 건드리지 않는다 — 받아 쓸 때만 다듬는다(원장님이 1번을 고르셨다).
+    """
+    cls = str(cls or "").strip()
+    if "|" not in cls:
+        return cls
+    head, _, tail = cls.partition("|")
+    for part in tail.split("·"):
+        part = part.strip()
+        if part.startswith("영어"):
+            got = part[2:].strip()
+            if got:
+                return got
+    return head.strip() or cls
+
+
 def upsert_shared_student(shared: dict) -> dict:
     """공용 명단 학생을 트리톡 DB에 반영하고 기존 학습 기록은 보존한다."""
     sid = str(shared.get("id", "")).strip()
@@ -278,7 +303,7 @@ def upsert_shared_student(shared: dict) -> dict:
             db["students"].append(student)
 
         student["name"] = name
-        student["className"] = str(shared.get("cls", "")).strip()
+        student["className"] = _norm_class(shared.get("cls", ""))
         # 학원은 공용 학생계정(Apps Script)이 알려 준 값만 쓴다. 학생이 못 정한다.
         # 옛 배포는 academy 를 안 보내므로, 그때는 기존 값을 지우지 않고 그대로 둔다.
         ac = str(shared.get("academy") or "").strip()
@@ -315,7 +340,7 @@ def _merge_shared_students(shared_list) -> list:
                 db["students"].append(student)
                 by_id[sid] = student
             student["name"] = name
-            student["className"] = str(shared.get("cls", "")).strip()
+            student["className"] = _norm_class(shared.get("cls", ""))
             ac = str(shared.get("academy") or "").strip()
             if ac:
                 student["academy"] = ac
@@ -535,6 +560,32 @@ def _store_sources():
 
 # 마지막 동기화 결과 — /api/admin/store-status 에서 확인한다
 _last_sync = {"state": "아직 안 함"}
+
+
+@app.on_event("startup")
+def _fix_class_names_on_boot():
+    """이미 저장돼 있는 학생의 반 이름도 한 번 다듬는다.
+
+    _norm_class 는 학생이 **다시 로그인할 때**만 걸린다. 그때까지 기다리면
+    그 아이만 계속 따로 된 반으로 보인다 — 켜질 때 한 번 훑어 고친다.
+    모양이 바뀌는 학생만 손대고, 바뀔 게 없으면 저장도 하지 않는다.
+    """
+    try:
+        with _lock:
+            db = load_db()
+            changed = []
+            for st in db.get("students", []):
+                old = str(st.get("className") or "")
+                new = _norm_class(old)
+                if new != old:
+                    st["className"] = new
+                    changed.append((st.get("name") or st.get("id"), old, new))
+            if changed:
+                save_db(db)
+                print("[반이름] %d명 정리: %s" % (len(changed),
+                      ", ".join("%s %s->%s" % c for c in changed[:5])))
+    except Exception as e:
+        print("[반이름] 정리 실패(넘어감): %s" % e)
 
 
 @app.on_event("startup")
