@@ -363,6 +363,11 @@ function BulkUpload({ students, reload, onClose }) {
   const [startDay, setStartDay] = useState(1);
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
   const [weekdays, setWeekdays] = useState([1,2,3,4,5]);
+  /* ★처음 만들 때부터 반복을 정한다(원장님 2026-09-29 "왜 수정에 들어가야 하지?").
+     요일을 고르는 바로 이 자리에 같이 있어야 한다 — 문장 교재는 한 유닛을
+     그 주 수업일마다 되풀이하고, 단어 교재는 수업일마다 다음 Day 로 넘어간다. */
+  const [repeat, setRepeat] = useState(1);
+  const [repTouched, setRepTouched] = useState(false);
   const [mode, setMode] = useState("hidden");   // 기본값: 보관함(실수로 전체 배포 방지)
   const [classes, setClasses] = useState([]);
   const [ids, setIds] = useState([]);
@@ -655,14 +660,21 @@ function BulkUpload({ students, reload, onClose }) {
     return out;
   }, [fixedRows, hasDayCol, perDay, startDay]);
 
-  // 선택한 요일에 맞춰 마감일 계산
+  useEffect(() => {
+    if (repTouched) return;
+    setRepeat(type === "sentence" ? Math.max(1, weekdays.length) : 1);
+  }, [type, weekdays.length, repTouched]);
+
+  const rep = Math.max(1, Number(repeat) || 1);
+
+  // 선택한 요일에 맞춰 마감일 계산 (반복까지 친 개수만큼)
   const dueDates = React.useMemo(() => {
     if (!groups.length || !weekdays.length) return [];
     const out = [];
     const [y,m,d] = startDate.split("-").map(Number);
     let cur = new Date(y, m-1, d);
     let guard = 0;
-    while (out.length < groups.length && guard < 400) {
+    while (out.length < groups.length * rep && guard < 4000) {
       if (weekdays.includes(cur.getDay())) {
         out.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
       }
@@ -670,7 +682,7 @@ function BulkUpload({ students, reload, onClose }) {
       guard++;
     }
     return out;
-  }, [groups.length, startDate, weekdays]);
+  }, [groups.length, startDate, weekdays, rep]);
 
   const autoTranslate = async () => {
     if (!rows) return;
@@ -730,17 +742,18 @@ function BulkUpload({ students, reload, onClose }) {
         setTrBusy(false);
       }
 
-      const payload = translatedGroups.map((g,i) => ({
-        title: `${title.trim()} ${unitLabel} ${g.day}`,
+      const payload = [];
+      translatedGroups.forEach((g,i) => { for (let k = 0; k < rep; k++) payload.push({
+        title: `${title.trim()} ${unitLabel} ${g.day}` + (rep > 1 ? ` (${k+1}일차)` : ""),
         book: title.trim(),
         type, rounds, recordMode: type==="sentence" ? recordMode : "each",
         items: g.rows.map(r=>r.text),
         meanings: g.rows.map(r=>r.meaning || ""),
-        dueDate: hidden ? null : (dueDates[i] || null),
+        dueDate: hidden ? null : (dueDates[i * rep + k] || null),
         assignedIds,
         assignedClasses: mode==="class" ? classes : [],
         published: !hidden,
-      }));
+      }); });
       const r = await apiPost("/assignments/bulk", { assignments: payload });
       await reload();
       alert(`${r.created}개 과제를 등록했어요!`);
@@ -782,7 +795,7 @@ function BulkUpload({ students, reload, onClose }) {
           <div style={{ marginTop:14, padding:10, background:"var(--cream)", borderRadius:8 }}>
             <b style={{ color:"var(--navy)" }}>{(fixedRows || rows).length}개</b> {type==="sentence" ? "문장" : "단어"}을 읽었어요 ·
             {hasDayCol ? " 파일의 구분 사용" : ` ${perDay}개씩 나눔`} →
-            <b style={{ color:"var(--navy)" }}> {groups.length}개 과제</b>
+            <b style={{ color:"var(--navy)" }}> {groups.length * rep}개 과제</b>
             <button className="btn-ghost" style={{ fontSize:11, padding:"4px 8px", marginLeft:8 }}
               onClick={autoTranslate} disabled={trBusy}>
               {trBusy ? "번역 중..." : "🇰🇷 한글뜻 자동"}
@@ -909,6 +922,32 @@ function BulkUpload({ students, reload, onClose }) {
           </div>
 
           <div style={{height:12}} />
+          <label className="label">같은 유닛을 몇 번 반복할까요 <span className="muted" style={{ fontWeight:400 }}>(수업일 기준 · 연속으로)</span></label>
+          <div className="row" style={{ gap:6, marginBottom:6, flexWrap:"wrap" }}>
+            {[1,2,3,5].map(n => (
+              <button key={n} onClick={()=>{ setRepeat(n); setRepTouched(true); }}
+                style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                  background: rep===n ? "var(--navy)" : "#fff", color: rep===n ? "var(--cream)" : "var(--navy)" }}>
+                {n===1 ? "반복 안 함" : `${n}번`}
+              </button>
+            ))}
+            {weekdays.length > 0 && (
+              <button onClick={()=>{ setRepeat(weekdays.length); setRepTouched(true); }}
+                style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:800, border:"1px solid var(--gold)",
+                  background: rep===weekdays.length ? "var(--gold)" : "#FFFDF4",
+                  color: rep===weekdays.length ? "#2B2206" : "#8A6D3B" }}>
+                한 주 내내 ({weekdays.length}번)
+              </button>
+            )}
+          </div>
+          {!repTouched && (
+            <div className="muted" style={{ fontSize:12 }}>
+              {type === "sentence"
+                ? "📝 문장 교재라 「한 주 내내」로 맞춰 뒀어요 — 한 유닛을 그 주 수업일마다 되풀이합니다."
+                : "📚 단어 교재라 「반복 안 함」으로 뒀어요 — 수업일마다 다음 Day 가 나갑니다."}
+            </div>
+          )}
+          <div style={{height:12}} />
           <label className="label">배정 대상</label>
           <div className="seg" style={{marginTop:0}}>
             {[["hidden","📦 보관함"],["all","전체"],["class","반별"],["individual","개별"]].map(([v,l]) => (
@@ -948,7 +987,7 @@ function BulkUpload({ students, reload, onClose }) {
             ))}
           </div>
           <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:8, fontSize:13 }}>
-            등록 미리보기 ({groups.length}개)
+            등록 미리보기 ({groups.length * rep}개{rep > 1 ? ` · 유닛 ${groups.length}개 × ${rep}번` : ""})
           </div>
           <div style={{ maxHeight:200, overflowY:"auto", border:"1px solid var(--line)", borderRadius:8 }}>
             {groups.map((g,i) => (
@@ -956,7 +995,12 @@ function BulkUpload({ students, reload, onClose }) {
                 display:"flex", justifyContent:"space-between", gap:8, fontSize:12 }}>
                 <span style={{ fontWeight:600 }}>{title || "교재명"} {unitLabel} {g.day}</span>
                 <span className="muted" style={{ whiteSpace:"nowrap" }}>
-                  {g.rows.length}개 · {dueDates[i] ? `${dueDates[i].slice(5).replace("-","/")} (${DAYNAMES[new Date(dueDates[i]).getDay()]})` : "-"}
+                  {g.rows.length}개 · {(() => {
+                    const a = dueDates[i * rep], b = dueDates[i * rep + rep - 1];
+                    if (!a) return "-";
+                    const f = (x) => `${x.slice(5).replace("-","/")} (${DAYNAMES[new Date(x).getDay()]})`;
+                    return rep > 1 && b && b !== a ? `${f(a)} ~ ${f(b)} · ${rep}번` : f(a);
+                  })()}
                 </span>
               </div>
             ))}
@@ -965,7 +1009,7 @@ function BulkUpload({ students, reload, onClose }) {
           <div className="row" style={{ marginTop:16 }}>
             <button className="btn-ghost" onClick={onClose}>취소</button>
             <button className="btn" onClick={submit} disabled={busy}>
-              {busy ? "등록 중..." : `${groups.length}개 과제 등록하기`}
+              {busy ? "등록 중..." : `${groups.length * rep}개 과제 등록하기`}
             </button>
           </div>
         </>
