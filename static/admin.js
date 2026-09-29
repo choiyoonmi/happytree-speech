@@ -1345,7 +1345,10 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
     const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
     return { y: +first.slice(0, 4), m: +first.slice(5, 7) - 1 };
   });
-  const [moveRest, setMoveRest] = useState(false);   // 켜면 그 날짜부터 뒤 과제를 같은 간격으로 함께 민다
+  /* ★기본이 '뒤 과제도 같이'(원장 2026-09-29 "뒤로 밀면 전체가 자동으로 밀려났으면").
+     하나만 옮기고 싶을 때만 체크를 켠다. 밀리는 거리는 날짜가 아니라 **수업 횟수**다. */
+  const [onlyOne, setOnlyOne] = useState(false);
+  const moveRest = !onlyOne;
   const [sel, setSel] = useState(null);              // 톡 눌러서 고른 과제(누른 뒤 날짜를 누르면 이동)
   const [drag, setDrag] = useState(null);
   const [closed, setClosed] = useState({ days: new Set(), names: {} });
@@ -1423,7 +1426,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
     if (off && !confirm(`${to} 은 ${closed.names[to] || "휴무일"} 이에요. 그래도 그 날로 옮길까요?`)) { setSel(null); return; }
     setSel(null);
     if (!moveRest) setLocal(p => ({ ...p, [a.id]: to }));   // 단일 이동은 바로 보여 준다
-    onMove(a, to, moveRest);
+    onMove(a, to, moveRest, days);
   };
 
   const onDown = (e, a) => {
@@ -1497,9 +1500,14 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
         </div>
       )}
 
+      <div style={{ fontSize: 12, marginBottom: 6, color: "var(--navy)" }}>
+        {onlyOne
+          ? <>지금은 <b>끈 과제 하나만</b> 옮겨요.</>
+          : <>끌어 놓으면 <b>그 뒤 과제도 수업 횟수만큼 같이</b> 밀려요 (수업 요일·휴무일은 그대로 지켜요).</>}
+      </div>
       <label className="row" style={{ gap: 6, fontSize: 12, marginBottom: 8, cursor: "pointer", alignItems: "center" }}>
-        <input type="checkbox" checked={moveRest} onChange={e => setMoveRest(e.target.checked)} />
-        <span>옮긴 날짜부터 <b>뒤 과제도 같이</b> 밀기</span>
+        <input type="checkbox" checked={onlyOne} onChange={e => setOnlyOne(e.target.checked)} />
+        <span>이 과제 <b>하나만</b> 옮기기</span>
       </label>
       <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>
         과제를 끌어다 다른 날에 놓으세요. 톡 누른 뒤 날짜를 눌러도 옮겨집니다.
@@ -1587,8 +1595,9 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
                     color: "#fff", background: a.type === "sentence" ? "var(--gold)" : "var(--navy)",
                     outline: sel && sel.id === a.id ? "2px solid var(--danger)" : "none",
                     opacity: drag && drag.a.id === a.id ? 0.4 : 1,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {shortOf(a.title)}
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title={a.personalOf ? "한 학생만 따로 미룬 과제" : undefined}>
+                  {a.personalOf ? "👤" : ""}{shortOf(a.title)}
                 </div>
               ))}
             </div>
@@ -1668,15 +1677,15 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
      그 동안 busy 로 달력을 통째 막아 '옮기는 중…'에서 멈춰 보였다.
      이제 칩은 놓자마자 그 날로 옮겨 보이고(달력이 직접 처리), 저장은 뒤에서 돌아간다.
      여러 개를 옮리는 때(뒤 과제도 같이)만 busy 를 쓴다. */
-  const moveOnCalendar = async (a, toDate, moveRest) => {
+  const moveOnCalendar = async (a, toDate, moveRest, weekdays) => {
     if (!a.dueDate || toDate === a.dueDate) return;
     if (moveRest) setBusy(true);
     setErr("");
     try {
       if (moveRest) {
-        const delta = Math.round((new Date(toDate + "T00:00:00") - new Date(a.dueDate + "T00:00:00")) / 86400000);
+        /* ★날짜 차이만큼 밀면 화·목반이 목·토로 흩어졌다 → 서버가 '수업 횟수'로 민다(steps). */
         const ids = list.filter(x => x.dueDate && x.dueDate >= a.dueDate).map(x => x.id);
-        await apiPost("/assignments/reschedule", { mode: "shift", ids, days: delta });
+        await apiPost("/assignments/reschedule", { mode: "steps", ids, draggedId: a.id, toDate, weekdays: weekdays || [1,2,3,4,5] });
       } else {
         const r = await fetch("/api/assignments/" + a.id, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -3050,6 +3059,25 @@ function AdminReview({ students, assignments, reload }) {
 
 // ---------- 학생 한 명의 제출 현황 ----------
 
+/* 최근 일정 변경 되돌리기 — 학생 화면에서도 보이게(달력 안에만 있으면 못 찾는다). */
+function UndoBar({ reload, stamp }) {
+  const [h, setH] = useState(null);
+  useEffect(() => { apiGet("/schedule-history").then(d => setH((d.items || [])[0] || null)).catch(()=>{}); }, [stamp]);
+  if (!h) return null;
+  return (
+    <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10,
+      background: "#FFF3F0", border: "1px solid #F0C9BF", borderRadius: 8, padding: "6px 9px" }}>
+      <span style={{ fontSize: 12, color: "#9A4B36" }}>최근: <b>{h.op}</b> · {h.n}개 · {h.at}</span>
+      <button className="btn-ghost" style={{ fontSize: 12, padding: "4px 10px", marginLeft: "auto" }}
+        onClick={async () => {
+          if (!confirm(`'${h.op}' 를 통째로 되돌릴까요?`)) return;
+          try { const r = await apiPost("/schedule-undo", { id: h.id }); await reload(); alert(`${r.restored}개를 되돌렸어요.`); setH(null); }
+          catch (e) { alert("되돌리지 못했어요: " + e.message); }
+        }}>↩ 되돌리기</button>
+    </div>
+  );
+}
+
 function StudentReview({ student, assignments, reload, onBack }) {
   const [tab, setTab] = useState("word");
   const [subs, setSubs] = useState({});
@@ -3058,6 +3086,16 @@ function StudentReview({ student, assignments, reload, onBack }) {
   const [loading, setLoading] = useState(true);
   const [openA, setOpenA] = useState(null);
   const [delBusy, setDelBusy] = useState(null);
+  /* 학생 한 명만 미루기(원장 2026-09-29). 반 친구들·보관함 원본은 그대로. */
+  const todayIso = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  const [ppOpen, setPpOpen] = useState(null);        // trip | sessions | cal
+  const [ppFrom, setPpFrom] = useState(todayIso);
+  const [ppUntil, setPpUntil] = useState(todayIso);
+  const [ppN, setPpN] = useState(1);
+  const [ppBook, setPpBook] = useState("");          // "" = 모든 교재
+  const [ppPrev, setPpPrev] = useState(null);
+  const [ppBusy, setPpBusy] = useState(false);
+  const [stamp, setStamp] = useState(0);             // 되돌리기 막대 다시 읽기
 
   const delAssignment = async (a) => {
     const shared = (a.assignedIds && a.assignedIds.length) ? `개별 ${a.assignedIds.length}명` : "이 반/전체 학생";
@@ -3106,6 +3144,39 @@ function StudentReview({ student, assignments, reload, onBack }) {
       if (dx != null && dy != null && dx !== dy) return dx - dy;   // Day 1 → 마지막
       return (x.dueDate||"").localeCompare(y.dueDate||"");
     });
+
+  const ppBody = (dryRun) => ppOpen === "trip"
+    ? { book: ppBook || null, fromDate: ppFrom, until: ppUntil, dryRun }
+    : { book: ppBook || null, fromDate: ppFrom, sessions: Number(ppN) || 1, dryRun };
+  const ppRun = async (dryRun) => {
+    if (ppOpen === "trip" && ppUntil < ppFrom) return alert("끝나는 날이 시작하는 날보다 앞이에요.");
+    setPpBusy(true);
+    try {
+      const r = await apiPost(`/students/${student.id}/postpone`, ppBody(dryRun));
+      if (dryRun) setPpPrev(r);
+      else { await reload(); setPpPrev(null); setStamp(x => x + 1);
+             alert(`${student.name} 학생 과제 ${r.moved}개를 미뤘어요. 다른 학생은 그대로예요.`); }
+    } catch (e) { alert(e.message); }
+    setPpBusy(false);
+  };
+  /* 학생 달력에서 끌기 — 그 교재의 뒤 과제까지(기본) 또는 하나만 */
+  const studentMove = async (a, toDate, rest) => {
+    try {
+      await apiPost(`/students/${student.id}/postpone`, { onlyId: a.id, toDate, rest: !!rest });
+      await reload(); setStamp(x => x + 1);
+    } catch (e) { alert("옮기지 못했어요: " + e.message); }
+  };
+  const doRetest = async (a) => {
+    try {
+      const pv = await apiPost(`/students/${student.id}/retest`, { aid: a.id, dryRun: true });
+      const n = (pv.shifted || []).length;
+      if (!confirm(`${student.name} 학생에게만 "${pv.retest.title}" 을(를) ${formatDue(pv.retest.date)}에 넣을까요?\n` +
+                   (n ? `그날부터의 안 한 과제 ${n}개는 한 수업씩 뒤로 밀려요.` : "뒤로 밀릴 과제는 없어요.") +
+                   `\n\n원래 과제와 녹음 기록은 그대로 남아요.`)) return;
+      await apiPost(`/students/${student.id}/retest`, { aid: a.id });
+      await reload(); setStamp(x => x + 1);
+    } catch (e) { alert(e.message); }
+  };
 
   if (openA) {
     return <SubmissionDetail student={student} assignment={openA}
@@ -3163,6 +3234,72 @@ function StudentReview({ student, assignments, reload, onBack }) {
       </button>
       <div style={{ fontWeight:800, fontSize:18, marginBottom:2 }}>{student.name}</div>
       {student.className && <div className="muted" style={{ marginBottom:12 }}>{student.className}</div>}
+
+      <UndoBar reload={reload} stamp={stamp} />
+
+      {/* ---- 이 학생만 미루기 (원장 2026-09-29: 여행·재시험 때 한 명만 밀기가 너무 불편) ---- */}
+      <div className="card" style={{ padding:"10px 12px", marginBottom:12 }}>
+        <div style={{ fontWeight:700, color:"var(--navy)", fontSize:13, marginBottom:6 }}>📅 {student.name} 학생 일정만 바꾸기</div>
+        <div className="row" style={{ gap:6, flexWrap:"wrap" }}>
+          {[["trip","✈️ 여행·결석"],["sessions","⏭ 미루기"],["cal","🗓 달력에서 옮기기"]].map(([k,l]) => (
+            <button key={k} className={ppOpen===k ? "btn" : "btn-ghost"} style={{ fontSize:12, padding:"6px 10px" }}
+              onClick={()=>{ setPpOpen(ppOpen===k ? null : k); setPpPrev(null); }}>{l}</button>
+          ))}
+        </div>
+        {(ppOpen === "trip" || ppOpen === "sessions") && (
+          <div style={{ marginTop:10 }}>
+            {ppOpen === "trip" ? (
+              <div className="row" style={{ gap:6, alignItems:"center", flexWrap:"wrap" }}>
+                <input className="field" type="date" value={ppFrom} onChange={e=>{ setPpFrom(e.target.value); setPpPrev(null); }} style={{ width:150, margin:0 }} />
+                <span style={{ fontSize:13 }}>~</span>
+                <input className="field" type="date" value={ppUntil} onChange={e=>{ setPpUntil(e.target.value); setPpPrev(null); }} style={{ width:150, margin:0 }} />
+                <span className="muted" style={{ fontSize:12 }}>못 오는 기간</span>
+              </div>
+            ) : (
+              <div className="row" style={{ gap:6, alignItems:"center", flexWrap:"wrap" }}>
+                <input className="field" type="date" value={ppFrom} onChange={e=>{ setPpFrom(e.target.value); setPpPrev(null); }} style={{ width:150, margin:0 }} />
+                <span style={{ fontSize:13 }}>부터</span>
+                <input className="field" type="number" min={1} value={ppN} onChange={e=>{ setPpN(Math.max(1, Number(e.target.value)||1)); setPpPrev(null); }} style={{ width:64, margin:0 }} />
+                <span style={{ fontSize:13 }}>수업 미루기</span>
+              </div>
+            )}
+            <select className="field" style={{ margin:"8px 0 0" }} value={ppBook} onChange={e=>{ setPpBook(e.target.value); setPpPrev(null); }}>
+              <option value="">모든 교재</option>
+              {[...new Set(mine.map(a => a.book || ""))].filter(Boolean).sort().map(b => (<option key={b} value={b}>{b}</option>))}
+            </select>
+            <div className="muted" style={{ fontSize:11, marginTop:6 }}>
+              {ppOpen === "trip"
+                ? "그 기간에 있던 수업 횟수만큼 뒤 과제가 모두 밀려요. 수업 요일·휴무일은 지켜요."
+                : "그날부터의 과제가 수업 횟수만큼 밀려요. 수업 요일·휴무일은 지켜요."}
+              {" "}이미 녹음한 과제는 그대로 둬요.
+            </div>
+            {ppPrev && (
+              <div style={{ marginTop:8, padding:8, background:"var(--cream)", borderRadius:8, fontSize:12, lineHeight:1.6 }}>
+                {ppPrev.moved ? <>
+                  <b style={{ color:"var(--navy)" }}>{ppPrev.moved}개가 이렇게 바뀌어요</b>
+                  {ppPrev.skippedDone ? <span className="muted"> · 이미 한 {ppPrev.skippedDone}개는 그대로</span> : null}
+                  <div style={{ maxHeight:150, overflowY:"auto", marginTop:4 }}>
+                    {ppPrev.preview.map((x,i) => (<div key={i}>{x.title} <span className="muted">{formatDue(x.from)} → </span><b>{formatDue(x.to)}</b></div>))}
+                  </div>
+                </> : <span>옮길 과제가 없어요.</span>}
+              </div>
+            )}
+            <div className="row" style={{ gap:6, marginTop:8 }}>
+              {!ppPrev || !ppPrev.moved
+                ? <button className="btn" style={{ flex:1 }} disabled={ppBusy} onClick={()=>ppRun(true)}>{ppBusy ? "살펴보는 중..." : "미리 보기"}</button>
+                : <button className="btn" style={{ flex:1 }} disabled={ppBusy} onClick={()=>ppRun(false)}>{ppBusy ? "미루는 중..." : `${student.name} 학생만 미루기`}</button>}
+            </div>
+          </div>
+        )}
+        {ppOpen === "cal" && (
+          <div style={{ marginTop:10 }}>
+            <div className="muted" style={{ fontSize:11, marginBottom:6 }}>
+              이 달력은 <b>{student.name} 학생 것만</b> 바꿔요. 끈 과제의 <b>같은 교재</b> 뒤 과제가 같이 밀려요.
+            </div>
+            <BookCalendar list={mine.filter(a => a.dueDate)} onMove={studentMove} onReload={reload} busy={ppBusy} />
+          </div>
+        )}
+      </div>
 
       <div className="seg" style={{ marginTop:0, marginBottom:14 }}>
         <button className={tab==="word" ? "on" : ""} onClick={()=>setTab("word")}>
@@ -3306,6 +3443,9 @@ function StudentReview({ student, assignments, reload, onBack }) {
                         {st==="none"?"미제출":st==="submitted"?"확인 대기":"확인완료"}
                       </Badge>
                     </div>
+                    <button onClick={(e)=>{ e.stopPropagation(); doRetest(a); }}
+                      title="이 학생에게만 이 Day 재시험 넣기 (뒤 과제는 한 수업씩 밀림)"
+                      style={{ background:"none", fontSize:12, fontWeight:700, color:"var(--navy)", border:"1px solid var(--line)", borderRadius:8, padding:"4px 7px" }}>🔁 재시험</button>
                     <button onClick={(e)=>{ e.stopPropagation(); delAssignment(a); }} disabled={delBusy===a.id}
                       title="이 과제 삭제 (배정된 모든 학생)"
                       style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>

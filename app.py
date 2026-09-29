@@ -1083,6 +1083,176 @@ def clean_student_books(sid: str, payload: dict = Body(...)):
     return {"unassigned": unassigned + converted, "deleted": deleted}
 
 
+def _visible_to(a, sid):
+    ids = a.get("assignedIds") or []
+    return (not ids) or sid in [str(x) for x in ids]
+
+
+def _fork_for(db, sid, a, all_ids):
+    """과제 a 에서 이 학생 몫만 떼어 낸다. 이미 이 학생 전용이면 그대로 돌려준다.
+    원래 과제에서는 이 학생만 빠진다(다른 학생·보관함 원본은 그대로)."""
+    import copy as _copy
+    ids = [str(x) for x in (a.get("assignedIds") or [])]
+    if ids == [sid]:
+        return a
+    b = _copy.deepcopy(a)
+    b.update({"id": "a" + uuid.uuid4().hex[:10], "assignedIds": [sid], "assignedClasses": [],
+              "published": True, "personalOf": sid})
+    a["assignedIds"] = [x for x in (ids if ids else all_ids) if x != sid]
+    a["assignedClasses"] = []      # 반 배정으로 다시 저장하면 이 학생이 도로 들어가므로
+    db["assignments"].insert(0, b)
+    return b
+
+
+def _book_pattern(tasks):
+    """그 교재가 실제로 쓰는 요일(화면 요일, 일=0). 없으면 월~금."""
+    wd = sorted({_js_wd(_pdate(a["dueDate"])) for a in tasks if a.get("dueDate")} - {0, 6})
+    return wd or [1, 2, 3, 4, 5]
+
+
+def _student_ctx(db, sid, request):
+    ac = academy_of(request)
+    studs = only_academy(db.get("students", []), ac)
+    if not any(x.get("id") == sid for x in studs):
+        raise HTTPException(404, "학생을 찾을 수 없어요.")
+    all_ids = [x.get("id") for x in studs if x.get("id")]
+    mine = [a for a in db["assignments"]
+            if academy_of_student(a) == ac and a.get("published") is not False and _visible_to(a, sid)]
+    return all_ids, mine
+
+
+@app.post("/api/students/{sid}/postpone", dependencies=ADMIN_ONLY)
+def student_postpone(sid: str, request: Request, payload: dict = Body(...)):
+    """★학생 한 명만 미룬다(원장 2026-09-29 "여행 가서 미뤄 주고, 재시험 쳐서 미뤄 주고").
+    전에는 미루기가 전부 반 단위라 한 명 때문에 반 전체가 밀렸다.
+    그 학생 몫만 개인 사본으로 떼어 내 날짜를 옮긴다. 이미 녹음한 과제는 건드리지 않는다.
+
+    body {book?(없으면 모든 교재), fromDate, sessions?(N회 미루기), until?(여행 끝 — fromDate~until 은 비움),
+          toDate?+onlyId?(달력에서 끌기: onlyId 하나만 or 그 교재 뒤까지), rest?:bool, dryRun?}"""
+    book = payload.get("book") or None
+    from_date = payload.get("fromDate")
+    until = payload.get("until") or None
+    to_date = payload.get("toDate") or None
+    only_id = payload.get("onlyId") or None
+    rest = payload.get("rest", True)
+    sessions = int(payload.get("sessions") or 0)
+    dry = bool(payload.get("dryRun"))
+    if not (sessions or until or to_date):
+        raise HTTPException(400, "몇 번 미룰지, 여행 기간, 또는 옮길 날짜를 정해 주세요.")
+    touched = set((load_student_subs(sid) or {}).keys())
+    off = get_closed_days()
+
+    with _lock:
+        db = load_db()
+        before = _snap(db)
+        all_ids, mine = _student_ctx(db, sid, request)
+        if only_id:
+            src = next((a for a in mine if a.get("id") == only_id), None)
+            if not src:
+                raise HTTPException(404, "그 과제를 찾을 수 없어요.")
+            book = src.get("book") or ""
+            from_date = src.get("dueDate") or from_date
+        if not from_date:
+            raise HTTPException(400, "언제부터 미룰지 정해 주세요.")
+
+        plan = []   # (과제, 새 날짜)
+        skipped = 0
+        books = sorted({a.get("book") or "" for a in mine}) if book is None else [book]
+        for bk in books:
+            all_bk = [a for a in mine if (a.get("book") or "") == bk]
+            tg = [a for a in all_bk if a.get("dueDate") and a["dueDate"] >= from_date]
+            if only_id and not rest:
+                tg = [a for a in tg if a["id"] == only_id]
+            skipped += sum(1 for a in tg if a["id"] in touched)
+            tg = [a for a in tg if a["id"] not in touched]
+            if not tg:
+                continue
+            blocked = (from_date, until) if until else None
+            ok = _allowed_fn(_book_pattern(all_bk), off, blocked)
+            if to_date:
+                anchor_src = next((a for a in tg if a["id"] == only_id), tg[0])
+                k = _steps_between(_pdate(anchor_src["dueDate"]), _pdate(to_date), ok)
+            elif until:
+                # 여행 기간 안에 있던 수업일 수만큼 뒤로 민다. 여행 중인 날은 ok 가 막아서 건너뛴다.
+                from datetime import timedelta as _td
+                plain = _allowed_fn(_book_pattern(all_bk), off)
+                f0, u0 = _pdate(from_date), _pdate(until)
+                k = sum(1 for i in range((u0 - f0).days + 1) if plain(f0 + _td(days=i)))
+            else:
+                k = sessions
+            for a in tg:
+                if to_date and a["id"] == only_id:
+                    nd = to_date
+                elif until:
+                    # ★여행 중 수업일(k)만큼 **평소 수업 요일로** 민 다음, 혹시 여행 안이면 뒤로.
+                    #   여행일을 빼고 세면서 밀면 여행 안의 과제 둘이 한 날로 겹쳤다.
+                    nd = _advance(_advance(_pdate(a["dueDate"]), k, plain), 0, ok).isoformat()
+                else:
+                    nd = _advance(_pdate(a["dueDate"]), k, ok).isoformat()
+                if nd != a["dueDate"]:
+                    plan.append((a, nd))
+
+        preview = [{"title": a.get("title"), "book": a.get("book"), "from": a["dueDate"], "to": nd} for a, nd in plan]
+        preview.sort(key=lambda x: (x["book"] or "", x["from"]))
+        if dry or not plan:
+            return {"ok": True, "moved": len(plan), "skippedDone": skipped, "preview": preview}
+        for a, nd in plan:
+            mine_copy = _fork_for(db, sid, a, all_ids)
+            mine_copy["dueDate"] = nd
+        name = next((x.get("name") for x in db.get("students", []) if x.get("id") == sid), sid)
+        _hist_push_snap(db, f"{name} 미루기", before, len(plan))
+        save_db(db)
+    return {"ok": True, "moved": len(plan), "skippedDone": skipped, "preview": preview}
+
+
+@app.post("/api/students/{sid}/retest", dependencies=ADMIN_ONLY)
+def student_retest(sid: str, request: Request, payload: dict = Body(...)):
+    """★재시험 넣기(원장 2026-09-29). 이 학생에게만 그 Day 를 '(재시험)' 과제로 한 번 더 내고,
+    그날부터의 안 한 과제는 한 칸씩 뒤로 민다. 원래 과제와 기록은 그대로 둔다(성적 비교가 되게).
+    body {aid, date?(없으면 오늘 이후 첫 수업일), dryRun?}"""
+    import copy as _copy
+    from datetime import date as _d
+    aid = payload.get("aid")
+    dry = bool(payload.get("dryRun"))
+    touched = set((load_student_subs(sid) or {}).keys())
+    off = get_closed_days()
+    with _lock:
+        db = load_db()
+        before = _snap(db)
+        all_ids, mine = _student_ctx(db, sid, request)
+        src = next((a for a in db["assignments"] if a.get("id") == aid), None)
+        if not src:
+            raise HTTPException(404, "그 과제를 찾을 수 없어요.")
+        bk = src.get("book") or ""
+        all_bk = [a for a in mine if (a.get("book") or "") == bk]
+        ok = _allowed_fn(_book_pattern(all_bk), off)
+        if payload.get("date"):
+            day = payload["date"]
+        else:
+            day = _advance(_pdate(_today_kr()), 1, ok).isoformat()     # 내일 이후 첫 수업일
+        tg = [a for a in all_bk if a.get("dueDate") and a["dueDate"] >= day and a["id"] not in touched and a["id"] != aid]
+        # 그날이 비어 있으면 아무것도 안 민다. 그날 과제가 있을 때만 그날부터 한 수업씩.
+        plan = ([(a, _advance(_pdate(a["dueDate"]), 1, ok).isoformat()) for a in tg]
+                if any(a["dueDate"] == day for a in tg) else [])
+        base, _ = _piece_base(src.get("title"))
+        title = f"{src.get('title')} (재시험)"
+        preview = {"retest": {"title": title, "date": day},
+                   "shifted": [{"title": a.get("title"), "from": a["dueDate"], "to": nd} for a, nd in plan]}
+        if dry:
+            return {"ok": True, **preview}
+        for a, nd in plan:
+            _fork_for(db, sid, a, all_ids)["dueDate"] = nd
+        r = _copy.deepcopy(src)
+        r.update({"id": "a" + uuid.uuid4().hex[:10], "title": title, "dueDate": day,
+                  "assignedIds": [sid], "assignedClasses": [], "published": True,
+                  "personalOf": sid, "retestOf": aid})
+        db["assignments"].insert(0, r)
+        name = next((x.get("name") for x in db.get("students", []) if x.get("id") == sid), sid)
+        _hist_push_snap(db, f"{name} 재시험", before, len(plan) + 1)
+        save_db(db)
+    return {"ok": True, **preview}
+
+
 _PIECE_RE = re.compile(r"\s*\((\d+)\s*/\s*(\d+)\)\s*$")
 
 
@@ -1121,6 +1291,7 @@ def student_book_pieces(sid: str, request: Request, payload: dict = Body(...)):
 
     with _lock:
         db = load_db()
+        _before = _snap(db)
         studs = only_academy(db.get("students", []), ac)
         if not any(s.get("id") == sid for s in studs):
             raise HTTPException(404, "학생을 찾을 수 없어요.")
@@ -1255,6 +1426,8 @@ def student_book_pieces(sid: str, request: Request, payload: dict = Body(...)):
             unassigned += 1
             keep.append(a)
         db["assignments"] = new + keep
+        _nm = next((x.get("name") for x in studs if x.get("id") == sid), sid)
+        _hist_push_snap(db, f"{_nm} {'나누기' if mode == 'split' else '합치기'}", _before, len(changed))
         save_db(db)
     summary.update({"deleted": deleted, "unassigned": unassigned})
     return summary
@@ -1399,6 +1572,96 @@ def _hist_push(db, op, changes):
     del h[:-SCHEDULE_HISTORY_MAX]
 
 
+def _snap(db):
+    """학생별 미루기·재시험처럼 과제를 새로 만들고 배정을 바꾸는 작업 전에 떠 둔다."""
+    import copy as _copy
+    return {a.get("id"): _copy.deepcopy(a) for a in db.get("assignments", [])}
+
+
+def _hist_push_snap(db, op, before, n=None):
+    """스냅샷과 지금을 비교해 바뀐 과제만 기록한다(되돌리기용).
+    before[id]=옛 모습(없던 과제면 None). 날짜만 바뀐 게 아니라 새 사본·배정 변경까지 되돌린다."""
+    now = {a.get("id"): a for a in db.get("assignments", [])}
+    diff = {}
+    for aid, old in before.items():
+        cur = now.get(aid)
+        if cur is None or cur != old:
+            diff[aid] = old
+    for aid in now:
+        if aid not in before:
+            diff[aid] = None
+    if not diff:
+        return
+    import uuid
+    h = db.setdefault("scheduleHistory", [])
+    h.append({"id": uuid.uuid4().hex[:10], "op": op, "at": _now_kr(), "n": n or len(diff), "snap": diff})
+    del h[:-SCHEDULE_HISTORY_MAX]
+
+
+def _js_wd(d):
+    """파이썬 요일(월=0) → 화면 요일(일=0)."""
+    return (d.weekday() + 1) % 7
+
+
+def _allowed_fn(pattern_js, off, blocked=None):
+    """그날 숙제를 놓을 수 있나 — 수업 요일이고, 휴무일이 아니고, 막아 둔 기간(여행)이 아니면."""
+    pat = set(int(x) for x in (pattern_js or [1, 2, 3, 4, 5]))
+    lo, hi = blocked or (None, None)
+
+    def ok(d):
+        iso = d.isoformat()
+        if _js_wd(d) not in pat or iso in off:
+            return False
+        if lo and hi and lo <= iso <= hi:
+            return False
+        return True
+    return ok
+
+
+def _advance(d, k, ok):
+    """d 에서 '놓을 수 있는 날'을 k 번 건너간다(k<0 이면 앞으로). 요일·휴무·여행을 지킨다."""
+    from datetime import timedelta
+    step = 1 if k >= 0 else -1
+    left, guard = abs(k), 0
+    while left > 0 and guard < 3000:
+        d = d + timedelta(days=step)
+        if ok(d):
+            left -= 1
+        guard += 1
+    if k == 0:           # 그 자리가 못 놓는 날(여행 중·휴무)이면 다음 놓을 수 있는 날로
+        while not ok(d) and guard < 3000:
+            d = d + timedelta(days=1)
+            guard += 1
+    return d
+
+
+def _steps_between(a, b, ok):
+    """a→b 사이에 '놓을 수 있는 날'이 몇 번 있나(부호 있음). 끌어다 놓은 거리를 수업 횟수로 바꾼다."""
+    from datetime import timedelta
+    if a == b:
+        return 0
+    n = 0
+    if b > a:                      # (a, b] 안의 놓을 수 있는 날
+        d = a
+        while d < b:
+            d = d + timedelta(days=1)
+            if ok(d):
+                n += 1
+        return max(1, n)
+    d = b                          # [b, a) 안의 놓을 수 있는 날
+    while d < a:
+        if ok(d):
+            n += 1
+        d = d + timedelta(days=1)
+    return -max(1, n)
+
+
+def _pdate(s):
+    from datetime import date
+    y, m, d = map(int, str(s).split("-"))
+    return date(y, m, d)
+
+
 @app.get("/api/class-days", dependencies=ADMIN_ONLY)
 def get_class_days():
     """반마다 수업하는 요일(일=0…토=6). 원장 2026-09-23: 요일은 교재가 아니라 반마다 다르다.
@@ -1432,7 +1695,7 @@ def schedule_history():
     """최근 일정 변경 목록(최신순). 되돌리기 버튼이 쓴다."""
     h = list(load_db().get("scheduleHistory") or [])
     h.reverse()
-    return {"ok": True, "items": [{k: v for k, v in x.items() if k != "changes"} for x in h]}
+    return {"ok": True, "items": [{k: v for k, v in x.items() if k not in ("changes", "snap")} for x in h]}
 
 
 @app.post("/api/schedule-undo", dependencies=ADMIN_ONLY)
@@ -1453,6 +1716,26 @@ def schedule_undo(payload: dict = Body(default=None)):
         rec = h[idx]
         by = {a.get("id"): a for a in db.get("assignments", [])}
         back = 0
+        if rec.get("snap"):
+            # 통째 스냅샷 — 새로 생긴 사본은 지우고, 바뀐 과제는 옛 모습으로
+            snap = rec["snap"]
+            keep = []
+            for a in db.get("assignments", []):
+                aid = a.get("id")
+                if aid in snap:
+                    if snap[aid] is None:
+                        back += 1
+                        continue            # 그 작업이 만든 사본 → 삭제
+                    keep.append(snap[aid])
+                    back += 1
+                else:
+                    keep.append(a)
+            have = {a.get("id") for a in keep}
+            for aid, old in snap.items():   # 그 작업이 지웠던 과제 → 되살림
+                if old is not None and aid not in have:
+                    keep.append(old)
+                    back += 1
+            db["assignments"] = keep
         for c in rec.get("changes", []):
             a = by.get(c.get("id"))
             if a is not None:
@@ -1533,10 +1816,28 @@ def reschedule(payload: dict = Body(...)):
                     assigned += 1
                 cur += timedelta(days=1)
                 guard += 1
+        elif mode == "steps":
+            # ★달력에서 끌어 놓기(원장 2026-09-29 "책을 다음 일정으로 뒤로 밀면 전체가 자동으로").
+            # 끈 과제는 놓은 날로, 그 뒤 과제는 **수업 횟수**만큼 같이 민다 — 날짜 차이만큼 밀면
+            # 화·목반이 목·토로 흩어졌다. 수업 요일·휴무일을 지키고, 같은 날 과제는 같은 날로 남는다.
+            dragged = payload.get("draggedId")
+            to = payload.get("toDate")
+            if not dragged or not to:
+                raise HTTPException(400, "옮길 과제와 날짜가 필요해요.")
+            src = next((a for a in targets if a["id"] == dragged), None)
+            if not src or not src.get("dueDate"):
+                raise HTTPException(400, "옮길 과제를 찾을 수 없어요.")
+            ok = _allowed_fn(payload.get("weekdays") or [1, 2, 3, 4, 5], get_closed_days())
+            k = _steps_between(_pdate(src["dueDate"]), _pdate(to), ok)
+            for a in targets:
+                if a is src:
+                    a["dueDate"] = to
+                elif a.get("dueDate"):
+                    a["dueDate"] = _advance(_pdate(a["dueDate"]), k, ok).isoformat()
         else:
             raise HTTPException(400, "알 수 없는 방식이에요.")
 
-        _hist_push(db, {"shift": "뒤로 미루기", "shift_sessions": "회차로 미루기",
+        _hist_push(db, {"shift": "뒤로 미루기", "shift_sessions": "회차로 미루기", "steps": "달력에서 밀기",
                         "respread": "일정 다시 짜기"}.get(mode, mode),
                    [{"id": a["id"], "from": _before.get(a["id"]), "to": a.get("dueDate")} for a in targets])
         _sync_exam_dates(db)   # 책 일정이 바뀌면 권말 시험을 마지막 날 다음날로 재조정
