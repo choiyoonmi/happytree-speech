@@ -3173,9 +3173,10 @@ function StudentReview({ student, assignments, reload, onBack }) {
     try {
       const pv = await apiPost(`/students/${student.id}/retest`, { aid: a.id, dryRun: true });
       const n = (pv.shifted || []).length;
-      if (!confirm(`${student.name} 학생에게만 "${pv.retest.title}" 을(를) ${formatDue(pv.retest.date)}에 넣을까요?\n` +
+      if (!confirm(`${student.name} 학생이 "${pv.retest.title}" 을(를) ${formatDue(pv.retest.date)}에 처음부터 다시 학습하게 할까요?\n` +
+                   `(녹음·단어익힘 모두 새로 해요)\n` +
                    (n ? `그날부터의 안 한 과제 ${n}개는 한 수업씩 뒤로 밀려요.` : "뒤로 밀릴 과제는 없어요.") +
-                   `\n\n원래 과제와 녹음 기록은 그대로 남아요.`)) return;
+                   `\n\n첫 번째 기록과 랭킹 점수는 그대로 남아요. 다른 학생은 그대로예요.`)) return;
       await apiPost(`/students/${student.id}/retest`, { aid: a.id });
       await reload(); setStamp(x => x + 1);
     } catch (e) { alert(e.message); }
@@ -3424,7 +3425,8 @@ function StudentReview({ student, assignments, reload, onBack }) {
                   style={{ display:"flex", width:"100%", justifyContent:"space-between", alignItems:"center", textAlign:"left", gap:10, cursor:"pointer",
                     opacity: delBusy===a.id ? 0.5 : 1, borderLeft: late ? "4px solid var(--danger)" : "4px solid transparent" }}>
                   <div style={{ minWidth:0 }}>
-                    <div style={{ fontWeight:700, fontSize:14 }}>{a.title}</div>
+                    <div style={{ fontWeight:700, fontSize:14 }}>{a.title}
+                      {a.retestOf ? <span style={{ marginLeft:6, fontSize:11, color:"#C2410C", fontWeight:800 }}>🔁 재시험{a.retestN > 1 ? ` ${a.retestN}회` : ""}</span> : null}</div>
                     <div className="muted" style={{ marginTop:3 }}>
                       {a.items.length}개 · {a.rounds||3}회
                       {a.dueDate ? ` · 마감 ${formatDue(a.dueDate)}` : ""}
@@ -3447,7 +3449,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
                       </Badge>
                     </div>
                     <button onClick={(e)=>{ e.stopPropagation(); doRetest(a); }}
-                      title="이 학생에게만 이 Day 재시험 넣기 (뒤 과제는 한 수업씩 밀림)"
+                      title="이 학생만 이 Day 를 처음부터 다시 학습"
                       style={{ background:"none", fontSize:12, fontWeight:700, color:"var(--navy)", border:"1px solid var(--line)", borderRadius:8, padding:"4px 7px" }}>🔁 재시험</button>
                     <button onClick={(e)=>{ e.stopPropagation(); delAssignment(a); }} disabled={delBusy===a.id}
                       title="이 학생에게서만 빼기 (다른 학생은 그대로)"

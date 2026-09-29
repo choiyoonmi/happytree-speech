@@ -1236,8 +1236,11 @@ def student_unassign(sid: str, request: Request, payload: dict = Body(...)):
 
 @app.post("/api/students/{sid}/retest", dependencies=ADMIN_ONLY)
 def student_retest(sid: str, request: Request, payload: dict = Body(...)):
-    """★재시험 넣기(원장 2026-09-29). 이 학생에게만 그 Day 를 '(재시험)' 과제로 한 번 더 내고,
-    그날부터의 안 한 과제는 한 칸씩 뒤로 민다. 원래 과제와 기록은 그대로 둔다(성적 비교가 되게).
+    """★재시험(원장 2026-09-29 "재시험 단원을 그대로 다시 학습하도록").
+    처음엔 '(재시험)' 이라는 별도 과제를 하나 더 냈는데, 원장님 뜻은 **그 Day 를 처음부터 다시** 하는 것.
+    그래서 같은 제목·같은 단어의 새 과제를 이 학생에게만 재시험 날짜로 다시 내고(녹음·단어익힘 모두 새로),
+    첫 번째로 한 과제는 이 학생 화면에서만 감춘다. 감춘 과제의 기록·점수는 그대로 남아 랭킹도 안 깎인다.
+    그날 이미 과제가 있으면 그날부터의 안 한 과제를 한 수업씩 뒤로 민다.
     body {aid, date?(없으면 오늘 이후 첫 수업일), dryRun?}"""
     import copy as _copy
     from datetime import date as _d
@@ -1263,8 +1266,7 @@ def student_retest(sid: str, request: Request, payload: dict = Body(...)):
         # 그날이 비어 있으면 아무것도 안 민다. 그날 과제가 있을 때만 그날부터 한 수업씩.
         plan = ([(a, _advance(_pdate(a["dueDate"]), 1, ok).isoformat()) for a in tg]
                 if any(a["dueDate"] == day for a in tg) else [])
-        base, _ = _piece_base(src.get("title"))
-        title = f"{src.get('title')} (재시험)"
+        title = src.get("title")
         preview = {"retest": {"title": title, "date": day},
                    "shifted": [{"title": a.get("title"), "from": a["dueDate"], "to": nd} for a, nd in plan]}
         if dry:
@@ -1274,7 +1276,15 @@ def student_retest(sid: str, request: Request, payload: dict = Body(...)):
         r = _copy.deepcopy(src)
         r.update({"id": "a" + uuid.uuid4().hex[:10], "title": title, "dueDate": day,
                   "assignedIds": [sid], "assignedClasses": [], "published": True,
-                  "personalOf": sid, "retestOf": aid})
+                  "personalOf": sid, "retestOf": aid, "retestN": int(src.get("retestN") or 0) + 1})
+        # 첫 번째로 한 과제는 이 학생 화면에서만 뺀다. 이 학생 혼자 받던 것이면 아무도 안 보게
+        # '재시험 보관' 표시만 남긴다(assignedIds 가 비면 '전체'라서 비울 수 없다).
+        ids = [str(x) for x in (src.get("assignedIds") or [])]
+        rest = [x for x in (ids if ids else all_ids) if x != sid]
+        src["assignedIds"] = rest or ["~retest"]
+        src["assignedClasses"] = []
+        if not rest:
+            src["retestedBy"] = r["id"]
         db["assignments"].insert(0, r)
         name = next((x.get("name") for x in db.get("students", []) if x.get("id") == sid), sid)
         _hist_push_snap(db, f"{name} 재시험", before, len(plan) + 1)
