@@ -1205,6 +1205,35 @@ def student_postpone(sid: str, request: Request, payload: dict = Body(...)):
     return {"ok": True, "moved": len(plan), "skippedDone": skipped, "preview": preview}
 
 
+@app.post("/api/students/{sid}/unassign", dependencies=ADMIN_ONLY)
+def student_unassign(sid: str, request: Request, payload: dict = Body(...)):
+    """★학생 화면의 🗑 — 그 학생만 이 과제에서 뺀다(원장 2026-09-29).
+    전에는 과제 자체를 지워 같은 과제를 받던 반 친구들 것까지 사라졌다.
+    다른 학생과 같이 받던 과제면 이 학생만 빠지고, 이 학생 전용이면 과제를 지운다.
+    녹음 기록은 지우지 않는다(되돌리면 그대로 다시 보인다). body {aid}"""
+    aid = payload.get("aid")
+    with _lock:
+        db = load_db()
+        before = _snap(db)
+        all_ids, mine = _student_ctx(db, sid, request)
+        a = next((x for x in mine if x.get("id") == aid), None)
+        if not a:
+            raise HTTPException(404, "이 학생이 받는 과제가 아니에요.")
+        ids = [str(x) for x in (a.get("assignedIds") or [])]
+        rest = [x for x in (ids if ids else all_ids) if x != sid]
+        if rest:
+            a["assignedIds"] = rest
+            a["assignedClasses"] = []      # 반 배정으로 다시 저장하면 이 학생이 도로 들어가므로
+            removed = "unassigned"
+        else:
+            db["assignments"] = [x for x in db["assignments"] if x.get("id") != aid]
+            removed = "deleted"
+        name = next((x.get("name") for x in db.get("students", []) if x.get("id") == sid), sid)
+        _hist_push_snap(db, f"{name} 과제 빼기", before, 1)
+        save_db(db)
+    return {"ok": True, "result": removed, "others": len(rest)}
+
+
 @app.post("/api/students/{sid}/retest", dependencies=ADMIN_ONLY)
 def student_retest(sid: str, request: Request, payload: dict = Body(...)):
     """★재시험 넣기(원장 2026-09-29). 이 학생에게만 그 Day 를 '(재시험)' 과제로 한 번 더 내고,

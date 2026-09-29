@@ -3097,12 +3097,15 @@ function StudentReview({ student, assignments, reload, onBack }) {
   const [ppBusy, setPpBusy] = useState(false);
   const [stamp, setStamp] = useState(0);             // 되돌리기 막대 다시 읽기
 
+  /* ★🗑 = 이 학생만 빼기(원장 2026-09-29). 전에는 과제를 통째로 지워 반 친구들 것까지 사라졌다. */
   const delAssignment = async (a) => {
-    const shared = (a.assignedIds && a.assignedIds.length) ? `개별 ${a.assignedIds.length}명` : "이 반/전체 학생";
-    if (!confirm(`"${a.title}" 과제를 삭제할까요?\n\n이 과제는 배정된 모든 학생(${shared})에게서 사라지고, 제출된 녹음도 함께 지워져요. 되돌릴 수 없어요.`)) return;
+    const others = (a.assignedIds && a.assignedIds.length) ? a.assignedIds.filter(x => x !== student.id).length : null;
+    if (!confirm(`"${a.title}" 을(를) ${student.name} 학생에게서만 뺄까요?\n\n` +
+      (others === 0 ? "이 학생만 받던 과제라 과제가 지워져요." : "같이 받는 다른 학생들 과제는 그대로예요.") +
+      `\n잘못 뺐으면 위의 ↩ 되돌리기로 돌릴 수 있어요.`)) return;
     setDelBusy(a.id);
-    try { await apiDelete(`/assignments/${a.id}`); if (reload) await reload(); }
-    catch (e) { alert("삭제 실패: " + e.message); }
+    try { await apiPost(`/students/${student.id}/unassign`, { aid: a.id }); if (reload) await reload(); setStamp(x => x + 1); }
+    catch (e) { alert("빼지 못했어요: " + e.message); }
     setDelBusy(null);
   };
 
@@ -3447,7 +3450,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
                       title="이 학생에게만 이 Day 재시험 넣기 (뒤 과제는 한 수업씩 밀림)"
                       style={{ background:"none", fontSize:12, fontWeight:700, color:"var(--navy)", border:"1px solid var(--line)", borderRadius:8, padding:"4px 7px" }}>🔁 재시험</button>
                     <button onClick={(e)=>{ e.stopPropagation(); delAssignment(a); }} disabled={delBusy===a.id}
-                      title="이 과제 삭제 (배정된 모든 학생)"
+                      title="이 학생에게서만 빼기 (다른 학생은 그대로)"
                       style={{ background:"none", color:"var(--danger)", fontSize:16 }}>🗑</button>
                   </div>
                 </div>
