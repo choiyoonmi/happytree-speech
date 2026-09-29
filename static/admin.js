@@ -1339,7 +1339,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy }) {
+function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash }) {
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   const [ym, setYm] = useState(() => {
     const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
@@ -1446,6 +1446,9 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
         setDrag({ a, x: ev.clientX, y: ev.clientY, over: null });
         return;
       }
+      /* 달력 밖으로 끌어내 버리기(원장 2026-09-29 영상) — 끄는 동안만 휴지통이 나온다 */
+      const bin = el && el.closest ? el.closest("[data-trash]") : null;
+      if (bin) { setDrag({ a, x: ev.clientX, y: ev.clientY, over: null, trash: true }); return; }
       const cell = el && el.closest ? el.closest("[data-day]") : null;
       setDrag({ a, x: ev.clientX, y: ev.clientY, over: cell ? cell.getAttribute("data-day") : null });
     };
@@ -1455,6 +1458,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
       const d = dragRef.current;
       setDrag(null);
       if (!moved) { setSel(s => (s && s.id === a.id) ? null : a); return; }   // 톡 누른 것 = 고르기
+      if (d && d.trash) { onTrash && onTrash(a); return; }
       if (d && d.over) doMove(a, d.over);
     };
     window.addEventListener("pointermove", onMoveEv);
@@ -1605,11 +1609,25 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
         })}
       </div>
 
+      {drag && onTrash && (
+        /* ★화면 아래에 붙여 둔다. 달력 밑에 그냥 놓았더니 화면 밖(스크롤해야 보이는 자리)에
+             있어서 끌면서는 닿을 수가 없었다 — 끄는 중에 스크롤을 시킬 수는 없다. */
+        <div data-trash="1" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9000,
+          padding: "18px 10px calc(18px + env(safe-area-inset-bottom))", textAlign: "center",
+          borderTop: "2px dashed " + (drag.trash ? "var(--danger)" : "#E3D9CF"),
+          background: drag.trash ? "#FBD9D3" : "rgba(250,247,242,.97)",
+          color: drag.trash ? "var(--danger)" : "#9A927F", fontWeight: 800,
+          fontSize: drag.trash ? 16 : 14, transition: "all .12s",
+          boxShadow: "0 -6px 18px rgba(0,0,0,.10)" }}>
+          🗑 {drag.trash ? "놓으면 버립니다" : "여기로 끌어오면 버려요"}
+        </div>
+      )}
+
       {drag && (
         <div style={{ position: "fixed", left: drag.x + 8, top: drag.y - 10, zIndex: 9999, pointerEvents: "none",
           fontSize: 11, fontWeight: 800, color: "#fff", padding: "3px 7px", borderRadius: 6,
           background: drag.a.type === "sentence" ? "var(--gold)" : "var(--navy)", boxShadow: "0 4px 12px rgba(0,0,0,.25)" }}>
-          {shortOf(drag.a.title)}{drag.over ? ` → ${+drag.over.slice(5,7)}/${+drag.over.slice(8,10)}` : ""}
+          {shortOf(drag.a.title)}{drag.trash ? " → 🗑 버리기" : (drag.over ? ` → ${+drag.over.slice(5,7)}/${+drag.over.slice(8,10)}` : "")}
         </div>
       )}
       {busy && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>일정 다시 잡는 중… (잠시만요)</div>}
@@ -1620,6 +1638,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
 function BookDetail({ book, group, list, reload, onBack, students, all }) {
   const [panel, setPanel] = useState(null);   // 열려 있는 도구 패널
   const [calOpen, setCalOpen] = useState(false);   // 달력에서 과제 내기 상자를 여느냐
+  const [trashed, setTrashed] = useState(null);    // 방금 버린 과제(되돌리기용)
   const [days, setDays] = useState(7);
   const [fromDate, setFromDate] = useState("");
   const [shiftKeep, setShiftKeep] = useState(true);   // 요일 패턴 유지하며 미루기
@@ -1677,6 +1696,37 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
      그 동안 busy 로 달력을 통째 막아 '옮기는 중…'에서 멈춰 보였다.
      이제 칩은 놓자마자 그 날로 옮겨 보이고(달력이 직접 처리), 저장은 뒤에서 돌아간다.
      여러 개를 옮리는 때(뒤 과제도 같이)만 busy 를 쓴다. */
+  /* 달력에서 끌어내 버리기(원장 2026-09-29 영상 "필요없는 과제나 잘못 설정된 것들을 바로 버리고 싶다").
+     ★지우면 그 과제에 딸린 녹음 기록도 함께 없어진다 — 그래서 확인을 받고,
+       지운 한 벌을 들고 있다가 「되돌리기」로 되살릴 수 있게 한다.
+       되살리면 과제는 돌아오지만 **학생 기록은 못 돌아온다** — 확인 글에 적어 둔다. */
+  const trashOnCalendar = async (a) => {
+    const when = a.dueDate ? ` (마감 ${a.dueDate})` : "";
+    if (!confirm(`"${a.title}"${when} 을 버릴까요?
+
+제출된 녹음 기록도 함께 지워져요.
+바로 아래 「되돌리기」로 과제는 되살릴 수 있어요.`)) return;
+    setBusy(true); setErr("");
+    try {
+      await apiDelete("/assignments/" + a.id);
+      setTrashed(a);
+      await reload();
+    } catch (e) { setErr(e.message); alert("버리지 못했어요: " + e.message); }
+    setBusy(false);
+  };
+
+  const untrash = async () => {
+    if (!trashed) return;
+    setBusy(true); setErr("");
+    try {
+      const { id, ...rest } = trashed;
+      await apiPost("/assignments", rest);
+      setTrashed(null);
+      await reload();
+    } catch (e) { setErr(e.message); alert("되살리지 못했어요: " + e.message); }
+    setBusy(false);
+  };
+
   const moveOnCalendar = async (a, toDate, moveRest, weekdays) => {
     if (!a.dueDate || toDate === a.dueDate) return;
     if (moveRest) setBusy(true);
@@ -2288,7 +2338,21 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
 
       {calOpen && <>
         <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload}
-          savedDays={savedDays} onClassDays={saveClassDays} group={group} busy={busy} />
+          savedDays={savedDays} onClassDays={saveClassDays} group={group} busy={busy}
+          onTrash={trashOnCalendar} />
+
+        {trashed && (
+          <div className="row" style={{ gap:8, alignItems:"center", marginBottom:10, padding:"8px 10px",
+            background:"#FDECEA", border:"1px solid #E8C4BC", borderRadius:8 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:"var(--danger)" }}>
+              🗑 「{String(trashed.title||"").slice(0,28)}」 을 버렸어요
+            </span>
+            <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px", marginLeft:"auto" }}
+              onClick={untrash} disabled={busy}>↩ 되돌리기</button>
+            <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px" }}
+              onClick={()=>setTrashed(null)}>닫기</button>
+          </div>
+        )}
 
         <div className="row" style={{ gap:6, flexWrap:"wrap", marginBottom:10 }}>
           {[["assign","📤 과제 내기"],
