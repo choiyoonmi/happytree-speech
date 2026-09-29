@@ -1650,7 +1650,19 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
   const [assignClasses, setAssignClasses] = useState([]);
   const [assignIds, setAssignIds] = useState([]);
   const [assignDue, setAssignDue] = useState(true);      // 마감일 자동 배치 여부
-  const [assignRepeat, setAssignRepeat] = useState(1);   // 유닛 하나를 며칠 반복할지
+  const [assignRepeat, setAssignRepeat] = useState(1);   // 유닛 하나를 몇 번 반복할지
+  const [repeatTouched, setRepeatTouched] = useState(false);   // 원장님이 손으로 고쳤나
+
+  /* ★단어책과 문장책은 내는 방식이 다르다(원장님 2026-09-29 "단어와 문장은 달라!").
+       단어 = 매 수업일 새 Day (반복 없음)          예) 능률VOCA Day 28 · 29 · 30 …
+       문장 = 한 유닛을 그 주 수업일마다 되풀이       예) How Cacti … (1일차)(2일차)(3일차)
+     실제 초6 자료가 이 모양이라, 열 때 기본값을 교재 종류대로 맞춰 둔다.
+     원장님이 한 번이라도 손으로 고치면(repeatTouched) 더는 안 건드린다. */
+  const bookKind = (list || []).some(a => a.type === "sentence") ? "sentence" : "word";
+  useEffect(() => {
+    if (panel !== "assign" || repeatTouched) return;
+    setAssignRepeat(bookKind === "sentence" ? Math.max(1, weekdays.length) : 1);
+  }, [panel, bookKind, weekdays.length, repeatTouched]);
   const [assignFromIdx, setAssignFromIdx] = useState(0);       // 배정 시작 Day(목록 인덱스)
   const [assignToIdx, setAssignToIdx] = useState(null);        // 배정 끝 Day(null=마지막)
   const [splitting, setSplitting] = useState(null);           // 둘로 나누는 과제 id
@@ -2598,16 +2610,23 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
                  달력으로는 두 주에 걸친다. 원장님이 "문장은 한 유닛을 일주일 동안 반복한다"고
                  하셔서 「한 주 내내」(=고른 수업 요일 수)를 단추로 넣었다. */}
             <label className="label" style={{ marginTop:12 }}>같은 유닛을 몇 번 반복할까요 <span className="muted" style={{ fontWeight:400 }}>(수업일 기준 · 연속으로)</span></label>
+            {!repeatTouched && (
+              <div className="muted" style={{ fontSize:12, marginBottom:6 }}>
+                {bookKind === "sentence"
+                  ? "📝 문장 교재라 「한 주 내내」로 맞춰 뒀어요 — 한 유닛을 그 주 수업일마다 되풀이합니다."
+                  : "📚 단어 교재라 「반복 안 함」으로 뒀어요 — 수업일마다 다음 Day 가 나갑니다."}
+              </div>
+            )}
             <div className="row" style={{ gap:6, marginBottom:6, flexWrap:"wrap" }}>
               {[1,2,3,5].map(n => (
-                <button key={n} onClick={()=>setAssignRepeat(n)}
+                <button key={n} onClick={()=>{ setAssignRepeat(n); setRepeatTouched(true); }}
                   style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
                     background: Number(assignRepeat)===n ? "var(--navy)" : "#fff", color: Number(assignRepeat)===n ? "var(--cream)" : "var(--navy)" }}>
                   {n===1 ? "반복 안 함" : `${n}번`}
                 </button>
               ))}
               {weekdays.length > 0 && (
-                <button onClick={()=>setAssignRepeat(weekdays.length)}
+                <button onClick={()=>{ setAssignRepeat(weekdays.length); setRepeatTouched(true); }}
                   style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:800, border:"1px solid var(--gold)",
                     background: Number(assignRepeat)===weekdays.length ? "var(--gold)" : "#FFFDF4",
                     color: Number(assignRepeat)===weekdays.length ? "#2B2206" : "#8A6D3B" }}>
@@ -2616,7 +2635,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
               )}
             </div>
             <input className="field" type="number" min={1} value={assignRepeat}
-              onChange={e=>setAssignRepeat(Math.max(1, Number(e.target.value)||1))} />
+              onChange={e=>{ setAssignRepeat(Math.max(1, Number(e.target.value)||1)); setRepeatTouched(true); }} />
             {Number(assignRepeat) > 1 && <div className="muted" style={{ fontSize:12, marginTop:4 }}>같은 유닛이 수업일마다 {assignRepeat}번 연이어 나와요 (제목에 "1일차·2일차…" 표시). 그다음 유닛으로 넘어가요.</div>}
           </>}
           {err && <div className="err">{err}</div>}
