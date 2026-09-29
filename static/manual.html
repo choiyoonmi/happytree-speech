@@ -81,6 +81,7 @@
   .callout.tip{border-color:color-mix(in srgb,var(--good) 40%,var(--line));background:color-mix(in srgb,var(--good) 9%,var(--card))}
   .callout.warn{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));background:color-mix(in srgb,var(--danger) 9%,var(--card))}
   .callout b{display:block;margin-bottom:2px}
+  .callout b.i{display:inline;margin:0}
   .callout.tip b{color:var(--good)} .callout.warn b{color:var(--danger)}
 
   table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
@@ -92,6 +93,14 @@
   .chip{display:inline-block;background:var(--tint);border:1px solid var(--line);border-radius:999px;
     padding:2px 10px;font-size:12.5px;font-weight:700;color:var(--navy);margin:2px 3px 2px 0}
 
+  .scen{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin:12px 0}
+  .scen a{display:block;text-decoration:none;color:var(--ink);background:var(--tint);border:1px solid var(--line);
+    border-radius:12px;padding:12px 14px;transition:border-color .12s}
+  .scen a:hover{border-color:var(--gold)}
+  .scen .q{font-weight:800;color:var(--navy);font-size:14.5px;line-height:1.35}
+  .scen .a{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+  .scen .ic{font-size:18px;margin-right:4px}
+  .sub{border-top:1px dashed var(--line);margin-top:22px;padding-top:4px;scroll-margin-top:12px}
   footer{color:var(--muted);text-align:center;font-size:13px;padding:30px 20px 50px}
   a.link{color:var(--gold);font-weight:700;text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--gold) 40%,transparent)}
 
@@ -121,6 +130,7 @@
     <a href="#s2"><span class="n">2</span><span class="t">학생 등록 · 반 관리</span></a>
     <a href="#s3"><span class="n">3</span><span class="t">교재 올리기 · 보관함</span></a>
     <a href="#s4"><span class="n">4</span><span class="t">과제 내기(배정)</span></a>
+    <a href="#s4b"><span class="n">📅</span><span class="t">일정 바꾸기 · 미루기 · 재시험</span></a>
     <a href="#s5"><span class="n">5</span><span class="t">발음 · 음가 음원</span></a>
     <a href="#s6"><span class="n">6</span><span class="t">단어시험지 PDF</span></a>
     <a href="#s7"><span class="n">7</span><span class="t">실시간 학습현황</span></a>
@@ -215,7 +225,7 @@
     <h3>교재 상세의 일괄 도구</h3>
     <div class="tablescroll"><table>
       <tr><th>도구</th><th>기능</th></tr>
-      <tr><td><b>⏭ 뒤로 미루기</b></td><td>특정 날짜부터 마감일을 한꺼번에 뒤로. <b>요일 유지</b>(추천)로 하면 화·목·금 같은 <b>요일이 그대로 유지</b>되며 “N회분(다음 수업일)”씩 밀려요.</td></tr>
+      <tr><td><b>⏭ 뒤로 미루기</b></td><td>특정 날짜부터 마감일을 한꺼번에 뒤로(반 전체). <b>요일 유지</b>(추천)로 하면 “N회분(다음 수업일)”씩 밀려요. 달력에서 끌어도 같아요 — <a class="link" href="#s4b">📅 일정 바꾸기</a></td></tr>
       <tr><td><b>🗓 일정 다시 짜기</b></td><td>시작일·요일로 교재 전체 마감일 재계산</td></tr>
       <tr><td><b>🔁 녹음 회차 바꾸기</b></td><td>특정 Day부터 끝까지 회차를 한 번에 변경</td></tr>
       <tr><td><b>✂️ 교재 전체 나누기</b></td><td>모든 Day를 둘로. 원하면 하루에 하나씩 다시 배치</td></tr>
@@ -223,6 +233,99 @@
       <tr><td><b>교재 전체 삭제</b></td><td>이 교재의 모든 Day 삭제</td></tr>
     </table></div>
     <div class="callout tip"><b>💡 자료는 안 사라져요</b>배정은 상태만 바꾸는 것이라, 🗑나 “교재 전체 삭제”를 직접 누르지 않는 한 과제·교재는 계속 남아 재사용됩니다.</div>
+  </section>
+
+  <section id="s4b">
+    <h2><span class="n">📅</span>일정 바꾸기 · 미루기 · 재시험</h2>
+    <p class="lead">과제를 낸 뒤 날짜를 바꾸는 방법이에요. <b>반 전체</b>를 바꿀 때와 <b>학생 한 명만</b> 바꿀 때 들어가는 곳이 달라요.</p>
+
+    <h3>이럴 땐 여기로</h3>
+    <div class="scen">
+      <a href="#g-class"><div class="q"><span class="ic">🏫</span>반 전체 진도가 밀렸어요</div><div class="a">교재 달력에서 Day를 끌어 옮기기</div></a>
+      <a href="#g-trip"><div class="q"><span class="ic">✈️</span>한 학생이 여행·결석해요</div><div class="a">학생 화면 → ✈️ 여행·결석</div></a>
+      <a href="#g-trip"><div class="q"><span class="ic">⏭</span>한 학생만 한두 번 미뤄 주고 싶어요</div><div class="a">학생 화면 → ⏭ 미루기</div></a>
+      <a href="#g-scal"><div class="q"><span class="ic">🗓</span>한 학생 과제를 원하는 날로 옮기고 싶어요</div><div class="a">학생 화면 → 🗓 달력에서 옮기기</div></a>
+      <a href="#g-retest"><div class="q"><span class="ic">🔁</span>이 Day를 다시 하게 하고 싶어요(재시험)</div><div class="a">학생 화면 과제 카드 → 🔁 재시험</div></a>
+      <a href="#g-split"><div class="q"><span class="ic">✂️</span>한 학생만 Day를 나누거나 합치고 싶어요</div><div class="a">교재 화면 → 👤 학생별 나누기·합치기</div></a>
+      <a href="#g-remove"><div class="q"><span class="ic">🗑</span>한 학생에게서 과제를 빼고 싶어요</div><div class="a">학생 화면 과제 카드 → 🗑</div></a>
+      <a href="#g-undo"><div class="q"><span class="ic">↩</span>잘못 눌렀어요</div><div class="a">↩ 되돌리기</div></a>
+    </div>
+
+    <div class="callout tip"><b>💡 꼭 알아 두실 세 가지</b>
+      ① 날짜는 <b class="i">수업 횟수로</b> 밀려요. 화·목반이면 화·목에만 놓이고, 휴무일·공휴일은 알아서 건너뛰어요.<br>
+      ② <b class="i">학생 한 명</b> 기능은 그 학생 것만 바꿔요. 반 친구들 과제와 📦 보관함 원본은 그대로예요.<br>
+      ③ 이미 녹음한 과제는 움직이지 않아요. 한 기록은 그 자리에 그대로 남아요.
+    </div>
+
+    <div class="sub" id="g-class">
+      <h3>🏫 반 전체 일정 옮기기 — 달력에서 끌기</h3>
+      <ol class="steps">
+        <li><span class="path">📚 과제</span> → 반 → 교재 → <span class="path">📅 달력에서 과제 내기</span></li>
+        <li>옮길 Day를 <b>끌어서</b> 원하는 날에 놓아요. (태블릿은 Day를 <b>톡</b> 누른 뒤 날짜를 <b>톡</b>)</li>
+        <li>그 <b>뒤 Day들이 자동으로 같이</b> 밀려요. 두 수업 뒤로 옮기면 뒤도 두 수업씩.</li>
+      </ol>
+      <ul class="plain">
+        <li>그 Day <b>하나만</b> 옮기려면 달력 위 <span class="path">이 과제 하나만 옮기기</span>를 체크하고 끌어요.</li>
+        <li>다른 달로 옮길 땐 끌고 있는 채로 달력 위 <b>‹ ›</b> 에 잠깐 머물면 달이 넘어가요.</li>
+        <li>수업 없는 요일은 달력 머리글(월·화·수…)을 눌러 ✕로 바꿔 두세요. 그 반의 모든 교재에 적용돼요.</li>
+        <li>달력 칸에 <b>👤</b>가 붙은 Day는 한 학생만 따로 옮긴 과제예요.</li>
+      </ul>
+    </div>
+
+    <div class="sub" id="g-trip">
+      <h3>✈️ 한 학생만 미루기 — 여행·결석 / N번 미루기</h3>
+      <ol class="steps">
+        <li><span class="path">📊 현황 → 📈 진도</span>에서 <b>학생 이름</b>을 눌러요.</li>
+        <li><span class="path">📅 ○○ 학생 일정만 바꾸기</span>에서 고르세요.
+          <ul class="plain">
+            <li><b>✈️ 여행·결석</b> — 못 오는 기간(예: 10/12 ~ 10/16)을 넣어요. 그 기간에 있던 수업 수만큼 뒤 과제가 모두 밀려요.</li>
+            <li><b>⏭ 미루기</b> — "며칠부터 몇 수업"을 넣어요. 재시험·보충으로 한두 번 밀어 줄 때.</li>
+          </ul>
+        </li>
+        <li>교재가 여러 권이면 <b>모든 교재</b> 또는 한 권만 고를 수 있어요.</li>
+        <li><span class="path">미리 보기</span>를 누르면 "Day 3 10/13 → <b>10/20</b>"처럼 바뀔 날짜가 먼저 나와요. 확인하고 <span class="path">○○ 학생만 미루기</span>.</li>
+      </ol>
+    </div>
+
+    <div class="sub" id="g-scal">
+      <h3>🗓 한 학생 달력에서 옮기기</h3>
+      <p>학생 화면 <span class="path">🗓 달력에서 옮기기</span>를 누르면 <b>그 학생 과제만</b> 보이는 달력이 나와요. 반 달력처럼 끌어서 놓으면 되고, <b>같은 교재의 뒤 과제</b>가 같이 밀려요. 하나만 옮기려면 <span class="path">이 과제 하나만 옮기기</span>를 체크하세요.</p>
+    </div>
+
+    <div class="sub" id="g-retest">
+      <h3>🔁 재시험 — 그 Day를 처음부터 다시</h3>
+      <ol class="steps">
+        <li>학생 화면 과제 목록에서 다시 시킬 Day 카드의 <span class="path">🔁 재시험</span>을 눌러요. (<span class="path">전체</span>를 누르면 지난 과제도 보여요)</li>
+        <li>"○○ 학생이 Day 3을 10/1에 처음부터 다시 학습하게 할까요?"가 뜨면 확인.</li>
+      </ol>
+      <ul class="plain">
+        <li>다음 수업일에 <b>같은 Day가 다시</b> 나와요. <b>녹음·단어익힘 모두 새로</b> 해요.</li>
+        <li>그날 다른 과제가 있으면 그날부터의 과제가 한 수업씩 뒤로 밀려요. 비어 있으면 아무것도 안 밀려요.</li>
+        <li><b>첫 번째 기록과 랭킹 점수는 그대로</b> 남아요. 선생님 화면엔 이름 옆에 <b>🔁 재시험</b>이 붙어요.</li>
+      </ul>
+    </div>
+
+    <div class="sub" id="g-split">
+      <h3>✂️ 한 학생만 Day 나누기 · 합치기</h3>
+      <p>단어가 많아 버거운 학생은 하루 분량을 둘로, 빠른 학생은 (1/2)(2/2)를 하나로.</p>
+      <ol class="steps">
+        <li><span class="path">📚 과제</span> → 교재 → 제목 줄의 <span class="path">👤 학생별 나누기·합치기</span></li>
+        <li>학생 고르기 → <span class="chip">✂️ 나누기</span> 또는 <span class="chip">🔗 합치기</span> → 어느 Day부터</li>
+        <li>필요하면 <b>하루에 하나씩 날짜 다시 배치</b>(시작일·요일)를 켜요.</li>
+        <li><span class="path">미리 보기</span> → 확인 → 적용</li>
+      </ol>
+      <div class="callout warn"><b>⚠️ 달력 상자 속 “✂️ 교재 나누기”는 다른 기능이에요</b>그건 보고 있는 목록 <b class="i">전체</b>(보관함이면 원본, 반이면 그 반 모두)를 바꿔요. 학생 한 명이면 꼭 <b class="i">👤 학생별</b>을 쓰세요.</div>
+    </div>
+
+    <div class="sub" id="g-remove">
+      <h3>🗑 한 학생에게서 과제 빼기</h3>
+      <p>학생 화면 과제 카드의 <span class="path">🗑</span>는 <b>그 학생만</b> 빼요. 같이 받는 반 친구들 과제는 그대로예요. (그 학생 혼자 받던 과제라면 과제가 지워져요.) 녹음 기록은 지우지 않아요.</p>
+    </div>
+
+    <div class="sub" id="g-undo">
+      <h3>↩ 잘못 눌렀을 때 — 되돌리기</h3>
+      <p>학생 화면 맨 위와 달력 위에 <b>“최근: ○○ 미루기 · 6개 · ↩ 되돌리기”</b>가 떠요. 누르면 방금 한 일을 <b>통째로</b> 되돌려요 — 날짜, 학생별로 따로 만든 과제, 배정까지 원래대로. 최근 20번까지 순서대로 되돌릴 수 있어요.</p>
+    </div>
   </section>
 
   <section id="s5">
@@ -269,7 +372,8 @@
     <div class="tablescroll"><table>
       <tr><th>지우려는 것</th><th>어디서</th></tr>
       <tr><td><b>한 학생의 한 과제 제출</b>(녹음·점수)</td><td>과제 열기 → <span class="path">🗑 이 제출 삭제</span> → 그 학생이 다시 녹음 가능</td></tr>
-      <tr><td><b>과제 자체</b>(배정된 모든 학생 대상)</td><td>학생 과제 목록에서 각 줄의 <span class="path">🗑</span></td></tr>
+      <tr><td><b>한 학생에게서 과제 빼기</b>(다른 학생은 그대로)</td><td>학생 화면 과제 목록에서 각 줄의 <span class="path">🗑</span> — <span class="path">↩ 되돌리기</span> 가능</td></tr>
+      <tr><td><b>과제 자체</b>(배정된 모든 학생 대상)</td><td><span class="path">📚 과제</span> → 교재 화면 과제 카드의 <span class="path">🗑</span></td></tr>
       <tr><td><b>과제를 무더기로</b> 정리</td><td><span class="path">설정 → ⚠️ 과제 전체 삭제</span> (배포된 것만 / 보관함 포함 전부)</td></tr>
     </table></div>
     <div class="callout warn"><b>⚠️ 삭제는 되돌릴 수 없어요</b>많이 지우기 전엔 <span class="path">설정 → 백업 파일 내려받기</span>로 먼저 백업받아 두세요.</div>
@@ -315,6 +419,8 @@
     <p>보관으로 올렸다면 <b>📦 보관함</b> 그룹에 있어요(“전체”가 아니라). 삭제된 게 아니라 위치만 다른 거예요.</p>
     <h3>과제를 냈는데 학생 화면에 안 떠요</h3>
     <p>과제 카드 ✏️에서 <b>배정 대상</b>이 그 학생의 반/개인으로 되어 있는지, <b>보관</b> 상태가 아닌지 확인하세요. 마감일이 달력의 그 날짜에 있어야 그 날에 보입니다.</p>
+    <h3>한 학생을 미뤘는데 반 달력에 같은 Day가 두 번 보여요</h3>
+    <p>정상이에요. 반 친구들 것과, 그 학생만 따로 옮긴 것(<b>👤</b> 표시)이 함께 보이는 거예요. 🧹 중복 정리도 이 둘은 지우지 않아요.</p>
     <h3>동시 접속은 몇 명까지?</h3>
     <p>숙제반 15명 정도는 무난해요. 여러 명이 동시에 녹음 채점을 누르면 채점이 잠깐 줄서서 느려질 수 있는데, 보통은 시차가 생겨 괜찮습니다.</p>
     <h3>처음 접속이 느려요</h3>
