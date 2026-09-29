@@ -414,11 +414,26 @@ def _admin_secrets():
     return out
 
 
+def _pw_same(got: str, want: str) -> bool:
+    """비밀번호 두 개가 같은가. compare_digest 로 재는 시간을 일정하게 둔다.
+
+    ★반드시 bytes 로 바꿔서 넘긴다. hmac.compare_digest 는 str 을 받으면
+      **양쪽 다 ASCII 여야** 하고, 아니면 TypeError 를 던진다.
+      그래서 한글이 섞인 비밀번호가 들어오면 401 이 아니라 **500** 이 났다
+      (2026-09-29, 원장님이 열쇠 자리에 한글을 넣었다가 드러났다).
+      비밀번호가 틀린 것과 서버가 터진 것은 화면에서 구별이 안 돼 한참 헤맸다.
+    """
+    try:
+        return hmac.compare_digest(str(got).encode("utf-8"), str(want).encode("utf-8"))
+    except Exception:
+        return False
+
+
 def academy_of(request: Request) -> str:
     """이 요청을 보낸 관리자가 어느 학원인지. 학생 화면 요청에는 쓰지 않는다."""
     got = (request.headers.get("x-ht-admin") or request.query_params.get("pw") or "").strip()
     for pw, ac in _admin_secrets().items():
-        if got and hmac.compare_digest(got, pw):
+        if got and _pw_same(got, pw):
             return ac
     return ACADEMY_DEFAULT
 
@@ -439,7 +454,7 @@ def is_admin(request: Request) -> bool:
     if not got:
         return False
     # compare_digest: 맞는 글자 수만큼 시간이 더 걸리는 것으로 비밀번호를 알아내는 수법을 막는다.
-    return any(hmac.compare_digest(got, s) for s in _admin_secrets().keys())
+    return any(_pw_same(got, s) for s in _admin_secrets().keys())
 
 
 def require_admin(request: Request):
@@ -506,7 +521,7 @@ def login_admin(payload: dict = Body(...)):
     if not _admin_secrets():
         raise HTTPException(503, "서버에 ADMIN_PASSCODE 가 설정되지 않았어요.")
     got = str(payload.get("pw", ""))
-    if not any(hmac.compare_digest(got, s) for s in _admin_secrets()):
+    if not any(_pw_same(got, s) for s in _admin_secrets()):
         raise HTTPException(401, "비밀번호가 올바르지 않아요.")
     # 화면을 여는 것뿐 아니라, 이 비밀번호가 관리자 API 를 여는 열쇠이기도 하다.
     # 프런트는 이걸 x-ht-admin 헤더로 다시 보낸다(static/index.html 의 api()).
