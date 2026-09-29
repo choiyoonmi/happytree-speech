@@ -2594,19 +2594,30 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
                     background: weekdays.includes(i) ? "var(--navy)" : "#fff", color: weekdays.includes(i) ? "var(--cream)" : "var(--navy)" }}>{n}</button>
               ))}
             </div>
-            <label className="label" style={{ marginTop:12 }}>유닛 하나를 며칠씩 반복할까요 <span className="muted" style={{ fontWeight:400 }}>(같은 유닛을 연속으로)</span></label>
-            <div className="row" style={{ gap:6, marginBottom:6 }}>
-              {[1,3,5,7].map(n => (
+            {/* ★'며칠'이 아니라 '몇 번'이다 — 수업 요일에만 놓이므로, 월화수금 반에 7 을 넣으면
+                 달력으로는 두 주에 걸친다. 원장님이 "문장은 한 유닛을 일주일 동안 반복한다"고
+                 하셔서 「한 주 내내」(=고른 수업 요일 수)를 단추로 넣었다. */}
+            <label className="label" style={{ marginTop:12 }}>같은 유닛을 몇 번 반복할까요 <span className="muted" style={{ fontWeight:400 }}>(수업일 기준 · 연속으로)</span></label>
+            <div className="row" style={{ gap:6, marginBottom:6, flexWrap:"wrap" }}>
+              {[1,2,3,5].map(n => (
                 <button key={n} onClick={()=>setAssignRepeat(n)}
                   style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
                     background: Number(assignRepeat)===n ? "var(--navy)" : "#fff", color: Number(assignRepeat)===n ? "var(--cream)" : "var(--navy)" }}>
-                  {n===1 ? "반복 안 함" : `${n}일`}
+                  {n===1 ? "반복 안 함" : `${n}번`}
                 </button>
               ))}
+              {weekdays.length > 0 && (
+                <button onClick={()=>setAssignRepeat(weekdays.length)}
+                  style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:800, border:"1px solid var(--gold)",
+                    background: Number(assignRepeat)===weekdays.length ? "var(--gold)" : "#FFFDF4",
+                    color: Number(assignRepeat)===weekdays.length ? "#2B2206" : "#8A6D3B" }}>
+                  한 주 내내 ({weekdays.length}번)
+                </button>
+              )}
             </div>
             <input className="field" type="number" min={1} value={assignRepeat}
               onChange={e=>setAssignRepeat(Math.max(1, Number(e.target.value)||1))} />
-            {Number(assignRepeat) > 1 && <div className="muted" style={{ fontSize:12, marginTop:4 }}>같은 유닛이 {assignRepeat}일 연속으로 나와요 (제목에 "1일차·2일차…" 표시). 그다음 유닛으로 넘어가요.</div>}
+            {Number(assignRepeat) > 1 && <div className="muted" style={{ fontSize:12, marginTop:4 }}>같은 유닛이 수업일마다 {assignRepeat}번 연이어 나와요 (제목에 "1일차·2일차…" 표시). 그다음 유닛으로 넘어가요.</div>}
           </>}
           {err && <div className="err">{err}</div>}
           <div style={{height:12}} />
@@ -2614,11 +2625,31 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
             const rep = Math.max(1, Number(assignRepeat) || 1);
             const toVal = assignToIdx==null ? list.length-1 : Math.min(assignToIdx, list.length-1);
             const cnt = Math.max(0, toVal - Math.min(assignFromIdx, list.length-1) + 1) * rep;
-            return (
+            /* ★몇 개인지만 보여 주면 "7번"이 달력으로 며칠에 걸치는지 알 수가 없다.
+               실제로 놓일 첫 날과 끝 날을 같은 셈으로 미리 재서 보여 준다. */
+            let span = "";
+            if (assignDue && weekdays.length && cnt > 0) {
+              const [yy,mm,dd] = startDate.split("-").map(Number);
+              let cur = new Date(yy, mm-1, dd), got = 0, first = null, last = null, guard = 0;
+              while (got < cnt && guard < 4000) {
+                if (weekdays.includes(cur.getDay())) {
+                  const iso = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`;
+                  if (!first) first = iso;
+                  last = iso; got++;
+                }
+                cur.setDate(cur.getDate()+1); guard++;
+              }
+              const d2 = (x) => `${+x.slice(5,7)}/${+x.slice(8,10)}`;
+              if (first) span = ` · ${d2(first)} ~ ${d2(last)}`;
+            }
+            return (<>
               <button className="btn full" onClick={doAssignCopy} disabled={busy}>
                 {busy ? "배정 중..." : `${cnt}개 과제로 배정하기`}
               </button>
-            );
+              {span && <div className="muted" style={{ fontSize:12, marginTop:6, textAlign:"center" }}>
+                마감일{span} 에 걸쳐 놓여요 (수업 요일만 · 휴무일은 서버가 다시 밀어요)
+              </div>}
+            </>);
           })()}
         </div>
       )}
