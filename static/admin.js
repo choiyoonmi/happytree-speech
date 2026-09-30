@@ -250,11 +250,85 @@ function AdminStudents({ students, reload }) {
     await reload();
   };
 
+  /* ── 🔎 중복·유령 기록 점검 ──────────────────────────────────
+     공용 명단을 트리톡에 합칠 때 **아이디로** 맞추고, 트리톡 전용 기록은 지우지 않는다
+     (_merge_shared_students). 그래서 같은 학생이 옛 아이디로 먼저 만들어져 있으면
+     이름은 같고 아이디만 다른 기록이 영영 남는다. 그 유령에 숙제가 붙으면
+     아이는 다 했는데 시스템은 '안 했다'로 보고, 매일 저녁 학부모께 알림톡이 나간다.
+     ★지우기 전에 녹음 기록 수를 보여 준다. 기록이 있는 쪽은 학생이 실제로 쓰는 계정이므로
+       삭제 버튼을 아예 막는다 — 잘못 지우면 녹음과 점수가 같이 날아간다. */
+  const [dupRows, setDupRows] = useState(null);
+  const [dupBusy, setDupBusy] = useState(false);
+  const scanDups = async () => {
+    setDupBusy(true);
+    try {
+      const byName = {};
+      students.forEach(s => { const k = String(s.name || "").trim(); (byName[k] = byName[k] || []).push(s); });
+      const sus = Object.keys(byName).filter(k => k && byName[k].length > 1);
+      const rows = [];
+      for (const nm of sus) {
+        for (const s of byName[nm]) {
+          let n = 0, last = "";
+          try {
+            const subs = await apiGet("/student-submissions/" + encodeURIComponent(s.id));
+            Object.values(subs || {}).forEach(v => {
+              if (v && v.status && v.status !== "none") { n++; if (v.submittedAt && v.submittedAt > last) last = v.submittedAt; }
+            });
+          } catch (e) { n = -1; }   // 못 읽었으면 -1 → 삭제 막음
+          rows.push({ ...s, subs: n, last: String(last || "").slice(0, 10) });
+        }
+      }
+      setDupRows(rows);
+    } finally { setDupBusy(false); }
+  };
+
   return (
     <div className="body">
       <datalist id="cls-list">
         {[...new Set(students.map(s=>s.className).filter(Boolean))].map(c => <option key={c} value={c} />)}
       </datalist>
+      <div className="card">
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+          <div>
+            <div style={{ fontWeight:700, color:"var(--navy)" }}>🔎 중복·유령 기록 점검</div>
+            <div className="muted" style={{ fontSize:12.5, marginTop:4 }}>
+              이름이 같은 기록을 찾아 녹음 기록 수와 함께 보여줍니다. 기록이 0인 쪽만 지울 수 있어요.
+            </div>
+          </div>
+          <button className="btn" onClick={scanDups} disabled={dupBusy}>{dupBusy ? "확인 중…" : "점검하기"}</button>
+        </div>
+        {dupRows && (dupRows.length === 0
+          ? <div className="muted" style={{ marginTop:12 }}>이름이 겹치는 기록이 없습니다. 👍</div>
+          : <div style={{ marginTop:12, overflowX:"auto" }}>
+              <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13 }}>
+                <thead><tr>{["이름","아이디","반","녹음 기록","마지막 제출",""].map(h =>
+                  <th key={h} style={{ textAlign:"left", padding:"6px 8px", background:"#eef3f6" }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {dupRows.map(r => (
+                    <tr key={r.id}>
+                      <td style={{ padding:"6px 8px" }}>{r.name}</td>
+                      <td style={{ padding:"6px 8px", fontFamily:"monospace" }}>{r.id}</td>
+                      <td style={{ padding:"6px 8px" }}>{r.className || "반 미지정"}</td>
+                      <td style={{ padding:"6px 8px", fontWeight:700,
+                        color: r.subs === 0 ? "#b4472e" : "var(--navy)" }}>
+                        {r.subs < 0 ? "확인 실패" : (r.subs === 0 ? "없음" : r.subs + "건")}
+                      </td>
+                      <td style={{ padding:"6px 8px" }}>{r.last || "-"}</td>
+                      <td style={{ padding:"6px 8px" }}>
+                        {r.subs === 0
+                          ? <button className="btn" style={{ background:"#b4472e", color:"#fff", fontSize:12, padding:"4px 10px" }}
+                              onClick={async () => {
+                                if (!confirm(r.name + " (" + r.id + ") 기록을 지울까요?\n녹음 기록이 없는 빈 기록입니다. 되돌릴 수 없습니다.")) return;
+                                await apiDelete("/students/" + r.id); await reload(); await scanDups();
+                              }}>빈 기록 삭제</button>
+                          : <span className="muted" style={{ fontSize:12 }}>기록 있음 — 두세요</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>)}
+      </div>
       <div className="card">
         <div style={{ fontWeight:700, marginBottom:12, color:"var(--navy)" }}>학생 추가</div>
         <label className="label">이름</label>
