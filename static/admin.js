@@ -2,6 +2,18 @@
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
+/* 동명이인 구분 — 배정 버튼에 이름만 있으면 누구인지 알 수 없다.
+   실제로 박수현(초3)과 박수현(초6)이 섞여, 초3 학생에게 초6 숙제가 배정되고
+   그 집 학부모께 알림톡까지 나간 적이 있다(2026-10-01).
+   ★이름이 겹치는 학생에게만 학년을 붙인다 — 안 겹치는 버튼까지 길어지면 고르기가 더 불편하다.
+     학년이 비어 있으면 반, 그것도 없으면 아이디 끝자리로라도 구분해 준다. */
+function pickLabel(s, students) {
+  const dup = (students || []).filter(x => x && x.name === s.name).length > 1;
+  if (!dup) return s.name;
+  const tag = String(s.grade || s.className || "").trim();
+  return s.name + " (" + (tag || String(s.id || "").slice(-3)) + ")";
+}
+
 function splitMeaning(line) {
   // "apple / 사과" 또는 "apple - 사과" 형태를 분리
   const m = line.split(/\s+[/|\-–]\s+/);
@@ -973,7 +985,7 @@ function BulkUpload({ students, reload, onClose }) {
                 <button key={s.id} onClick={()=>toggle(ids,setIds,s.id)}
                   style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
                     background: ids.includes(s.id)?"var(--navy)":"#fff", color: ids.includes(s.id)?"var(--cream)":"var(--navy)" }}>
-                  {s.name}
+                  {pickLabel(s, students)}
                 </button>
               ))}
             </div>
@@ -1232,7 +1244,7 @@ function AdminAssignments({ students, assignments, reload, voice }) {
                 <button key={s.id} onClick={()=>toggle(ids,setIds,s.id)}
                   style={{ fontSize:12, padding:"6px 12px", borderRadius:999, border:"1px solid var(--navy)",
                     background: ids.includes(s.id)?"var(--navy)":"#fff", color: ids.includes(s.id)?"var(--cream)":"var(--navy)" }}>
-                  {s.name}
+                  {pickLabel(s, students)}
                 </button>
               ))}
             </div>
