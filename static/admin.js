@@ -8,10 +8,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs
    ★이름이 겹치는 학생에게만 학년을 붙인다 — 안 겹치는 버튼까지 길어지면 고르기가 더 불편하다.
      학년이 비어 있으면 반, 그것도 없으면 아이디 끝자리로라도 구분해 준다. */
 function pickLabel(s, students) {
-  const dup = (students || []).filter(x => x && x.name === s.name).length > 1;
-  if (!dup) return s.name;
-  const tag = String(s.grade || s.className || "").trim();
-  return s.name + " (" + (tag || String(s.id || "").slice(-3)) + ")";
+  const peers = (students || []).filter(x => x && x.name === s.name);
+  if (peers.length <= 1) return s.name;
+  const tagOf = (x) => String(x.grade || x.className || "").trim();
+  const tag = tagOf(s);
+  /* ★학년까지 같은 경우가 있다 — 같은 학생이 두 번 들어간 중복 기록이면 학년도 똑같다.
+     그때는 아이디를 붙여야 비로소 구분된다(그리고 그 자체가 '중복 아닌가' 하는 신호가 된다). */
+  const tagUnique = tag && peers.filter(x => tagOf(x) === tag).length === 1;
+  if (tagUnique) return s.name + " (" + tag + ")";
+  const idTail = String(s.id || "").slice(-4);
+  return s.name + " (" + (tag ? tag + " · " : "") + idTail + ")";
 }
 
 function splitMeaning(line) {
