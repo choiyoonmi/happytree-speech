@@ -1238,15 +1238,44 @@ def student_postpone(sid: str, request: Request, payload: dict = Body(...)):
     rest = payload.get("rest", True)
     sessions = int(payload.get("sessions") or 0)
     dry = bool(payload.get("dryRun"))
-    if not (sessions or until or to_date):
+    relay = payload.get("relayStart") or None      # 날짜 다시 깔기: 이 날부터 하루 하나씩
+    if not (sessions or until or to_date or relay):
         raise HTTPException(400, "몇 번 미룰지, 여행 기간, 또는 옮길 날짜를 정해 주세요.")
     touched = set((load_student_subs(sid) or {}).keys())
-    off = get_closed_days()
 
     with _lock:
         db = load_db()
+        off = _off_for_student(db, sid)
         before = _snap(db)
         all_ids, mine = _student_ctx(db, sid, request)
+        if relay:
+            # ★그 학생의 이 교재를 fromId 부터 relayStart 날부터 수업일마다 하나씩 다시 깐다(반 친구는 그대로)
+            bk = payload.get("book") or ""
+            all_bk = [a for a in mine if (a.get("book") or "") == bk]
+            key = lambda x: (_day_num(x.get("title")), _piece_base(x.get("title"))[1], x.get("dueDate") or "", x.get("title") or "")
+            order = sorted(all_bk, key=key)
+            fid = payload.get("fromId")
+            i0 = next((i for i, x in enumerate(order) if x.get("id") == fid), 0)
+            tg = [x for x in order[i0:] if x.get("id") not in touched]
+            skipped = sum(1 for x in order[i0:] if x.get("id") in touched)
+            wd = payload.get("weekdays") or _student_days(db, sid, all_bk)
+            ok = _allowed_fn(wd, off)
+            d = _advance(_pdate(relay), 0, ok)
+            plan = []
+            for x in tg:
+                nd = d.isoformat()
+                if nd != x.get("dueDate"):
+                    plan.append((x, nd))
+                d = _advance(d, 1, ok)
+            preview = [{"title": a.get("title"), "book": a.get("book"), "from": a.get("dueDate") or "", "to": nd} for a, nd in plan]
+            if dry or not plan:
+                return {"ok": True, "moved": len(plan), "skippedDone": skipped, "preview": preview}
+            for a, nd in plan:
+                _fork_for(db, sid, a, all_ids)["dueDate"] = nd
+            name = next((x.get("name") for x in db.get("students", []) if x.get("id") == sid), sid)
+            _hist_push_snap(db, f"{name} 날짜 다시 깔기", before, len(plan))
+            save_db(db)
+            return {"ok": True, "moved": len(plan), "skippedDone": skipped, "preview": preview}
         if only_id:
             src = next((a for a in mine if a.get("id") == only_id), None)
             if not src:
@@ -1358,9 +1387,9 @@ def student_retest(sid: str, request: Request, payload: dict = Body(...)):
     aid = payload.get("aid")
     dry = bool(payload.get("dryRun"))
     touched = set((load_student_subs(sid) or {}).keys())
-    off = get_closed_days()
     with _lock:
         db = load_db()
+        off = _off_for_student(db, sid)
         before = _snap(db)
         all_ids, mine = _student_ctx(db, sid, request)
         src = next((a for a in db["assignments"] if a.get("id") == aid), None)
@@ -1501,7 +1530,7 @@ def student_book_pieces(sid: str, request: Request, payload: dict = Body(...)):
         dates = []
         if resched:
             wd = [int(x) for x in (payload.get("weekdays") or [1, 2, 3, 4, 5])]
-            off = get_closed_days()
+            off = _off_for_student(db, sid)
             try:
                 y, m, dd = map(int, str(payload.get("start")).split("-"))
                 cur = _d(y, m, dd)
@@ -1815,8 +1844,42 @@ def _pdate(s):
 @app.get("/api/class-days", dependencies=ADMIN_ONLY)
 def get_class_days():
     """반마다 수업하는 요일(일=0…토=6). 원장 2026-09-23: 요일은 교재가 아니라 반마다 다르다.
-    한 번 정해 두면 그 반의 모든 교재에서 그대로 쓴다(다시 고치기 전까지)."""
-    return {"ok": True, "days": (load_db().get("classDays") or {})}
+    한 번 정해 두면 그 반의 모든 교재에서 그대로 쓴다(다시 고치기 전까지).
+    offDays = 반마다 따로 정한 '수업 없는 날'(날짜)."""
+    db = load_db()
+    return {"ok": True, "days": (db.get("classDays") or {}), "offDays": (db.get("classOffDays") or {})}
+
+
+@app.post("/api/class-offdays", dependencies=ADMIN_ONLY)
+def set_class_offday(payload: dict = Body(...)):
+    """★달력에서 날짜를 눌러 그 반의 '수업 없는 날'로(원장 2026-10-01 "수업 없는 날 지정을 바로").
+    {group, date:'YYYY-MM-DD', off:true|false}. 휴무일(학원 전체)과 달리 그 반에만 적용된다."""
+    group = str((payload or {}).get("group") or "").strip()
+    date = str((payload or {}).get("date") or "").strip()
+    if not group or len(date) != 10:
+        raise HTTPException(400, "반과 날짜가 필요해요.")
+    off = bool((payload or {}).get("off", True))
+    with _lock:
+        db = load_db()
+        od = db.setdefault("classOffDays", {})
+        cur = set(od.get(group) or [])
+        (cur.add if off else cur.discard)(date)
+        if cur:
+            od[group] = sorted(cur)
+        else:
+            od.pop(group, None)
+        save_db(db)
+    return {"ok": True, "group": group, "offDays": sorted(cur)}
+
+
+def _off_for_group(db, group):
+    """학원 휴무일 + 그 반의 수업 없는 날."""
+    return set(get_closed_days()) | set(((db.get("classOffDays") or {}).get(str(group or "")) or []))
+
+
+def _off_for_student(db, sid):
+    st = next((x for x in db.get("students", []) if x.get("id") == sid), None) or {}
+    return _off_for_group(db, st.get("className") or "")
 
 
 @app.post("/api/class-days", dependencies=ADMIN_ONLY)
@@ -1956,7 +2019,7 @@ def reschedule(payload: dict = Body(...)):
                 raise HTTPException(400, "시작일을 입력해주세요.")
             # python: 월=0 → js: 일=0 이므로 변환
             js_wd = set(int(w) for w in weekdays)
-            off = get_closed_days()          # 토·일·휴무일에는 안 놓는다
+            off = _off_for_group(db, payload.get("group"))   # 토·일·휴무일·그 반 수업 없는 날에는 안 놓는다
             cur = parse(start)
             assigned = 0
             guard = 0
@@ -1977,7 +2040,7 @@ def reschedule(payload: dict = Body(...)):
             src = next((a for a in targets if a["id"] == dragged), None)
             if not src or not src.get("dueDate"):
                 raise HTTPException(400, "옮길 과제를 찾을 수 없어요.")
-            ok = _allowed_fn(payload.get("weekdays") or [1, 2, 3, 4, 5], get_closed_days())
+            ok = _allowed_fn(payload.get("weekdays") or [1, 2, 3, 4, 5], _off_for_group(db, payload.get("group")))
             k = _steps_between(_pdate(src["dueDate"]), _pdate(to), ok)
             for a in targets:
                 if a is src:

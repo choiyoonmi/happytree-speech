@@ -168,11 +168,14 @@ def load_db(path: Path) -> dict:
             s = _remote("gget", k="students")
             a = _remote("gget", k="assignments")
             if s is not None and a is not None:
-                return {
-                    "students": s.get("data") or [],
-                    "assignments": a.get("data") or [],
-                    "submissions": {},
-                }
+                # ★학생·과제만 원격이 원본이다. 반별 수업 요일(classDays)·수업 없는 날(classOffDays)·
+                #   되돌리기 기록(scheduleHistory) 같은 나머지 열쇠는 save_db 가 늘 디스크에 같이 쓴다.
+                #   예전엔 여기서 두 열쇠만 돌려줘서 d1 모드에선 그 설정들이 저장돼도 다음 읽기에 사라졌다.
+                base = _read_file(path, DB_DEFAULT)
+                base["students"] = s.get("data") or []
+                base["assignments"] = a.get("data") or []
+                base.setdefault("submissions", {})
+                return base
             _warn("fallback:db", "원격 db 조회 실패 → 디스크 사본으로 응답")
         db = _read_file(path, DB_DEFAULT)
         for k, v in DB_DEFAULT.items():

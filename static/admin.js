@@ -1486,7 +1486,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel, focusDate }) {
+function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel, focusDate, offDays, onToggleOff, offLabel }) {
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   /* ★골라서 지우기(원장 2026-10-01 "필요 없는 과제를 선택하면 바로 삭제").
      켜 두면 칩을 톡톡 눌러 여러 개 고르고(날짜 숫자를 누르면 그날 것 전부), 한 번에 지운다. 끌기는 잠시 멈춘다. */
@@ -1539,7 +1539,23 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
   const [pending, setPending] = useState(null);       // { a, to, followers:[...] }
   const [sel, setSel] = useState(null);              // 톡 눌러서 고른 과제(누른 뒤 날짜를 누르면 이동)
   const [drag, setDrag] = useState(null);
-  const [closed, setClosed] = useState({ days: new Set(), names: {} });
+  const [closedBase, setClosed] = useState({ days: new Set(), names: {} });
+  /* 학원 휴무일 + 그 반의 '수업 없는 날'(offDays) — 둘 다 과제를 못 놓는 날로 친다 */
+  const offList = offDays || [];
+  const closed = {
+    days: new Set([...closedBase.days, ...offList]),
+    names: { ...Object.fromEntries(offList.map(d => [d, "휴강"])), ...closedBase.names },
+  };
+  const [offMode, setOffMode] = useState(false);      // 🚫 수업 없는 날 정하기
+  const [offPending, setOffPending] = useState(null); // { k, items } — 그날 과제가 있을 때 물어보기
+  const clickOffDay = (k) => {
+    if (closedBase.days.has(k)) { alert(`${k} 은 ${closedBase.names[k] || "휴무일"} 이에요(학원 전체 휴무). 여기서는 못 바꿔요.`); return; }
+    const isOff = offList.indexOf(k) >= 0;
+    if (isOff) { onToggleOff(k, false, null); return; }
+    const items = dated.filter(a => dueOf(a) === k);
+    if (!items.length) { onToggleOff(k, true, null); return; }
+    setOffPending({ k, items });
+  };
   const [reStart, setReStart] = useState(() => new Date().toISOString().slice(0,10));
   const [withPast, setWithPast] = useState(false);   // 밀린 것까지 끌어올지
   const [hist, setHist] = useState([]);   // 최근 일정 변경(되돌리기용)
@@ -1734,6 +1750,21 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
         </div>
       )}
 
+      {onToggleOff && (
+        <div style={{ marginBottom: 8, padding: offMode ? "8px 10px" : 0, borderRadius: 8,
+          background: offMode ? "#EEF1F4" : "transparent", border: offMode ? "1px solid #CBD3DB" : "none" }}>
+          <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button className={offMode ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px" }}
+              onClick={() => { setOffMode(!offMode); setSel(null); setPickMode(false); setPicked(new Set()); }}>
+              {offMode ? "다 정했어요" : (offLabel || "🚫 수업 없는 날")}
+            </button>
+            {offMode && <span style={{ fontSize: 12, color: "var(--navy)" }}>
+              날짜를 누르면 <b>휴강</b> ↔ 수업으로 바뀌어요. 그날 과제가 있으면 뒤로 밀지 물어봐요.
+            </span>}
+          </div>
+        </div>
+      )}
+
       {onDeleteMany && (
         <div style={{ marginBottom: 8, padding: pickMode ? "8px 10px" : 0, borderRadius: 8,
           background: pickMode ? "#FDECEA" : "transparent", border: pickMode ? "1px solid #F0C9BF" : "none" }}>
@@ -1837,7 +1868,10 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
           const noClass = off || wd === 0 || wd === 6 || !isClassDay(wd);   // 수업 없는 날엔 과제를 못 놓는다
           const over = drag && drag.over === k;
           return (
-            <div key={k} data-day={noClass ? "" : k} onClick={() => { if (!noClass) sel && doMove(sel, k); }}
+            <div key={k} data-day={noClass ? "" : k} onClick={() => {
+                if (offMode) { if (wd !== 0 && wd !== 6) clickOffDay(k); return; }
+                if (!noClass) sel && doMove(sel, k);
+              }}
               style={{ minHeight: 76, borderRadius: 8, padding: "3px 3px 5px", cursor: sel ? "pointer" : "default",
                 border: over ? "2px solid var(--gold)" : k === todayKey ? "1px solid var(--gold)" : "1px solid var(--line)",
                 background: over ? "#FFF6E0" : noClass ? "#F1F3F5" : "#fff" }}>
@@ -1894,6 +1928,32 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
           {shortOf(drag.a.title)}{drag.trash ? " → 🗑 버리기" : (drag.over ? ` → ${+drag.over.slice(5,7)}/${+drag.over.slice(8,10)}` : "")}
         </div>
       )}
+      {offPending && (() => {
+        const { k, items } = offPending;
+        const md = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
+        const order = dated.slice().sort(calOrder).filter(x => dueOf(x) >= k);
+        const toDate = advance(k, 1);        // 그날 다음의 첫 수업일
+        const close = () => setOffPending(null);
+        return (
+          <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 9500, background: "rgba(20,28,40,.35)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <div onClick={e => e.stopPropagation()} className="card"
+              style={{ maxWidth: 360, width: "100%", margin: 0, padding: 16, boxShadow: "0 12px 40px rgba(0,0,0,.25)" }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: "var(--navy)", marginBottom: 4 }}>{md(k)} 수업 없음</div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+                이 날 과제가 {items.length}개 있어요 ({items.map(a => shortOf(a.title)).join(", ")}). 어떻게 할까요?
+              </div>
+              <button className="btn full" style={{ marginBottom: 8 }}
+                onClick={() => { close(); onToggleOff(k, true, { ids: order.map(x => x.id), draggedId: items[0].id, toDate }); }}>
+                뒤로 한 수업씩 밀기 <span style={{ fontWeight: 400, opacity: .8 }}>({order.length}개 · 첫 과제 → {md(toDate)})</span>
+              </button>
+              <button className="btn-ghost full" style={{ marginBottom: 8 }}
+                onClick={() => { close(); onToggleOff(k, true, null); }}>과제는 그대로 두고 휴강만 표시</button>
+              <button className="btn-ghost full" style={{ color: "var(--muted)" }} onClick={close}>취소</button>
+            </div>
+          </div>
+        );
+      })()}
       {pending && (() => {
         const md = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
         const n = pending.followers.length;
@@ -1932,6 +1992,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
      "" = 반 전체(학생 전용 👤 과제는 빼고 보여 준다 — 섞여 있으면 '뒤도 같이 밀기'·Shift 고르기가
      다른 학생 전용 과제까지 끌고 갔다), 학생 id = 그 학생이 받는 이 교재 과제만, 바꾸면 그 학생에게만. */
   const [calWho, setCalWho] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);   // ⋯ 더보기(뒤로 미루기·녹음 회차·교재 나누기·단어시험지)
   const [trashed, setTrashed] = useState(null);    // 방금 버린 과제(되돌리기용)
   const [days, setDays] = useState(7);
   const [fromDate, setFromDate] = useState("");
@@ -1987,8 +2048,14 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
   /* ★수업 요일은 교재가 아니라 **반마다** 다르다(원장 2026-09-23).
      한 번 정해 두면 그 반의 모든 교재에서 그대로 쓴다 — 다시 고치기 전까지. */
   const [savedDays, setSavedDays] = useState(null);
+  /* 반별 수업 요일·수업 없는 날(휴강) 전체 — 반 달력·반 고르기·학생 달력이 각자 자기 반 것을 꺼내 쓴다 */
+  const [allDays, setAllDays] = useState({});
+  const [allOff, setAllOff] = useState({});
   useEffect(() => {
-    apiGet("/class-days").then(d => setSavedDays(((d && d.days) || {})[group] || null)).catch(()=>{});
+    apiGet("/class-days").then(d => {
+      setSavedDays(((d && d.days) || {})[group] || null);
+      setAllDays((d && d.days) || {}); setAllOff((d && d.offDays) || {});
+    }).catch(()=>{});
   }, [group]);
   const saveClassDays = (wd) => {
     setSavedDays(wd);
@@ -2060,7 +2127,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
         /* ★날짜 차이만큼 밀면 화·목반이 목·토로 흩어졌다 → 서버가 '수업 횟수'로 민다(steps).
            뒤 과제는 달력이 고른 것(끈 과제 다음부터)만 — 같은 날 위 칸 과제는 안 따라간다. */
         const ids = [a.id].concat(followerIds || []);
-        await apiPost("/assignments/reschedule", { mode: "steps", ids, draggedId: a.id, toDate, weekdays: weekdays || [1,2,3,4,5] });
+        await apiPost("/assignments/reschedule", { mode: "steps", ids, draggedId: a.id, toDate, weekdays: weekdays || [1,2,3,4,5], group: whoClass(calWho) });
       } else {
         const r = await fetch("/api/assignments/" + a.id, {
           method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -2322,15 +2389,33 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
     setBusy(false);
   };
 
+  /* 🗓 날짜 다시 깔기 — 달력이 지금 보여 주는 것(반 / 반 고르기 / 한 학생)만 대상으로 한다.
+     ★예전엔 이 화면 목록 전체였다 — 학생 전용(👤) 과제까지 섞여 같이 다시 깔렸다. */
+  const respreadList = () => {
+    const src = calOpen ? viewList(calWho) : list.filter(a => !isPersonalT(a));
+    return src.slice().sort((x, y) => {
+      const dx = dayNum(x.title), dy = dayNum(y.title);
+      if (dx != null && dy != null && dx !== dy) return dx - dy;
+      return (x.dueDate||"").localeCompare(y.dueDate||"") || (x.title||"").localeCompare(y.title||"");
+    });
+  };
   const doRespread = async () => {
     if (!weekdays.length) return setErr("요일을 하나 이상 선택해주세요.");
-    const startIdx = Math.max(0, Math.min(respreadStartIdx, list.length - 1));
-    const targets = list.slice(startIdx);   // 선택한 Day부터만 다시 배치(앞 Day는 원래 날짜 유지)
+    const rl = respreadList();
+    const startIdx = Math.max(0, Math.min(respreadStartIdx, rl.length - 1));
+    const targets = rl.slice(startIdx);   // 선택한 Day부터만 다시 배치(앞 Day는 원래 날짜 유지)
     if (!targets.length) return setErr("다시 배치할 Day가 없어요.");
     setBusy(true); setErr("");
     try {
-      await apiPost("/assignments/reschedule",
-        { mode:"respread", ids: targets.map(a=>a.id), startDate, weekdays });
+      const sid = calOpen && calWho && calWho.indexOf("c:") !== 0 ? calWho : null;
+      if (sid) {
+        // 한 학생: 그 학생 몫만 개인 사본으로 떼어 다시 깐다(반 친구는 그대로, 녹음한 과제는 건너뜀)
+        await apiPost(`/students/${encodeURIComponent(sid)}/postpone`,
+          { book, fromId: targets[0].id, relayStart: startDate, weekdays });
+      } else {
+        await apiPost("/assignments/reschedule",
+          { mode:"respread", ids: targets.map(a=>a.id), startDate, weekdays, group: whoClass(calOpen ? calWho : "") });
+      }
       await reload(); setPanel(null);
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -2554,6 +2639,34 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
   const viewList = (who) => !who ? list.filter(a => !isPersonalT(a))
     : who.indexOf("c:") === 0 ? classList(who.slice(2)) : pcList(who);
   const [calFocus, setCalFocus] = useState(null);   // 방금 낸 과제의 첫 날짜(그 달로 열기)
+  /* 지금 달력이 어느 반 것인가 — 휴강·수업 요일을 그 반에 저장/조회 */
+  const whoClass = (who) => !who ? (isArchive ? "" : group)
+    : who.indexOf("c:") === 0 ? who.slice(2)
+    : (((students || []).find(s => s.id === who) || {}).className || "");
+  const daysOf = (cls) => (cls && allDays[cls]) || savedDays || [1, 2, 3, 4, 5];
+  /* 🚫 수업 없는 날 — 반(또는 반 고르기) 달력: 그 반 휴강으로 저장하고, 원하면 그날부터 한 수업씩 민다.
+     학생 달력: '그 학생 못 오는 날' — 반 휴강은 안 건드리고 그 학생 과제만 한 수업 민다. */
+  const toggleOffFor = (who) => async (k, off, push) => {
+    const sid = who && who.indexOf("c:") !== 0 ? who : null;
+    const cls = whoClass(who);
+    try {
+      if (sid) {
+        if (!off) { alert("반 휴강은 반 달력(반 전체)에서 풀 수 있어요."); return; }
+        if (!push) { alert("이 날은 이 학생 과제가 없어요."); return; }
+        await apiPost(`/students/${encodeURIComponent(sid)}/postpone`, { book, fromDate: k, until: k });
+        await reload();
+        return;
+      }
+      if (!cls) return;
+      const r = await apiPost("/class-offdays", { group: cls, date: k, off });
+      setAllOff(m => ({ ...m, [cls]: r.offDays || [] }));
+      if (push) {
+        await apiPost("/assignments/reschedule", { mode: "steps", ids: push.ids, draggedId: push.draggedId,
+          toDate: push.toDate, weekdays: daysOf(cls), group: cls });
+        await reload();
+      }
+    } catch (e) { alert("저장하지 못했어요: " + e.message); }
+  };
   const pcStudents = (students || []).filter(st => (all || []).some(a => a.published !== false && sees(a, st.id) &&
       (a.book || seriesOf(a.title)) === book))
     .sort((x, y) => (x.className||"").localeCompare(y.className||"") || (x.name||"").localeCompare(y.name||""));
@@ -2624,8 +2737,13 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
     if (assignDue && weekdays.length) {
       const [y,m,d] = startDate.split("-").map(Number);
       let cur = new Date(y, m-1, d), guard = 0;
+      /* 받는 반의 휴강(수업 없는 날)도 건너뛴다 — 개별이면 그 학생들 반 것 */
+      const tgtCls = assignMode === "class" ? assignClasses
+        : (students || []).filter(s => assignIds.includes(s.id)).map(s => s.className);
+      const extraOff = new Set([].concat(...tgtCls.map(c => allOff[c] || [])));
+      const isoOf = (d0) => `${d0.getFullYear()}-${String(d0.getMonth()+1).padStart(2,"0")}-${String(d0.getDate()).padStart(2,"0")}`;
       while (dues.length < totalSlots && guard < 3000) {
-        if (weekdays.includes(cur.getDay()) && !isClosedDay(cur))
+        if (weekdays.includes(cur.getDay()) && !isClosedDay(cur) && !extraOff.has(isoOf(cur)))
           dues.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
         cur.setDate(cur.getDate()+1); guard++;
       }
@@ -2737,7 +2855,8 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
         })()}
         {calWho && calWho.indexOf("c:") !== 0 ? (
           <BookCalendar key={"s:" + calWho + ":" + (calFocus || "")} focusDate={calFocus} list={pcList(calWho).filter(a => a.dueDate)} onReload={reload}
-            savedDays={savedDays} group={null} busy={busy}
+            savedDays={daysOf(whoClass(calWho))} group={null} busy={busy}
+            offDays={allOff[whoClass(calWho)] || []} onToggleOff={toggleOffFor(calWho)} offLabel="🚫 이 학생 못 오는 날"
             onMove={async (a, toDate, rest) => {
               try { await apiPost(`/students/${encodeURIComponent(calWho)}/postpone`, { onlyId: a.id, toDate, rest: !!rest }); await reload(); }
               catch (e) { alert("옮기지 못했어요: " + e.message); await reload(); }
@@ -2751,8 +2870,10 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
             }} />
         ) : (
           <BookCalendar key={"class:" + calWho + ":" + (calFocus || "")} focusDate={calFocus} list={viewList(calWho)}
-            onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload}
-            savedDays={calWho ? null : savedDays} onClassDays={calWho ? null : saveClassDays} group={calWho ? calWho.slice(2) : group} busy={busy}
+            onMove={moveOnCalendar} onReload={reload}
+            savedDays={calWho ? daysOf(calWho.slice(2)) : savedDays} onClassDays={calWho ? null : saveClassDays} group={calWho ? calWho.slice(2) : group} busy={busy}
+            offDays={whoClass(calWho) ? (allOff[whoClass(calWho)] || []) : []}
+            onToggleOff={whoClass(calWho) ? toggleOffFor(calWho) : undefined}
             onTrash={trashOnCalendar} onDeleteMany={deleteManyOnCalendar} deleteLabel="고른 과제 지우기" />
         )}
 
@@ -2769,27 +2890,55 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
           </div>
         )}
 
-        <div className="row" style={{ gap:6, flexWrap:"wrap", marginBottom:10 }}>
-          {[["assign","📤 과제 내기"],
-            ["shift","⏭ 뒤로 미루기"],
-            ["respread","🗓 일정 다시 짜기"],
-            ["rounds","🔁 녹음 회차·방식"],
-            ["splitall","✂️ 교재 나누기"]].map(([k,l]) => (
-            <button key={k} className={panel===k ? "btn" : "btn-ghost"}
-              style={{ fontSize:12, padding:"6px 10px", flex:"0 0 auto" }}
-              onClick={()=>{
-                setPanel(panel===k?null:k); setErr("");
-                if(k==="respread") setRespreadStartIdx(0);
-                if(k==="rounds"){ setRoundsFrom(""); setNewRounds(2); setNewRecordMode(""); }
-                if(k==="splitall") setSplitAllStartIdx(0);
-                if(k==="assign"){ setAssignFromIdx(0); setAssignToIdx(null); setAssignRepeat(1); }
-              }}>{l}</button>
-          ))}
-          <button className="btn-ghost" style={{ fontSize:12, padding:"6px 10px", flex:"0 0 auto" }}
-            onClick={makeVocabTest} disabled={testBusy}>
-            {testBusy ? "만드는 중..." : "📝 단어시험지"}
-          </button>
-        </div>
+        {/* ★단순하게(원장 2026-10-01 "과제 내기와 일정 다시 짜기가 너무 헷갈려").
+             자주 쓰는 두 가지만 크게: 📤 과제 내기(보관함 교재를 새로 내기) / 🗓 날짜 다시 깔기(이미 낸 과제를
+             이 날부터 하루 하나씩). 나머지는 ⋯ 더보기. 달력 안에 따로 있던 '일정 다시 짜기'는 이 버튼 하나로 합쳤다. */}
+        {(() => {
+          const openPanel = (k) => {
+            setPanel(panel===k?null:k); setErr("");
+            if (k==="respread") {
+              const rl = respreadList();
+              const today = new Date(Date.now() + 9*3600e3).toISOString().slice(0,10);
+              const i = rl.findIndex(a => a.dueDate && a.dueDate >= today);
+              setRespreadStartIdx(i >= 0 ? i : 0);
+              setStartDate(today);
+              setWeekdays(daysOf(whoClass(calWho)));
+            }
+            if (k==="rounds"){ setRoundsFrom(""); setNewRounds(2); setNewRecordMode(""); }
+            if (k==="splitall") setSplitAllStartIdx(0);
+            if (k==="assign"){
+              setAssignFromIdx(0); setAssignToIdx(null); setAssignRepeat(1);
+              /* 누구에게 — 보고 있는 반/학생을 미리 골라 둔다 */
+              if (calWho && calWho.indexOf("c:") !== 0) { setAssignMode("individual"); setAssignIds([calWho]); }
+              else if (whoClass(calWho)) { setAssignMode("class"); setAssignClasses([whoClass(calWho)]); }
+              else { setAssignMode("class"); setAssignClasses([]); }   // ★'전체'(전교생)가 기본이면 위험 — 반을 직접 고르게
+              setWeekdays(daysOf(whoClass(calWho)));
+            }
+          };
+          return (<>
+            <div className="row" style={{ gap:6, flexWrap:"wrap", marginBottom:6 }}>
+              <button className={panel==="assign" ? "btn" : "btn-ghost"} style={{ fontSize:13, padding:"8px 14px", fontWeight:800 }}
+                onClick={()=>openPanel("assign")}>📤 과제 내기</button>
+              <button className={panel==="respread" ? "btn" : "btn-ghost"} style={{ fontSize:13, padding:"8px 14px", fontWeight:800 }}
+                onClick={()=>openPanel("respread")}>🗓 날짜 다시 깔기</button>
+              <button className={moreOpen ? "btn" : "btn-ghost"} style={{ fontSize:12, padding:"6px 10px" }}
+                onClick={()=>setMoreOpen(!moreOpen)}>⋯ 더보기 {moreOpen ? "⌃" : "⌄"}</button>
+            </div>
+            <div className="muted" style={{ fontSize:11, marginBottom:8 }}>
+              📤 <b>과제 내기</b> = 보관함 교재를 학생에게 <b>새로</b> 내요 · 🗓 <b>날짜 다시 깔기</b> = <b>이미 낸</b> 과제를 정한 날부터 수업일마다 하나씩 다시 놓아요
+            </div>
+            {moreOpen && (
+              <div className="row" style={{ gap:6, flexWrap:"wrap", marginBottom:10 }}>
+                {[["shift","⏭ 뒤로 미루기"],["rounds","🔁 녹음 회차·방식"],["splitall","✂️ 교재 나누기"]].map(([k,l]) => (
+                  <button key={k} className={panel===k ? "btn" : "btn-ghost"} style={{ fontSize:12, padding:"6px 10px" }}
+                    onClick={()=>openPanel(k)}>{l}</button>
+                ))}
+                <button className="btn-ghost" style={{ fontSize:12, padding:"6px 10px" }}
+                  onClick={makeVocabTest} disabled={testBusy}>{testBusy ? "만드는 중..." : "📝 단어시험지"}</button>
+              </div>
+            )}
+          </>);
+        })()}
       </>}
 
       {err && !panel && <div className="err" style={{ marginBottom:10 }}>{err}</div>}
@@ -2951,29 +3100,11 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
             const cnt = Math.max(0, toVal - Math.min(assignFromIdx, list.length - 1) + 1);
             return (
               <div className="muted" style={{ marginBottom:10 }}>
-                보관함 원본은 그대로 두고, 아래에서 고른 <b style={{ color:"var(--navy)" }}>{cnt}개</b> Day를 사본으로 만들어 학생에게 배정해요. (원본 {list.length}개는 그대로)
+                <b style={{ color:"var(--navy)" }}>📤 과제 내기</b> — 이 교재의 Day를 학생에게 <b>새로</b> 내요. 이번에 나갈 것 <b style={{ color:"var(--navy)" }}>{cnt}개</b>. (보관함 원본은 그대로)
               </div>
             );
           })()}
-          <label className="label">배정할 Day 범위 <span className="muted" style={{ fontWeight:400 }}>(중간 Day부터도 가능)</span></label>
-          <div className="row" style={{ gap:8, alignItems:"center", marginBottom:4 }}>
-            <select className="field" style={{ flex:1, margin:0 }} value={assignFromIdx}
-              onChange={e=>{ const v=Number(e.target.value); setAssignFromIdx(v);
-                if (assignToIdx != null && assignToIdx < v) setAssignToIdx(v); }}>
-              {list.map((a,i)=>(<option key={i} value={i}>{a.title}</option>))}
-            </select>
-            <span style={{ fontWeight:700, color:"var(--navy)" }}>~</span>
-            <select className="field" style={{ flex:1, margin:0 }}
-              value={assignToIdx == null ? list.length - 1 : assignToIdx}
-              onChange={e=>setAssignToIdx(Number(e.target.value))}>
-              {list.map((a,i)=>(<option key={i} value={i} disabled={i < assignFromIdx}>{a.title}</option>))}
-            </select>
-          </div>
-          <div className="row" style={{ gap:6, marginBottom:10 }}>
-            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 10px" }}
-              onClick={()=>{ setAssignFromIdx(0); setAssignToIdx(null); }}>전체</button>
-          </div>
-          <label className="label">배정 대상</label>
+          <label className="label">① 누구에게</label>
           <div className="seg" style={{ marginTop:0 }}>
             {[["all","전체"],["class","반별"],["individual","개별"]].map(([m,l]) => (
               <button key={m} className={assignMode===m?"on":""} onClick={()=>setAssignMode(m)}>{l}</button>
@@ -2993,13 +3124,31 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
               {(students||[]).map(s => (
                 <button key={s.id} onClick={()=>toggleIn(assignIds, setAssignIds, s.id)}
                   style={{ padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
-                    background: assignIds.includes(s.id)?"var(--navy)":"#fff", color: assignIds.includes(s.id)?"var(--cream)":"var(--navy)" }}>{s.name}</button>
+                    background: assignIds.includes(s.id)?"var(--navy)":"#fff", color: assignIds.includes(s.id)?"var(--cream)":"var(--navy)" }}>{pickLabel(s, students)}</button>
               ))}
             </div>
           )}
-          <label className="label" style={{ marginTop:10 }}>
-            <input type="checkbox" checked={assignDue} onChange={e=>setAssignDue(e.target.checked)} /> 마감일 자동 배치 (시작일부터 요일에 하루씩)
-          </label>
+          <div style={{height:12}} />
+          <label className="label">② 어느 Day부터 어디까지 <span className="muted" style={{ fontWeight:400 }}>(중간 Day부터도 돼요)</span></label>
+          <div className="row" style={{ gap:8, alignItems:"center", marginBottom:4 }}>
+            <select className="field" style={{ flex:1, margin:0 }} value={assignFromIdx}
+              onChange={e=>{ const v=Number(e.target.value); setAssignFromIdx(v);
+                if (assignToIdx != null && assignToIdx < v) setAssignToIdx(v); }}>
+              {list.map((a,i)=>(<option key={i} value={i}>{a.title}</option>))}
+            </select>
+            <span style={{ fontWeight:700, color:"var(--navy)" }}>~</span>
+            <select className="field" style={{ flex:1, margin:0 }}
+              value={assignToIdx == null ? list.length - 1 : assignToIdx}
+              onChange={e=>setAssignToIdx(Number(e.target.value))}>
+              {list.map((a,i)=>(<option key={i} value={i} disabled={i < assignFromIdx}>{a.title}</option>))}
+            </select>
+          </div>
+          <div className="row" style={{ gap:6, marginBottom:10 }}>
+            <button className="btn-ghost" style={{ fontSize:11, padding:"4px 10px" }}
+              onClick={()=>{ setAssignFromIdx(0); setAssignToIdx(null); }}>전체</button>
+          </div>
+          <label className="label" style={{ marginTop:12 }}>③ 언제부터 <span className="muted" style={{ fontWeight:400 }}>(수업 요일에 하루 하나씩 · 휴무일·휴강은 건너뛰어요)</span></label>
+          {!assignDue && <div className="muted" style={{ fontSize:12 }}>날짜 없이 내요 — 학생이 아무 때나 할 수 있어요.</div>}
           {assignDue && <>
             <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
             <div className="row" style={{ gap:5, marginTop:8 }}>
@@ -3012,7 +3161,8 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
             {/* ★'며칠'이 아니라 '몇 번'이다 — 수업 요일에만 놓이므로, 월화수금 반에 7 을 넣으면
                  달력으로는 두 주에 걸친다. 원장님이 "문장은 한 유닛을 일주일 동안 반복한다"고
                  하셔서 「한 주 내내」(=고른 수업 요일 수)를 단추로 넣었다. */}
-            <label className="label" style={{ marginTop:12 }}>같은 유닛을 몇 번 반복할까요 <span className="muted" style={{ fontWeight:400 }}>(수업일 기준 · 연속으로)</span></label>
+            <details open={bookKind === "sentence" || Number(assignRepeat) > 1} style={{ marginTop:12 }}>
+            <summary style={{ cursor:"pointer", fontSize:13, fontWeight:700, color:"var(--navy)" }}>같은 유닛 반복 <span className="muted" style={{ fontWeight:400 }}>(보통은 안 함 · 지금 {Number(assignRepeat) > 1 ? assignRepeat + "번" : "반복 안 함"})</span></summary>
             {!repeatTouched && (
               <div className="muted" style={{ fontSize:12, marginBottom:6 }}>
                 {bookKind === "sentence"
@@ -3040,7 +3190,11 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
             <input className="field" type="number" min={1} value={assignRepeat}
               onChange={e=>{ setAssignRepeat(Math.max(1, Number(e.target.value)||1)); setRepeatTouched(true); }} />
             {Number(assignRepeat) > 1 && <div className="muted" style={{ fontSize:12, marginTop:4 }}>같은 유닛이 수업일마다 {assignRepeat}번 연이어 나와요 (제목에 "1일차·2일차…" 표시). 그다음 유닛으로 넘어가요.</div>}
+            </details>
           </>}
+          <label className="label" style={{ marginTop:10, fontWeight:400, fontSize:12 }}>
+            <input type="checkbox" checked={!assignDue} onChange={e=>setAssignDue(!e.target.checked)} /> 날짜 없이 내기
+          </label>
           {err && <div className="err">{err}</div>}
           <div style={{height:12}} />
           {(() => {
@@ -3069,7 +3223,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
                 {busy ? "배정 중..." : `${cnt}개 과제로 배정하기`}
               </button>
               {span && <div className="muted" style={{ fontSize:12, marginTop:6, textAlign:"center" }}>
-                마감일{span} 에 걸쳐 놓여요 (수업 요일만 · 휴무일은 서버가 다시 밀어요)
+                마감일{span} 에 걸쳐 놓여요 (수업 요일만 · 휴무일 건너뜀)
               </div>}
             </>);
           })()}
@@ -3175,23 +3329,31 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
         </div>
       )}
 
-      {panel === "respread" && (
+      {panel === "respread" && (() => { const rl = respreadList(); const ri = Math.max(0, Math.min(respreadStartIdx, rl.length - 1));
+        const sidR = calOpen && calWho && calWho.indexOf("c:") !== 0 ? calWho : null;
+        const whoName = sidR ? (((students || []).find(s => s.id === sidR) || {}).name + " 학생") : (whoClass(calOpen ? calWho : "") || "이 목록");
+        if (isArchive && !(calOpen && calWho)) return (
+          <div className="card" style={{ background:"var(--cream)" }}>
+            <div className="muted">📦 보관함 원본은 학생에게 안 나가서 날짜가 없어요. <b>달력 위에서 반이나 학생을 고른 뒤</b> 다시 눌러 주세요.</div>
+          </div>);
+        return (
         <div className="card" style={{ background:"var(--cream)" }}>
+          <div style={{ fontWeight:800, color:"var(--navy)", marginBottom:4 }}>🗓 {whoName} 날짜 다시 깔기</div>
           <div className="muted" style={{ marginBottom:10 }}>
-            <b style={{ color:"var(--navy)" }}>어느 Day</b>를 <b style={{ color:"var(--navy)" }}>어느 날짜·요일</b>부터 시작할지 정하면, 그 Day부터 선택한 요일에 하루 하나씩 다시 배치해요. (그 앞 Day는 원래 날짜 그대로 둬요)
+            고른 Day부터 끝까지를, 정한 날부터 <b>수업일마다 하나씩</b> 다시 놓아요. 그 앞 Day는 그대로예요. 휴무일·휴강은 건너뛰어요.
           </div>
-          <label className="label">시작일에 놓을 Day</label>
-          <select className="field" value={respreadStartIdx}
+          <label className="label">① 어느 Day부터</label>
+          <select className="field" value={ri}
             onChange={e=>setRespreadStartIdx(Number(e.target.value))}>
-            {list.map((a,i) => (
-              <option key={a.id} value={i}>{a.title}{a.dueDate ? ` (현재 ${formatDue(a.dueDate)})` : ""}</option>
+            {rl.map((a,i) => (
+              <option key={a.id} value={i}>{a.title}{a.dueDate ? ` (지금 ${formatDue(a.dueDate)})` : ""}</option>
             ))}
           </select>
           <div style={{height:10}} />
-          <label className="label">새 시작일 (위 Day를 놓을 날짜)</label>
+          <label className="label">② 언제부터 (위 Day를 놓을 날)</label>
           <input className="field" type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
           <div style={{height:10}} />
-          <label className="label">숙제 요일</label>
+          <label className="label">③ 수업 요일 <span className="muted" style={{ fontWeight:400 }}>(반에 정해 둔 요일로 채워 뒀어요)</span></label>
           <div className="row" style={{ gap:5 }}>
             {DAYNAMES.map((n,i) => (
               <button key={i} onClick={()=>toggle(i)}
@@ -3203,10 +3365,11 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
           {err && <div className="err">{err}</div>}
           <div style={{height:12}} />
           <button className="btn full" onClick={doRespread} disabled={busy}>
-            {busy ? "적용 중..." : `"${(list[Math.min(respreadStartIdx, list.length-1)]||{}).title || ""}"부터 ${Math.max(0, list.length - respreadStartIdx)}개 다시 짜기`}
+            {busy ? "적용 중..." : `${(rl[ri]||{}).title || ""} 부터 ${Math.max(0, rl.length - ri)}개를 ${startDate ? `${+startDate.slice(5,7)}/${+startDate.slice(8,10)}` : ""}부터 다시 깔기`}
           </button>
+          <div className="muted" style={{ fontSize:11, marginTop:6, textAlign:"center" }}>잘못했으면 달력 위 ↩ 되돌리기</div>
         </div>
-      )}
+        ); })()}
 
       {calOpen && calWho && calWho.indexOf("c:") === 0 && (
         <div className="muted" style={{ fontSize:12, margin:"4px 2px 8px" }}>🏫 <b style={{ color:"var(--navy)" }}>{calWho.slice(2)}</b> 반 과제만 보고 있어요.</div>
