@@ -1486,7 +1486,12 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel, focusDate, offDays, onToggleOff, offLabel }) {
+function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel, focusDate, offDays, onToggleOff, offLabel, chipActions }) {
+  /* ★Day 를 톡 누르면 메뉴(원장 2026-10-01 "모든 기능을 달력 들어가서 할 수 있게").
+     옮기기·재시험·지우기/빼기·자세히 — 학생 화면·카드로 따로 찾아가지 않아도 된다.
+     chipActions(a) = [{label, onClick, sub:[{label,onClick}], danger}] — 화면(반/학생)이 정해 준다. */
+  const [menuFor, setMenuFor] = useState(null);
+  const [menuSub, setMenuSub] = useState(null);
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   /* ★골라서 지우기(원장 2026-10-01 "필요 없는 과제를 선택하면 바로 삭제").
      켜 두면 칩을 톡톡 눌러 여러 개 고르고(날짜 숫자를 누르면 그날 것 전부), 한 번에 지운다. 끌기는 잠시 멈춘다. */
@@ -1703,7 +1708,11 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
       window.removeEventListener("pointerup", onUp);
       const d = dragRef.current;
       setDrag(null);
-      if (!moved) { setSel(s => (s && s.id === a.id) ? null : a); return; }   // 톡 누른 것 = 고르기
+      if (!moved) {   // 톡 누른 것 = 메뉴(없으면 예전처럼 옮길 과제로 고르기)
+        if (chipActions) { setSel(null); setMenuSub(null); setMenuFor(a); }
+        else setSel(s => (s && s.id === a.id) ? null : a);
+        return;
+      }
       if (d && d.trash) { onTrash && onTrash(a); return; }
       if (d && d.over) doMove(a, d.over);
     };
@@ -1928,6 +1937,41 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
           {shortOf(drag.a.title)}{drag.trash ? " → 🗑 버리기" : (drag.over ? ` → ${+drag.over.slice(5,7)}/${+drag.over.slice(8,10)}` : "")}
         </div>
       )}
+      {menuFor && (() => {
+        const a = menuFor;
+        const md = (s) => s ? `${+s.slice(5, 7)}/${+s.slice(8, 10)}` : "날짜 없음";
+        const close = () => { setMenuFor(null); setMenuSub(null); };
+        const acts = (chipActions && chipActions(a)) || [];
+        const btnSt = (danger) => ({ display: "block", width: "100%", textAlign: "left", marginBottom: 6, fontSize: 14,
+          padding: "10px 12px", ...(danger ? { color: "var(--danger)", borderColor: "#E8C4BC" } : {}) });
+        return (
+          <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 9500, background: "rgba(20,28,40,.35)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <div onClick={e => e.stopPropagation()} className="card"
+              style={{ maxWidth: 360, width: "100%", margin: 0, padding: 16, boxShadow: "0 12px 40px rgba(0,0,0,.25)", maxHeight: "85vh", overflowY: "auto" }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: "var(--navy)" }}>{a.personalOf ? "👤 " : ""}{a.title}</div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>마감 {md(dueOf(a))} · 단어 {(a.items || []).length}개</div>
+              {menuSub ? <>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{menuSub.title}</div>
+                {menuSub.items.map((x, i) => (
+                  <button key={i} className="btn-ghost" style={btnSt(false)} onClick={() => { close(); x.onClick(); }}>{x.label}</button>
+                ))}
+                <button className="btn-ghost" style={btnSt(false)} onClick={() => setMenuSub(null)}>‹ 뒤로</button>
+              </> : <>
+                <button className="btn-ghost" style={btnSt(false)}
+                  onClick={() => { close(); setSel(a); }}>📅 다른 날로 옮기기 <span className="muted" style={{ fontSize: 12 }}>(누른 뒤 날짜를 누르세요 · 끌어도 돼요)</span></button>
+                {acts.map((x, i) => (
+                  <button key={i} className="btn-ghost" style={btnSt(x.danger)} disabled={x.disabled}
+                    onClick={() => { if (x.sub) setMenuSub({ title: x.subTitle || x.label, items: x.sub }); else { close(); x.onClick(); } }}>
+                    {x.label}{x.hint ? <span className="muted" style={{ fontSize: 12 }}> {x.hint}</span> : null}
+                  </button>
+                ))}
+                <button className="btn-ghost" style={{ ...btnSt(false), color: "var(--muted)" }} onClick={close}>닫기</button>
+              </>}
+            </div>
+          </div>
+        );
+      })()}
       {offPending && (() => {
         const { k, items } = offPending;
         const md = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
@@ -2644,6 +2688,65 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
     : who.indexOf("c:") === 0 ? who.slice(2)
     : (((students || []).find(s => s.id === who) || {}).className || "");
   const daysOf = (cls) => (cls && allDays[cls]) || savedDays || [1, 2, 3, 4, 5];
+  /* ---- 달력 Day 메뉴에서 쓰는 동작들 (원장 2026-10-01 "모든 기능을 달력 들어가서") ---- */
+  const nameOf = (sid) => (((students || []).find(s => s.id === sid) || {}).name || "");
+  const retestFor = async (sid, a) => {
+    try {
+      const pv = await apiPost(`/students/${encodeURIComponent(sid)}/retest`, { aid: a.id, dryRun: true });
+      const n = (pv.shifted || []).length;
+      if (!confirm(`${nameOf(sid)} 학생이 "${pv.retest.title}" 을(를) ${formatDue(pv.retest.date)}에 처음부터 다시 학습하게 할까요?\n(녹음·단어익힘 모두 새로)\n` +
+        (n ? `그날부터의 안 한 과제 ${n}개는 한 수업씩 뒤로 밀려요.` : "뒤로 밀릴 과제는 없어요.") +
+        `\n\n첫 번째 기록과 랭킹 점수는 그대로 남아요. 다른 학생은 그대로예요.`)) return;
+      await apiPost(`/students/${encodeURIComponent(sid)}/retest`, { aid: a.id });
+      await reload();
+      setCalOpen(true); setCalWho(sid); setCalFocus(pv.retest.date);
+    } catch (e) { alert("재시험을 넣지 못했어요: " + e.message); }
+  };
+  const goCard = (a) => {
+    openEdit(a);
+    setTimeout(() => { const el = document.getElementById("card-" + a.id); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 80);
+  };
+  const chipActionsFor = (who) => (a) => {
+    const sid = who && who.indexOf("c:") !== 0 ? who : null;
+    const edit = { label: "✏️ 고치기", hint: "(마감·녹음 회차·단어)", onClick: () => goCard(a) };
+    if (sid) return [
+      { label: "🔁 재시험", hint: "— 이 Day 를 처음부터 다시", onClick: () => retestFor(sid, a) },
+      edit,
+      { label: `🗑 ${nameOf(sid)} 학생에게서 빼기`, danger: true, onClick: async () => {
+          if (!confirm(`"${a.title}" 을(를) ${nameOf(sid)} 학생에게서만 뺄까요?\n반 친구들 과제는 그대로예요. (↩ 되돌리기 가능)`)) return;
+          try { await apiPost(`/students/${encodeURIComponent(sid)}/unassign`, { aids: [a.id] }); await reload(); }
+          catch (e) { alert("빼지 못했어요: " + e.message); } } },
+    ];
+    if (isArchive && !who) return [edit];
+    const takers = (students || []).filter(s => sees(a, s.id) && (!(a.assignedIds || []).length ? s.className === whoClass(who) : true))
+      .sort((x, y) => (x.name || "").localeCompare(y.name || ""));
+    return [
+      { label: "🔁 재시험", hint: "— 학생 고르기", subTitle: "누가 이 Day 를 다시 할까요?",
+        sub: takers.map(s => ({ label: pickLabel(s, students), onClick: () => retestFor(s.id, a) })) },
+      edit,
+      { label: "🗑 이 과제 지우기", hint: "(이 과제를 받은 학생 모두)", danger: true, onClick: () => deleteManyOnCalendar([a.id]) },
+    ];
+  };
+  /* 학생을 골랐을 때 달력 위 버튼: 여행·결석 / N번 미루기 */
+  const [stuAct, setStuAct] = useState(null);   // trip | push
+  const todayKR = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  const [stuFrom, setStuFrom] = useState(todayKR);
+  const [stuUntil, setStuUntil] = useState(todayKR);
+  const [stuN, setStuN] = useState(1);
+  const runStuAct = async (sid) => {
+    const body = stuAct === "trip" ? { fromDate: stuFrom, until: stuUntil, book: null }
+                                   : { fromDate: stuFrom, sessions: Number(stuN) || 1, book };
+    if (stuAct === "trip" && stuUntil < stuFrom) return alert("끝나는 날이 시작하는 날보다 앞이에요.");
+    try {
+      const pv = await apiPost(`/students/${encodeURIComponent(sid)}/postpone`, { ...body, dryRun: true });
+      if (!pv.moved) return alert("옮길 과제가 없어요." + (pv.skippedDone ? ` (이미 한 과제 ${pv.skippedDone}개는 그대로)` : ""));
+      const lines = pv.preview.slice(0, 8).map(x => `· ${x.title}  ${formatDue(x.from)} → ${formatDue(x.to)}`).join("\n");
+      if (!confirm(`${nameOf(sid)} 학생 과제 ${pv.moved}개가 이렇게 바뀌어요:\n${lines}${pv.preview.length > 8 ? "\n…" : ""}\n\n` +
+        (stuAct === "trip" ? "(모든 교재)" : "(이 교재)") + " 다른 학생은 그대로예요. 진행할까요?")) return;
+      await apiPost(`/students/${encodeURIComponent(sid)}/postpone`, body);
+      await reload(); setStuAct(null);
+    } catch (e) { alert("미루지 못했어요: " + e.message); }
+  };
   /* 🚫 수업 없는 날 — 반(또는 반 고르기) 달력: 그 반 휴강으로 저장하고, 원하면 그날부터 한 수업씩 민다.
      학생 달력: '그 학생 못 오는 날' — 반 휴강은 안 건드리고 그 학생 과제만 한 수업 민다. */
   const toggleOffFor = (who) => async (k, off, push) => {
@@ -2849,7 +2952,35 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
                   : isArchive
                   ? <>📦 보관함 원본이에요(학생에게 안 보여요). <b>낸 과제는 위에서 반이나 학생을 고르면</b> 보여요.</>
                   : <>반 전체 일정이에요. 옮기면 반 학생 모두에게 적용돼요.{personalN ? <> 학생 한 명만 따로 바꾼 과제 {personalN}개는 여기서 빠져 있어요 — 학생 이름을 누르면 보여요.</> : null}</>}
+                <br />📌 달력의 <b>Day 를 톡 누르면</b> 옮기기·🔁 재시험·✏️ 고치기·🗑 지우기 메뉴가 나와요.
               </div>
+              {who && (
+                <div style={{ marginTop: 8, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+                  <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                    {[["trip", "✈️ 여행·결석"], ["push", "⏭ 미루기"]].map(([k, l]) => (
+                      <button key={k} className={stuAct === k ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px" }}
+                        onClick={() => setStuAct(stuAct === k ? null : k)}>{l}</button>
+                    ))}
+                    <button className={panel === "pieces" ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px" }}
+                      onClick={() => { setPcSid(who.id); setPcPreview(null); setPanel(panel === "pieces" ? null : "pieces"); }}>✂️🔗 나누기·합치기</button>
+                  </div>
+                  {stuAct && (
+                    <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+                      <input className="field" type="date" value={stuFrom} onChange={e => setStuFrom(e.target.value)} style={{ width: 150, margin: 0 }} />
+                      {stuAct === "trip" ? <>
+                        <span>~</span>
+                        <input className="field" type="date" value={stuUntil} onChange={e => setStuUntil(e.target.value)} style={{ width: 150, margin: 0 }} />
+                        <span className="muted" style={{ fontSize: 12 }}>못 오는 기간 (모든 교재)</span>
+                      </> : <>
+                        <span style={{ fontSize: 13 }}>부터</span>
+                        <input className="field" type="number" min={1} value={stuN} onChange={e => setStuN(Math.max(1, Number(e.target.value) || 1))} style={{ width: 60, margin: 0 }} />
+                        <span style={{ fontSize: 13 }}>수업 미루기 (이 교재)</span>
+                      </>}
+                      <button className="btn" style={{ fontSize: 12, padding: "6px 12px" }} onClick={() => runStuAct(who.id)}>미리 보고 적용</button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -2857,6 +2988,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
           <BookCalendar key={"s:" + calWho + ":" + (calFocus || "")} focusDate={calFocus} list={pcList(calWho).filter(a => a.dueDate)} onReload={reload}
             savedDays={daysOf(whoClass(calWho))} group={null} busy={busy}
             offDays={allOff[whoClass(calWho)] || []} onToggleOff={toggleOffFor(calWho)} offLabel="🚫 이 학생 못 오는 날"
+            chipActions={chipActionsFor(calWho)}
             onMove={async (a, toDate, rest) => {
               try { await apiPost(`/students/${encodeURIComponent(calWho)}/postpone`, { onlyId: a.id, toDate, rest: !!rest }); await reload(); }
               catch (e) { alert("옮기지 못했어요: " + e.message); await reload(); }
@@ -2874,6 +3006,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
             savedDays={calWho ? daysOf(calWho.slice(2)) : savedDays} onClassDays={calWho ? null : saveClassDays} group={calWho ? calWho.slice(2) : group} busy={busy}
             offDays={whoClass(calWho) ? (allOff[whoClass(calWho)] || []) : []}
             onToggleOff={whoClass(calWho) ? toggleOffFor(calWho) : undefined}
+            chipActions={chipActionsFor(calWho)}
             onTrash={trashOnCalendar} onDeleteMany={deleteManyOnCalendar} deleteLabel="고른 과제 지우기" />
         )}
 
@@ -3380,7 +3513,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
         </div>
       )}
       {(calOpen && calWho ? viewList(calWho) : list).map(a => (
-        <div key={a.id} className="card" style={{ padding:12 }}>
+        <div key={a.id} id={"card-" + a.id} className="card" style={{ padding:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
             <div style={{ minWidth:0 }}>
               <div className="row" style={{ marginBottom:4 }}>

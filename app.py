@@ -1401,7 +1401,9 @@ def student_retest(sid: str, request: Request, payload: dict = Body(...)):
         if payload.get("date"):
             day = payload["date"]
         else:
-            day = _advance(_pdate(_today_kr()), 1, ok).isoformat()     # 내일 이후 첫 수업일
+            # 오늘과 그 Day 날짜 중 늦은 날 다음의 첫 수업일 — 아직 안 온 Day 를 재시험으로 내도 원래 날보다 앞서지 않게
+            base = max(_today_kr(), src.get("dueDate") or "")
+            day = _advance(_pdate(base), 1, ok).isoformat()
         tg = [a for a in all_bk if a.get("dueDate") and a["dueDate"] >= day and a["id"] not in touched and a["id"] != aid]
         # 그날이 비어 있으면 아무것도 안 민다. 그날 과제가 있을 때만 그날부터 한 수업씩.
         plan = ([(a, _advance(_pdate(a["dueDate"]), 1, ok).isoformat()) for a in tg]
