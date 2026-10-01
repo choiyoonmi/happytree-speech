@@ -653,13 +653,43 @@ async def get_students(request: Request):
         # 공용 명단 동기화(rosterInfo)는 선생님 토큰이 없으면 해피트리 것만 준다.
         # 그래서 다른 학원일 때는 부르지 않는다 — 불러 봤자 다 걸러진다.
         # (다른 학원 학생은 처음 로그인할 때 login_student 가 academy 와 함께 넣어 준다)
-        try:
-            rows = await sync_shared_roster()
-        except HTTPException as exc:
-            print("[student-sync] 명단 동기화 실패, 로컬 명단 사용:", exc.detail)
+        # ★느림(원장 2026-10-01 "로딩 시간이 너무 길다"): 이 동기화가 구글 시트를 불러 매번 2초 넘게 걸렸고,
+        #   관리자 화면은 과제를 하나 옮길 때마다 명단을 다시 받는다. 그래서 저장된 명단으로 바로 답하고,
+        #   시트 맞추기는 3분에 한 번 뒤에서 한다. ?fresh=1 이면 예전처럼 기다렸다가 최신으로.
+        if request.query_params.get("fresh") == "1":
+            try:
+                rows = await sync_shared_roster()
+                _ROSTER_SYNC["at"] = _time_mod.time()
+            except HTTPException as exc:
+                print("[student-sync] 명단 동기화 실패, 로컬 명단 사용:", exc.detail)
+        else:
+            _roster_sync_in_background()
     if rows is None:
         rows = load_db()["students"]
     return only_academy(rows, ac)
+
+
+_ROSTER_SYNC = {"at": 0.0, "running": False}
+
+
+def _roster_sync_in_background(every=180):
+    """마지막 동기화가 3분 넘었으면 뒤에서 한 번 돌린다(응답은 기다리지 않는다)."""
+    if _ROSTER_SYNC["running"] or _time_mod.time() - _ROSTER_SYNC["at"] < every:
+        return
+    _ROSTER_SYNC["running"] = True
+
+    async def run():
+        try:
+            await sync_shared_roster()
+        except Exception as exc:
+            print("[student-sync] 뒤 동기화 실패:", getattr(exc, "detail", exc))
+        finally:
+            _ROSTER_SYNC["at"] = _time_mod.time()
+            _ROSTER_SYNC["running"] = False
+    try:
+        asyncio.get_event_loop().create_task(run())
+    except Exception:
+        _ROSTER_SYNC["running"] = False
 
 
 @app.post("/api/students")
@@ -1911,6 +1941,26 @@ def schedule_history():
     h = list(load_db().get("scheduleHistory") or [])
     h.reverse()
     return {"ok": True, "items": [{k: v for k, v in x.items() if k not in ("changes", "snap")} for x in h]}
+
+
+@app.get("/api/schedule-history/{hid}", dependencies=ADMIN_ONLY)
+def schedule_history_detail(hid: str):
+    """★변경 한 건에 무슨 과제가 어떻게 바뀌었는지(읽기 전용, 2026-10-01 배소이 정리 유실 조사).
+    snap: 바뀌기 전 모습 vs 지금 모습. changes: 날짜 바뀜(from→to)."""
+    db = load_db()
+    rec = next((x for x in (db.get("scheduleHistory") or []) if x.get("id") == hid), None)
+    if not rec:
+        raise HTTPException(404, "그 기록을 못 찾았어요.")
+    now = {a.get("id"): a for a in db.get("assignments", [])}
+    slim = lambda a: None if not a else {"title": a.get("title"), "book": a.get("book"), "dueDate": a.get("dueDate"),
+                                         "assignedIds": a.get("assignedIds"), "published": a.get("published")}
+    out = {"id": rec.get("id"), "op": rec.get("op"), "at": rec.get("at"), "n": rec.get("n")}
+    if rec.get("snap"):
+        out["snap"] = [{"id": k, "before": slim(v), "now": slim(now.get(k))} for k, v in rec["snap"].items()]
+    if rec.get("changes"):
+        out["changes"] = [{**c, "title": (now.get(c.get("id")) or {}).get("title"),
+                           "assignedIds": (now.get(c.get("id")) or {}).get("assignedIds")} for c in rec["changes"]]
+    return out
 
 
 @app.post("/api/schedule-undo", dependencies=ADMIN_ONLY)
