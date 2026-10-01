@@ -1800,7 +1800,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3, marginBottom: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", gap: 3, marginBottom: 4 }}>
         {["일", "월", "화", "수", "목", "금", "토"].map((n, i) => {
           const wk = (i === 0 || i === 6);
           const on = !wk && isClassDay(i);
@@ -1815,7 +1815,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
           );
         })}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", gap: 3 }}>
         {cells.map((d, i) => {
           if (!d) return <div key={"e" + i} />;
           const k = key(ym.y, ym.m, d);
@@ -1851,7 +1851,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
                     textDecoration: pickMode && picked.has(a.id) ? "line-through" : "none",
                     outline: sel && sel.id === a.id ? "2px solid var(--danger)" : "none",
                     opacity: drag && drag.a.id === a.id ? 0.4 : 1,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    overflow: "hidden", whiteSpace: "normal", wordBreak: "keep-all", overflowWrap: "anywhere" }}
                   title={a.personalOf ? "한 학생만 따로 미룬 과제" : undefined}>
                   {a.personalOf ? "👤" : ""}{shortOf(a.title)}
                 </div>
@@ -1916,6 +1916,10 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
 function BookDetail({ book, group, list, reload, onBack, students, all }) {
   const [panel, setPanel] = useState(null);   // 열려 있는 도구 패널
   const [calOpen, setCalOpen] = useState(false);   // 달력에서 과제 내기 상자를 여느냐
+  /* ★반 달력에서 학생 고르기(원장 2026-10-01 "반으로 묶여 있어도 선택한 학생에게 해당 교재만").
+     "" = 반 전체(학생 전용 👤 과제는 빼고 보여 준다 — 섞여 있으면 '뒤도 같이 밀기'·Shift 고르기가
+     다른 학생 전용 과제까지 끌고 갔다), 학생 id = 그 학생이 받는 이 교재 과제만, 바꾸면 그 학생에게만. */
+  const [calWho, setCalWho] = useState("");
   const [trashed, setTrashed] = useState(null);    // 방금 버린 과제(되돌리기용)
   const [days, setDays] = useState(7);
   const [fromDate, setFromDate] = useState("");
@@ -2130,6 +2134,14 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
   const toggle = (v) => setWeekdays(w => w.includes(v) ? w.filter(x=>x!==v) : [...w, v]);
 
   const delOne = async (id) => {
+    /* 달력에서 학생을 골라 둔 상태면 카드의 🗑 도 그 학생에게서만 뺀다(반 친구 과제는 그대로) */
+    if (calOpen && calWho) {
+      const nm = ((students || []).find(s => s.id === calWho) || {}).name || "";
+      if (!confirm(`이 과제를 ${nm} 학생에게서만 뺄까요?\n반 친구들 과제는 그대로예요. (↩ 되돌리기 가능)`)) return;
+      await apiPost(`/students/${encodeURIComponent(calWho)}/unassign`, { aids: [id] });
+      await reload();
+      return;
+    }
     if (!confirm("이 과제를 삭제할까요?")) return;
     await apiDelete("/assignments/" + id);
     await reload();
@@ -2646,9 +2658,56 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
       </button>
 
       {calOpen && <>
-        <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload}
-          savedDays={savedDays} onClassDays={saveClassDays} group={group} busy={busy}
-          onTrash={trashOnCalendar} onDeleteMany={deleteManyOnCalendar} deleteLabel="고른 과제 지우기" />
+        {(() => {
+          const isPersonal = (a) => !!a.personalOf || ((a.assignedIds || []).length === 1 && !(a.assignedClasses || []).length);
+          const kidIds = new Set((students || []).filter(s => s.className === group).map(s => s.id));
+          list.forEach(a => (a.assignedIds || []).forEach(id => kidIds.add(id)));
+          /* 이 교재를 실제로 받는 학생만, 동명이인은 학년(없으면 아이디)까지 붙여서 — pickLabel */
+          const kids = (students || []).filter(s => kidIds.has(s.id))
+            .map(s => ({ ...s, n: pcList(s.id).length }))
+            .filter(s => s.n > 0)
+            .sort((x, y) => (x.name || "").localeCompare(y.name || ""));
+          const personalN = list.filter(isPersonal).length;
+          const who = kids.find(s => s.id === calWho);
+          return (
+            <div className="card" style={{ padding: "10px 12px", marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--navy)", marginBottom: 6 }}>👥 누구 일정을 볼까요?</div>
+              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                <button className={!calWho ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px" }}
+                  onClick={() => setCalWho("")}>반 전체</button>
+                {kids.map(s => (
+                  <button key={s.id} className={calWho === s.id ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px" }}
+                    onClick={() => setCalWho(s.id)}>{pickLabel(s, students)} <span style={{ opacity: .6, fontWeight: 400 }}>{s.n}</span></button>
+                ))}
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                {who
+                  ? <><b style={{ color: "var(--navy)" }}>{who.name}</b> 학생이 받는 이 교재 과제만 보여요. 옮기기·밀기·지우기가 <b>{who.name} 학생에게만</b> 적용돼요 (반 친구들은 그대로).</>
+                  : <>반 전체 일정이에요. 옮기면 반 학생 모두에게 적용돼요.{personalN ? <> 학생 한 명만 따로 바꾼 과제 {personalN}개는 여기서 빠져 있어요 — 학생 이름을 누르면 보여요.</> : null}</>}
+              </div>
+            </div>
+          );
+        })()}
+        {calWho ? (
+          <BookCalendar key={"s:" + calWho} list={pcList(calWho).filter(a => a.dueDate)} onReload={reload}
+            savedDays={savedDays} group={null} busy={busy}
+            onMove={async (a, toDate, rest) => {
+              try { await apiPost(`/students/${encodeURIComponent(calWho)}/postpone`, { onlyId: a.id, toDate, rest: !!rest }); await reload(); }
+              catch (e) { alert("옮기지 못했어요: " + e.message); await reload(); }
+            }}
+            deleteLabel={`${((students || []).find(s => s.id === calWho) || {}).name || ""} 학생에게서 빼기`}
+            onDeleteMany={async (ids) => {
+              const nm = ((students || []).find(s => s.id === calWho) || {}).name || "";
+              if (!confirm(`고른 과제 ${ids.length}개를 ${nm} 학생에게서만 뺄까요?\n반 친구들 과제는 그대로예요.\n잘못 뺐으면 「↩ 되돌리기」로 한 번에 돌아와요.`)) return false;
+              try { await apiPost(`/students/${encodeURIComponent(calWho)}/unassign`, { aids: ids }); await reload(); return true; }
+              catch (e) { alert("빼지 못했어요: " + e.message); return false; }
+            }} />
+        ) : (
+          <BookCalendar key="class" list={list.filter(a => !(a.personalOf || ((a.assignedIds || []).length === 1 && !(a.assignedClasses || []).length)))}
+            onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload}
+            savedDays={savedDays} onClassDays={saveClassDays} group={group} busy={busy}
+            onTrash={trashOnCalendar} onDeleteMany={deleteManyOnCalendar} deleteLabel="고른 과제 지우기" />
+        )}
 
         {trashed && (
           <div className="row" style={{ gap:8, alignItems:"center", marginBottom:10, padding:"8px 10px",
@@ -3102,7 +3161,12 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
         </div>
       )}
 
-      {list.map(a => (
+      {calOpen && calWho && (
+        <div className="muted" style={{ fontSize:12, margin:"4px 2px 8px" }}>
+          👤 <b style={{ color:"var(--navy)" }}>{((students || []).find(s => s.id === calWho) || {}).name}</b> 학생 과제만 보고 있어요 · 카드의 🗑 는 이 학생에게서만 빼요.
+        </div>
+      )}
+      {(calOpen && calWho ? pcList(calWho) : list).map(a => (
         <div key={a.id} className="card" style={{ padding:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
             <div style={{ minWidth:0 }}>

@@ -1196,6 +1196,15 @@ def _fork_for(db, sid, a, all_ids):
     return b
 
 
+def _student_days(db, sid, tasks):
+    """★이 학생의 수업 요일 — 반에 저장된 수업 요일(classDays)을 먼저 쓴다(2026-10-01).
+    전에는 그 교재 과제가 놓인 요일만 보고 짐작해서, 월~목에만 과제가 있던 달이면
+    금요일을 수업 없는 날로 여겨 10/16(금) 대신 10/19(월)로 밀었다. 화면 달력과도 어긋났다."""
+    st = next((x for x in db.get("students", []) if x.get("id") == sid), None) or {}
+    cd = (db.get("classDays") or {}).get(st.get("className") or "")
+    return [int(x) for x in cd] if cd else _book_pattern(tasks)
+
+
 def _book_pattern(tasks):
     """그 교재가 실제로 쓰는 요일(화면 요일, 일=0). 없으면 월~금."""
     wd = sorted({_js_wd(_pdate(a["dueDate"])) for a in tasks if a.get("dueDate")} - {0, 6})
@@ -1267,14 +1276,14 @@ def student_postpone(sid: str, request: Request, payload: dict = Body(...)):
             if not tg:
                 continue
             blocked = (from_date, until) if until else None
-            ok = _allowed_fn(_book_pattern(all_bk), off, blocked)
+            ok = _allowed_fn(_student_days(db, sid, all_bk), off, blocked)
             if to_date:
                 anchor_src = next((a for a in tg if a["id"] == only_id), tg[0])
                 k = _steps_between(_pdate(anchor_src["dueDate"]), _pdate(to_date), ok)
             elif until:
                 # 여행 기간 안에 있던 수업일 수만큼 뒤로 민다. 여행 중인 날은 ok 가 막아서 건너뛴다.
                 from datetime import timedelta as _td
-                plain = _allowed_fn(_book_pattern(all_bk), off)
+                plain = _allowed_fn(_student_days(db, sid, all_bk), off)
                 f0, u0 = _pdate(from_date), _pdate(until)
                 k = sum(1 for i in range((u0 - f0).days + 1) if plain(f0 + _td(days=i)))
             else:
@@ -1359,7 +1368,7 @@ def student_retest(sid: str, request: Request, payload: dict = Body(...)):
             raise HTTPException(404, "그 과제를 찾을 수 없어요.")
         bk = src.get("book") or ""
         all_bk = [a for a in mine if (a.get("book") or "") == bk]
-        ok = _allowed_fn(_book_pattern(all_bk), off)
+        ok = _allowed_fn(_student_days(db, sid, all_bk), off)
         if payload.get("date"):
             day = payload["date"]
         else:
