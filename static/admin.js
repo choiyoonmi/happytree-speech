@@ -1475,8 +1475,18 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash }) {
+function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel }) {
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
+  /* ★골라서 지우기(원장 2026-10-01 "필요 없는 과제를 선택하면 바로 삭제").
+     켜 두면 칩을 톡톡 눌러 여러 개 고르고(날짜 숫자를 누르면 그날 것 전부), 한 번에 지운다. 끌기는 잠시 멈춘다. */
+  const [pickMode, setPickMode] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  const togglePick = (ids) => setPicked(prev => {
+    const n = new Set(prev);
+    const allOn = ids.every(id => n.has(id));
+    ids.forEach(id => allOn ? n.delete(id) : n.add(id));
+    return n;
+  });
   const [ym, setYm] = useState(() => {
     const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
     return { y: +first.slice(0, 4), m: +first.slice(5, 7) - 1 };
@@ -1567,6 +1577,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
 
   const onDown = (e, a) => {
     e.preventDefault();   // ★busy 로 막지 않는다 — 저장 기다리느라 달력이 죽어 보였다
+    if (pickMode) { togglePick([a.id]); return; }   // 고르기 중엔 끌지 않고 톡 = 고르기/풀기
     const sx = e.clientX, sy = e.clientY;
     let moved = false;
     const onMoveEv = (ev) => {
@@ -1629,7 +1640,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
           <button className="btn-ghost" style={{ fontSize: 12, padding: "4px 10px", marginLeft: "auto" }}
             disabled={busy}
             onClick={async () => {
-              if (!confirm(`'${hist[0].op}' 로 바꾼 과제 ${hist[0].n}개를 전부 원래 날짜로 되돌릴까요?`)) return;
+              if (!confirm(`방금 한 '${hist[0].op}' (${hist[0].n}개)를 통째로 되돌릴까요?`)) return;
               try {
                 const r = await apiPost("/schedule-undo", { id: hist[0].id });
                 await onReload();
@@ -1637,6 +1648,38 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
                 alert(`${r.restored}개를 되돌렸어요.`);
               } catch (e) { alert("되돌리지 못했어요: " + e.message); }
             }}>↩ 되돌리기</button>
+        </div>
+      )}
+
+      {onDeleteMany && (
+        <div style={{ marginBottom: 8, padding: pickMode ? "8px 10px" : 0, borderRadius: 8,
+          background: pickMode ? "#FDECEA" : "transparent", border: pickMode ? "1px solid #F0C9BF" : "none" }}>
+          <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button className={pickMode ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px",
+              ...(pickMode ? { background: "var(--danger)", borderColor: "var(--danger)" } : { color: "var(--danger)", borderColor: "#E8C4BC" }) }}
+              onClick={() => { setPickMode(!pickMode); setPicked(new Set()); setSel(null); }}>
+              {pickMode ? "고르기 끝내기" : "🗑 골라서 지우기"}
+            </button>
+            {pickMode && <>
+              <span style={{ fontSize: 12, color: "#9A4B36" }}>
+                <b>{picked.size}개</b> 골랐어요 · 과제를 톡톡 누르세요. <b>날짜 숫자</b>를 누르면 그날 것 전부.
+              </span>
+              <button className="btn" style={{ fontSize: 12, padding: "5px 12px", marginLeft: "auto",
+                background: "var(--danger)", borderColor: "var(--danger)" }}
+                disabled={!picked.size || busy}
+                onClick={async () => {
+                  const ids = [...picked];
+                  const ok = await onDeleteMany(ids);
+                  if (ok) { setPicked(new Set()); setPickMode(false); }
+                }}>
+                {deleteLabel || "지우기"} ({picked.size})
+              </button>
+              {picked.size > 0 && (
+                <button className="btn-ghost" style={{ fontSize: 12, padding: "5px 10px" }}
+                  onClick={() => setPicked(new Set())}>모두 풀기</button>
+              )}
+            </>}
+          </div>
         </div>
       )}
 
@@ -1725,14 +1768,19 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
                 border: over ? "2px solid var(--gold)" : k === todayKey ? "1px solid var(--gold)" : "1px solid var(--line)",
                 background: over ? "#FFF6E0" : noClass ? "#F1F3F5" : "#fff" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: noClass ? "#9aa7ae" : "var(--navy-soft)", textAlign: "right", paddingRight: 2 }}>
-                {d}{off ? <span style={{ fontSize: 9, marginLeft: 2 }}>{closed.names[k] || "휴무"}</span>
+                <span onClick={pickMode && items.length ? (e) => { e.stopPropagation(); togglePick(items.map(x => x.id)); } : undefined}
+                  title={pickMode && items.length ? "이 날 과제 전부 고르기" : undefined}
+                  style={pickMode && items.length ? { cursor: "pointer", textDecoration: "underline", color: "var(--danger)" } : undefined}>{d}</span>
+                {off ? <span style={{ fontSize: 9, marginLeft: 2 }}>{closed.names[k] || "휴무"}</span>
                        : (noClass && <span style={{ fontSize: 9, marginLeft: 2 }}>✕</span>)}
               </div>
               {items.map(a => (
                 <div key={a.id} onPointerDown={(e) => onDown(e, a)} onClick={(e) => e.stopPropagation()}
-                  style={{ touchAction: "none", userSelect: "none", cursor: "grab", marginTop: 3,
+                  style={{ touchAction: "none", userSelect: "none", cursor: pickMode ? "pointer" : "grab", marginTop: 3,
                     fontSize: 11, fontWeight: 700, lineHeight: 1.5, borderRadius: 6, padding: "4px 5px",
-                    color: "#fff", background: a.type === "sentence" ? "var(--gold)" : "var(--navy)",
+                    color: "#fff",
+                    background: pickMode && picked.has(a.id) ? "var(--danger)" : a.type === "sentence" ? "var(--gold)" : "var(--navy)",
+                    textDecoration: pickMode && picked.has(a.id) ? "line-through" : "none",
                     outline: sel && sel.id === a.id ? "2px solid var(--danger)" : "none",
                     opacity: drag && drag.a.id === a.id ? 0.4 : 1,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
@@ -1861,6 +1909,24 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
       await reload();
     } catch (e) { setErr(e.message); alert("버리지 못했어요: " + e.message); }
     setBusy(false);
+  };
+
+  /* 달력에서 여러 개 골라 지우기 — 서버가 한 번에 지우고 ↩ 되돌리기 한 번으로 통째 복구된다.
+     녹음 기록은 지우지 않는다(되돌리면 그대로). 이미 녹음한 학생이 있으면 먼저 알려 준다. */
+  const deleteManyOnCalendar = async (ids) => {
+    if (!ids.length) return false;
+    try {
+      const pv = await apiPost("/assignments/delete-many", { ids, dryRun: true });
+      if (!confirm(`고른 과제 ${pv.count}개를 지울까요?\n이 과제를 받은 학생 모두에게서 사라져요.` +
+        (pv.withRecords ? `\n\n⚠ 이 중 ${pv.withRecords}개는 이미 녹음한 학생이 있어요. (기록은 남아서 되돌리면 다시 보여요)` : "") +
+        `\n\n잘못 지웠으면 달력 위 「↩ 되돌리기」로 한 번에 살아나요.`)) return false;
+      setBusy(true); setErr("");
+      const r = await apiPost("/assignments/delete-many", { ids });
+      await reload();
+      setBusy(false);
+      alert(`${r.deleted}개를 지웠어요.`);
+      return true;
+    } catch (e) { setBusy(false); setErr(e.message); alert("지우지 못했어요: " + e.message); return false; }
   };
 
   const untrash = async () => {
@@ -2487,7 +2553,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
       {calOpen && <>
         <BookCalendar list={list} onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload}
           savedDays={savedDays} onClassDays={saveClassDays} group={group} busy={busy}
-          onTrash={trashOnCalendar} />
+          onTrash={trashOnCalendar} onDeleteMany={deleteManyOnCalendar} deleteLabel="고른 과제 지우기" />
 
         {trashed && (
           <div className="row" style={{ gap:8, alignItems:"center", marginBottom:10, padding:"8px 10px",
@@ -3550,7 +3616,16 @@ function StudentReview({ student, assignments, reload, onBack }) {
             <div className="muted" style={{ fontSize:11, marginBottom:6 }}>
               이 달력은 <b>{student.name} 학생 것만</b> 바꿔요. 끈 과제의 <b>같은 교재</b> 뒤 과제가 같이 밀려요.
             </div>
-            <BookCalendar list={mine.filter(a => a.dueDate)} onMove={studentMove} onReload={reload} busy={ppBusy} />
+            <BookCalendar list={mine.filter(a => a.dueDate)} onMove={studentMove} onReload={reload} busy={ppBusy}
+              deleteLabel={`${student.name} 학생에게서 빼기`}
+              onDeleteMany={async (ids) => {
+                if (!confirm(`고른 과제 ${ids.length}개를 ${student.name} 학생에게서만 뺄까요?\n같이 받는 다른 학생들 과제는 그대로예요.\n잘못 뺐으면 위의 「↩ 되돌리기」로 한 번에 돌아와요.`)) return false;
+                try {
+                  await apiPost(`/students/${student.id}/unassign`, { aids: ids });
+                  await reload(); setStamp(x => x + 1);
+                  return true;
+                } catch (e) { alert("빼지 못했어요: " + e.message); return false; }
+              }} />
           </div>
         )}
       </div>

@@ -912,6 +912,32 @@ def delete_assignment(request: Request, assignment_id: str):
     return {"ok": True}
 
 
+@app.post("/api/assignments/delete-many", dependencies=ADMIN_ONLY)
+def delete_many_assignments(request: Request, payload: dict = Body(...)):
+    """★달력에서 골라 한 번에 지우기(원장 2026-10-01 "필요 없는 과제를 선택하면 바로 삭제").
+    내 학원 과제만 지운다. 녹음 기록은 지우지 않아서 ↩ 되돌리기로 그대로 살아난다.
+    body {ids:[...], dryRun?} — dryRun 이면 이미 녹음한 학생이 있는 과제 수만 세어 준다."""
+    ac = academy_of(request)
+    ids = set(str(x) for x in (payload.get("ids") or []))
+    if not ids:
+        raise HTTPException(400, "지울 과제를 골라 주세요.")
+    with _lock:
+        db = load_db()
+        targets = [a for a in db["assignments"] if a.get("id") in ids and academy_of_student(a) == ac]
+        if payload.get("dryRun"):
+            done = set()
+            for sid in [x.get("id") for x in db.get("students", []) if x.get("id")]:
+                subs = load_student_subs(sid) or {}
+                done |= {a["id"] for a in targets if a["id"] in subs}
+            return {"ok": True, "count": len(targets), "withRecords": len(done)}
+        before = _snap(db)
+        gone = {a["id"] for a in targets}
+        db["assignments"] = [a for a in db["assignments"] if a.get("id") not in gone]
+        _hist_push_snap(db, "골라서 삭제", before, len(gone))
+        save_db(db)
+    return {"ok": True, "deleted": len(gone)}
+
+
 @app.post("/api/assignments/bulk", dependencies=ADMIN_ONLY)
 def add_assignments_bulk(request: Request, payload: dict = Body(...)):
     """여러 과제를 한 번에 생성 (교재 한 권을 Day별로 나눠서 등록)."""
@@ -1276,28 +1302,31 @@ def student_unassign(sid: str, request: Request, payload: dict = Body(...)):
     """★학생 화면의 🗑 — 그 학생만 이 과제에서 뺀다(원장 2026-09-29).
     전에는 과제 자체를 지워 같은 과제를 받던 반 친구들 것까지 사라졌다.
     다른 학생과 같이 받던 과제면 이 학생만 빠지고, 이 학생 전용이면 과제를 지운다.
-    녹음 기록은 지우지 않는다(되돌리면 그대로 다시 보인다). body {aid}"""
-    aid = payload.get("aid")
+    녹음 기록은 지우지 않는다(되돌리면 그대로 다시 보인다).
+    body {aid} 또는 {aids:[...]} — 학생 달력에서 여러 개를 골라 한 번에 뺄 때(되돌리기는 한 번에)."""
+    want = [str(x) for x in (payload.get("aids") or [])] or [str(payload.get("aid") or "")]
     with _lock:
         db = load_db()
         before = _snap(db)
         all_ids, mine = _student_ctx(db, sid, request)
-        a = next((x for x in mine if x.get("id") == aid), None)
-        if not a:
+        targets = [x for x in mine if x.get("id") in want]
+        if not targets:
             raise HTTPException(404, "이 학생이 받는 과제가 아니에요.")
-        ids = [str(x) for x in (a.get("assignedIds") or [])]
-        rest = [x for x in (ids if ids else all_ids) if x != sid]
-        if rest:
-            a["assignedIds"] = rest
-            a["assignedClasses"] = []      # 반 배정으로 다시 저장하면 이 학생이 도로 들어가므로
-            removed = "unassigned"
-        else:
-            db["assignments"] = [x for x in db["assignments"] if x.get("id") != aid]
-            removed = "deleted"
+        removed, rest = "unassigned", []
+        for a in targets:
+            ids = [str(x) for x in (a.get("assignedIds") or [])]
+            rest = [x for x in (ids if ids else all_ids) if x != sid]
+            if rest:
+                a["assignedIds"] = rest
+                a["assignedClasses"] = []      # 반 배정으로 다시 저장하면 이 학생이 도로 들어가므로
+                removed = "unassigned"
+            else:
+                db["assignments"] = [x for x in db["assignments"] if x.get("id") != a.get("id")]
+                removed = "deleted"
         name = next((x.get("name") for x in db.get("students", []) if x.get("id") == sid), sid)
-        _hist_push_snap(db, f"{name} 과제 빼기", before, 1)
+        _hist_push_snap(db, f"{name} 과제 빼기", before, len(targets))
         save_db(db)
-    return {"ok": True, "result": removed, "others": len(rest)}
+    return {"ok": True, "result": removed, "others": len(rest), "count": len(targets)}
 
 
 @app.post("/api/students/{sid}/retest", dependencies=ADMIN_ONLY)
