@@ -20,6 +20,17 @@ function pickLabel(s, students) {
   return s.name + " (" + (tag ? tag + " · " : "") + idTail + ")";
 }
 
+/* ★휴무일(공휴일+학원휴무) — 과제 날짜를 하루씩 깔 때 건너뛴다(2026-10-01).
+   안 건너뛰면 10/5 대체휴일에 놓인 과제를 서버가 다음 날로 밀어, 그날 과제와 한 날에 겹쳤다. */
+let CLOSED_DAYS = new Set();
+function loadClosedDays() {
+  return apiGet("/closed-days").then(d => { CLOSED_DAYS = new Set(d.days || []); }).catch(() => {});
+}
+function isClosedDay(dt) {
+  const k = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+  return CLOSED_DAYS.has(k);
+}
+
 function splitMeaning(line) {
   // "apple / 사과" 또는 "apple - 사과" 형태를 분리
   const m = line.split(/\s+[/|\-–]\s+/);
@@ -767,7 +778,7 @@ function BulkUpload({ students, reload, onClose }) {
     let cur = new Date(y, m-1, d);
     let guard = 0;
     while (out.length < groups.length * rep && guard < 4000) {
-      if (weekdays.includes(cur.getDay())) {
+      if (weekdays.includes(cur.getDay()) && !isClosedDay(cur)) {
         out.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
       }
       cur.setDate(cur.getDate()+1);
@@ -1475,7 +1486,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel }) {
+function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel, focusDate }) {
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   /* ★골라서 지우기(원장 2026-10-01 "필요 없는 과제를 선택하면 바로 삭제").
      켜 두면 칩을 톡톡 눌러 여러 개 고르고(날짜 숫자를 누르면 그날 것 전부), 한 번에 지운다. 끌기는 잠시 멈춘다. */
@@ -1517,7 +1528,8 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
     return () => window.removeEventListener("keydown", onKey);
   });
   const [ym, setYm] = useState(() => {
-    const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
+    /* focusDate: 방금 낸 과제가 시작하는 날 — 그 달을 먼저 보여 준다(옛 과제가 있는 달에서 열리면 새 과제가 안 보였다) */
+    const first = focusDate || list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
     return { y: +first.slice(0, 4), m: +first.slice(5, 7) - 1 };
   });
   /* ★놓을 때마다 물어본다(원장 2026-10-01 "잡고 다른 날로 옮기고 싶은데 자꾸 이상하게 움직여").
@@ -2135,7 +2147,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
 
   const delOne = async (id) => {
     /* 달력에서 학생을 골라 둔 상태면 카드의 🗑 도 그 학생에게서만 뺀다(반 친구 과제는 그대로) */
-    if (calOpen && calWho) {
+    if (calOpen && calWho && calWho.indexOf("c:") !== 0) {
       const nm = ((students || []).find(s => s.id === calWho) || {}).name || "";
       if (!confirm(`이 과제를 ${nm} 학생에게서만 뺄까요?\n반 친구들 과제는 그대로예요. (↩ 되돌리기 가능)`)) return;
       await apiPost(`/students/${encodeURIComponent(calWho)}/unassign`, { aids: [id] });
@@ -2417,7 +2429,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
       const [y, m, d] = startDate.split("-").map(Number);
       let cur = new Date(y, m - 1, d), guard = 0;
       while (dates.length < slots && guard < 2000) {
-        if (weekdays.includes(cur.getDay()))
+        if (weekdays.includes(cur.getDay()) && !isClosedDay(cur))
           dates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
         cur.setDate(cur.getDate() + 1); guard++;
       }
@@ -2527,6 +2539,21 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
       if (dd !== 0) return dd;
       return (x.title||"").localeCompare(y.title||"");
     });
+  /* ---- 달력에 무엇을 보일까 (calWho) ----
+     ""        = 이 화면의 목록(반이면 반 공용, 보관함이면 원본). 학생 전용(👤)은 뺀다.
+     "c:반이름" = 그 반이 받는 이 교재 과제(보관함 화면에서 '낸 과제'를 볼 때)
+     학생 id   = 그 학생이 받는 이 교재 과제
+     ★보관함 화면에서 과제를 내도 달력이 원본만 보여 줘서 '낸 게 안 보인다 → 다시 로그인하면 보인다'였다
+       (원장 2026-10-01). 이제 내자마자 그 반/학생 일정으로 달력을 바꿔 보여 준다. */
+  const isArchive = String(group || "").indexOf("보관함") >= 0;
+  const isPersonalT = (a) => !!a.personalOf || ((a.assignedIds || []).length === 1 && !(a.assignedClasses || []).length);
+  const sameBook = (a) => (a.book || seriesOf(a.title)) === book;
+  const clsOf = {}; (students || []).forEach(s => { clsOf[s.id] = s.className || ""; });
+  const classList = (cls) => (all || []).filter(a => a.published !== false && sameBook(a) && !isPersonalT(a) &&
+      ((a.assignedClasses || []).includes(cls) || (a.assignedIds || []).some(id => clsOf[id] === cls)));
+  const viewList = (who) => !who ? list.filter(a => !isPersonalT(a))
+    : who.indexOf("c:") === 0 ? classList(who.slice(2)) : pcList(who);
+  const [calFocus, setCalFocus] = useState(null);   // 방금 낸 과제의 첫 날짜(그 달로 열기)
   const pcStudents = (students || []).filter(st => (all || []).some(a => a.published !== false && sees(a, st.id) &&
       (a.book || seriesOf(a.title)) === book))
     .sort((x, y) => (x.className||"").localeCompare(y.className||"") || (x.name||"").localeCompare(y.name||""));
@@ -2598,7 +2625,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
       const [y,m,d] = startDate.split("-").map(Number);
       let cur = new Date(y, m-1, d), guard = 0;
       while (dues.length < totalSlots && guard < 3000) {
-        if (weekdays.includes(cur.getDay()))
+        if (weekdays.includes(cur.getDay()) && !isClosedDay(cur))
           dues.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
         cur.setDate(cur.getDate()+1); guard++;
       }
@@ -2622,7 +2649,15 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
     try {
       const r = await apiPost("/assignments/bulk", { assignments: payload });
       await reload(); setPanel(null);
-      alert(`${r.created}개 과제를 배정했어요! (보관함 원본은 그대로 있어요)`);
+      /* ★낸 과제를 바로 달력에 — 받은 학생/반의 일정으로 달력을 바꾸고 첫 날짜의 달을 연다 */
+      const firstDue = payload.map(p => p.dueDate).filter(Boolean).sort()[0] || null;
+      setCalFocus(firstDue);
+      if (assignMode === "individual" && assignIds.length === 1) setCalWho(assignIds[0]);
+      else if (assignMode === "class" && assignClasses.length) setCalWho(isArchive ? "c:" + assignClasses[0] : "");
+      else if (assignMode === "individual" && assignIds.length) setCalWho(assignIds[0]);
+      else setCalWho("");
+      setCalOpen(true);
+      alert(`${r.created}개 과제를 배정했어요! 달력에 바로 보여 드릴게요. (보관함 원본은 그대로 있어요)`);
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -2659,37 +2694,49 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
 
       {calOpen && <>
         {(() => {
-          const isPersonal = (a) => !!a.personalOf || ((a.assignedIds || []).length === 1 && !(a.assignedClasses || []).length);
-          const kidIds = new Set((students || []).filter(s => s.className === group).map(s => s.id));
+          const kidIds = new Set(isArchive ? (students || []).map(s => s.id)
+                                           : (students || []).filter(s => s.className === group).map(s => s.id));
           list.forEach(a => (a.assignedIds || []).forEach(id => kidIds.add(id)));
           /* 이 교재를 실제로 받는 학생만, 동명이인은 학년(없으면 아이디)까지 붙여서 — pickLabel */
           const kids = (students || []).filter(s => kidIds.has(s.id))
             .map(s => ({ ...s, n: pcList(s.id).length }))
             .filter(s => s.n > 0)
             .sort((x, y) => (x.name || "").localeCompare(y.name || ""));
-          const personalN = list.filter(isPersonal).length;
+          /* 보관함 화면: 이 교재를 받은 반도 고를 수 있게 */
+          const classes = isArchive ? [...new Set((students || []).map(s => s.className).filter(Boolean))]
+            .map(c => ({ c, n: classList(c).length })).filter(x => x.n > 0).sort((x, y) => x.c.localeCompare(y.c)) : [];
+          const personalN = list.filter(isPersonalT).length;
           const who = kids.find(s => s.id === calWho);
+          const whoCls = calWho.indexOf("c:") === 0 ? calWho.slice(2) : null;
           return (
             <div className="card" style={{ padding: "10px 12px", marginBottom: 8 }}>
               <div style={{ fontWeight: 700, fontSize: 13, color: "var(--navy)", marginBottom: 6 }}>👥 누구 일정을 볼까요?</div>
               <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                 <button className={!calWho ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px" }}
-                  onClick={() => setCalWho("")}>반 전체</button>
+                  onClick={() => { setCalWho(""); setCalFocus(null); }}>{isArchive ? "📦 원본" : "반 전체"}</button>
+                {classes.map(x => (
+                  <button key={x.c} className={whoCls === x.c ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px" }}
+                    onClick={() => { setCalWho("c:" + x.c); setCalFocus(null); }}>🏫 {x.c} <span style={{ opacity: .6, fontWeight: 400 }}>{x.n}</span></button>
+                ))}
                 {kids.map(s => (
                   <button key={s.id} className={calWho === s.id ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px" }}
-                    onClick={() => setCalWho(s.id)}>{pickLabel(s, students)} <span style={{ opacity: .6, fontWeight: 400 }}>{s.n}</span></button>
+                    onClick={() => { setCalWho(s.id); setCalFocus(null); }}>{pickLabel(s, students)} <span style={{ opacity: .6, fontWeight: 400 }}>{s.n}</span></button>
                 ))}
               </div>
               <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
                 {who
                   ? <><b style={{ color: "var(--navy)" }}>{who.name}</b> 학생이 받는 이 교재 과제만 보여요. 옮기기·밀기·지우기가 <b>{who.name} 학생에게만</b> 적용돼요 (반 친구들은 그대로).</>
+                  : whoCls
+                  ? <><b style={{ color: "var(--navy)" }}>{whoCls}</b> 반이 받는 이 교재 과제예요. 옮기면 그 반 학생 모두에게 적용돼요.</>
+                  : isArchive
+                  ? <>📦 보관함 원본이에요(학생에게 안 보여요). <b>낸 과제는 위에서 반이나 학생을 고르면</b> 보여요.</>
                   : <>반 전체 일정이에요. 옮기면 반 학생 모두에게 적용돼요.{personalN ? <> 학생 한 명만 따로 바꾼 과제 {personalN}개는 여기서 빠져 있어요 — 학생 이름을 누르면 보여요.</> : null}</>}
               </div>
             </div>
           );
         })()}
-        {calWho ? (
-          <BookCalendar key={"s:" + calWho} list={pcList(calWho).filter(a => a.dueDate)} onReload={reload}
+        {calWho && calWho.indexOf("c:") !== 0 ? (
+          <BookCalendar key={"s:" + calWho + ":" + (calFocus || "")} focusDate={calFocus} list={pcList(calWho).filter(a => a.dueDate)} onReload={reload}
             savedDays={savedDays} group={null} busy={busy}
             onMove={async (a, toDate, rest) => {
               try { await apiPost(`/students/${encodeURIComponent(calWho)}/postpone`, { onlyId: a.id, toDate, rest: !!rest }); await reload(); }
@@ -2703,9 +2750,9 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
               catch (e) { alert("빼지 못했어요: " + e.message); return false; }
             }} />
         ) : (
-          <BookCalendar key="class" list={list.filter(a => !(a.personalOf || ((a.assignedIds || []).length === 1 && !(a.assignedClasses || []).length)))}
+          <BookCalendar key={"class:" + calWho + ":" + (calFocus || "")} focusDate={calFocus} list={viewList(calWho)}
             onMove={moveOnCalendar} onRespread={respreadFrom} onReload={reload}
-            savedDays={savedDays} onClassDays={saveClassDays} group={group} busy={busy}
+            savedDays={calWho ? null : savedDays} onClassDays={calWho ? null : saveClassDays} group={calWho ? calWho.slice(2) : group} busy={busy}
             onTrash={trashOnCalendar} onDeleteMany={deleteManyOnCalendar} deleteLabel="고른 과제 지우기" />
         )}
 
@@ -3007,7 +3054,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
               const [yy,mm,dd] = startDate.split("-").map(Number);
               let cur = new Date(yy, mm-1, dd), got = 0, first = null, last = null, guard = 0;
               while (got < cnt && guard < 4000) {
-                if (weekdays.includes(cur.getDay())) {
+                if (weekdays.includes(cur.getDay()) && !isClosedDay(cur)) {
                   const iso = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`;
                   if (!first) first = iso;
                   last = iso; got++;
@@ -3161,12 +3208,15 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
         </div>
       )}
 
-      {calOpen && calWho && (
+      {calOpen && calWho && calWho.indexOf("c:") === 0 && (
+        <div className="muted" style={{ fontSize:12, margin:"4px 2px 8px" }}>🏫 <b style={{ color:"var(--navy)" }}>{calWho.slice(2)}</b> 반 과제만 보고 있어요.</div>
+      )}
+      {calOpen && calWho && calWho.indexOf("c:") !== 0 && (
         <div className="muted" style={{ fontSize:12, margin:"4px 2px 8px" }}>
           👤 <b style={{ color:"var(--navy)" }}>{((students || []).find(s => s.id === calWho) || {}).name}</b> 학생 과제만 보고 있어요 · 카드의 🗑 는 이 학생에게서만 빼요.
         </div>
       )}
-      {(calOpen && calWho ? pcList(calWho) : list).map(a => (
+      {(calOpen && calWho ? viewList(calWho) : list).map(a => (
         <div key={a.id} className="card" style={{ padding:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
             <div style={{ minWidth:0 }}>
@@ -4734,7 +4784,7 @@ function AdminView({ onLogout }) {
   const reload = async () => {
     // 관리자는 보관함(published=false)까지 관리하므로 archived=1 로 전체를 받는다.
     // (학생 화면은 보관함을 안 받아 응답이 가볍다 — 서버 기본이 보관함 제외)
-    const [s, a] = await Promise.all([apiGet("/students"), apiGet("/assignments?archived=1")]);
+    const [s, a] = await Promise.all([apiGet("/students"), apiGet("/assignments?archived=1"), loadClosedDays()]);
     setStudents(s); setAssignments(a);
   };
   useEffect(() => { reload().finally(()=>setLoading(false)); }, []);
