@@ -1487,6 +1487,35 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
     ids.forEach(id => allOn ? n.delete(id) : n.add(id));
     return n;
   });
+  /* ★Shift 로 한꺼번에(원장 2026-10-01 "시프트키를 누르고 여러 개 동시에").
+     마지막으로 누른 과제부터 Shift+클릭한 과제까지, 달력 순서(날짜→Day)로 사이에 있는 것을 전부 고른다.
+     Shift·Ctrl 로 누르면 '골라서 지우기'를 따로 안 켜도 바로 고르기가 시작된다. */
+  const lastPickRef = useRef(null);
+  const pickRange = (a) => {
+    const order = dated.slice().sort((x, y) =>
+      (dueOf(x)).localeCompare(dueOf(y)) || ((dayNum(x.title) || 0) - (dayNum(y.title) || 0)) || (x.title || "").localeCompare(y.title || ""));
+    const i = order.findIndex(x => x.id === lastPickRef.current), j = order.findIndex(x => x.id === a.id);
+    if (i < 0 || j < 0) { togglePick([a.id]); return; }
+    const [lo, hi] = i < j ? [i, j] : [j, i];
+    setPicked(prev => { const n = new Set(prev); order.slice(lo, hi + 1).forEach(x => n.add(x.id)); return n; });
+  };
+  const runDelete = async () => {
+    if (!picked.size || !onDeleteMany) return;
+    const ok = await onDeleteMany([...picked]);
+    if (ok) { setPicked(new Set()); setPickMode(false); lastPickRef.current = null; }
+  };
+  /* 고른 뒤 Delete(또는 Backspace) 키로 바로 지우기 — 입력칸에 쓰는 중이면 무시 */
+  useEffect(() => {
+    if (!pickMode || !onDeleteMany) return;
+    const onKey = (e) => {
+      const t = e.target && e.target.tagName;
+      if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); runDelete(); }
+      if (e.key === "Escape") { setPicked(new Set()); setPickMode(false); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
   const [ym, setYm] = useState(() => {
     const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
     return { y: +first.slice(0, 4), m: +first.slice(5, 7) - 1 };
@@ -1577,7 +1606,14 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
 
   const onDown = (e, a) => {
     e.preventDefault();   // ★busy 로 막지 않는다 — 저장 기다리느라 달력이 죽어 보였다
-    if (pickMode) { togglePick([a.id]); return; }   // 고르기 중엔 끌지 않고 톡 = 고르기/풀기
+    // 고르기 중엔 끌지 않고 톡 = 고르기/풀기. Shift = 사이 전부, Ctrl/⌘ = 하나씩 더하기(고르기 자동 시작)
+    if (onDeleteMany && (pickMode || e.shiftKey || e.ctrlKey || e.metaKey)) {
+      if (!pickMode) { setPickMode(true); setSel(null); }
+      if (e.shiftKey && lastPickRef.current) pickRange(a);
+      else togglePick([a.id]);
+      lastPickRef.current = a.id;
+      return;
+    }
     const sx = e.clientX, sy = e.clientY;
     let moved = false;
     const onMoveEv = (ev) => {
@@ -1657,21 +1693,18 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
           <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <button className={pickMode ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 10px",
               ...(pickMode ? { background: "var(--danger)", borderColor: "var(--danger)" } : { color: "var(--danger)", borderColor: "#E8C4BC" }) }}
-              onClick={() => { setPickMode(!pickMode); setPicked(new Set()); setSel(null); }}>
+              onClick={() => { setPickMode(!pickMode); setPicked(new Set()); setSel(null); lastPickRef.current = null; }}>
               {pickMode ? "고르기 끝내기" : "🗑 골라서 지우기"}
             </button>
             {pickMode && <>
               <span style={{ fontSize: 12, color: "#9A4B36" }}>
                 <b>{picked.size}개</b> 골랐어요 · 과제를 톡톡 누르세요. <b>날짜 숫자</b>를 누르면 그날 것 전부.
+                <br />💻 하나 누르고 <b>Shift</b>+다른 과제 = <b>그 사이 전부</b> · 다 고르면 <b>Delete</b> 키로 지우기 · Esc 취소
               </span>
               <button className="btn" style={{ fontSize: 12, padding: "5px 12px", marginLeft: "auto",
                 background: "var(--danger)", borderColor: "var(--danger)" }}
                 disabled={!picked.size || busy}
-                onClick={async () => {
-                  const ids = [...picked];
-                  const ok = await onDeleteMany(ids);
-                  if (ok) { setPicked(new Set()); setPickMode(false); }
-                }}>
+                onClick={runDelete}>
                 {deleteLabel || "지우기"} ({picked.size})
               </button>
               {picked.size > 0 && (
@@ -1768,7 +1801,13 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
                 border: over ? "2px solid var(--gold)" : k === todayKey ? "1px solid var(--gold)" : "1px solid var(--line)",
                 background: over ? "#FFF6E0" : noClass ? "#F1F3F5" : "#fff" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: noClass ? "#9aa7ae" : "var(--navy-soft)", textAlign: "right", paddingRight: 2 }}>
-                <span onClick={pickMode && items.length ? (e) => { e.stopPropagation(); togglePick(items.map(x => x.id)); } : undefined}
+                <span onClick={pickMode && items.length ? (e) => {
+                    e.stopPropagation();
+                    const last = items[items.length - 1];
+                    if (e.shiftKey && lastPickRef.current) pickRange(last);       // Shift+날짜 = 그 날까지 전부
+                    else { togglePick(items.map(x => x.id)); lastPickRef.current = items[0].id; }
+                    if (e.shiftKey) lastPickRef.current = last.id;
+                  } : undefined}
                   title={pickMode && items.length ? "이 날 과제 전부 고르기" : undefined}
                   style={pickMode && items.length ? { cursor: "pointer", textDecoration: "underline", color: "var(--danger)" } : undefined}>{d}</span>
                 {off ? <span style={{ fontSize: 9, marginLeft: 2 }}>{closed.names[k] || "휴무"}</span>
