@@ -1255,6 +1255,13 @@ def student_postpone(sid: str, request: Request, payload: dict = Body(...)):
             tg = [a for a in all_bk if a.get("dueDate") and a["dueDate"] >= from_date]
             if only_id and not rest:
                 tg = [a for a in tg if a["id"] == only_id]
+            elif only_id:
+                # ★달력에서 끈 과제 '다음'부터만 따라온다(원장 2026-10-01 "자꾸 이상하게 움직여").
+                #   같은 날 위 칸 과제(Day 23 (1/2))까지 따라가던 것.
+                key = lambda x: (x.get("dueDate") or "", _day_num(x.get("title")), x.get("title") or "")
+                src_key = next((key(x) for x in tg if x["id"] == only_id), None)
+                if src_key is not None:
+                    tg = [x for x in tg if x["id"] == only_id or key(x) > src_key]
             skipped += sum(1 for a in tg if a["id"] in touched)
             tg = [a for a in tg if a["id"] not in touched]
             if not tg:

@@ -1520,10 +1520,11 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
     const first = list.filter(a => a.dueDate).map(a => a.dueDate).sort()[0] || new Date().toISOString().slice(0, 10);
     return { y: +first.slice(0, 4), m: +first.slice(5, 7) - 1 };
   });
-  /* ★기본이 '뒤 과제도 같이'(원장 2026-09-29 "뒤로 밀면 전체가 자동으로 밀려났으면").
-     하나만 옮기고 싶을 때만 체크를 켠다. 밀리는 거리는 날짜가 아니라 **수업 횟수**다. */
-  const [onlyOne, setOnlyOne] = useState(false);
-  const moveRest = !onlyOne;
+  /* ★놓을 때마다 물어본다(원장 2026-10-01 "잡고 다른 날로 옮기고 싶은데 자꾸 이상하게 움직여").
+     9/29 에 '뒤 과제도 같이'를 기본으로 했더니, 하나만 옮기려 해도 뒤가 통째로 밀렸고
+     같은 날 위 칸 과제까지 따라갔고, 저장이 끝나는 몇 초 뒤에야 여러 칸이 한꺼번에 튀었다.
+     → 놓으면 「이것만 / 뒤 과제도 같이(N개) / 취소」를 고르게 하고, 고르는 즉시 화면에 먼저 옮겨 보인다. */
+  const [pending, setPending] = useState(null);       // { a, to, followers:[...] }
   const [sel, setSel] = useState(null);              // 톡 눌러서 고른 과제(누른 뒤 날짜를 누르면 이동)
   const [drag, setDrag] = useState(null);
   const [closed, setClosed] = useState({ days: new Set(), names: {} });
@@ -1595,13 +1596,47 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
     return { y: yy, m: mm };
   });
 
+  /* 달력 순서(날짜 → Day → 제목). '뒤 과제'는 이 순서로 끈 과제 **다음**부터다 —
+     예전엔 '같은 날짜 이상'이라 같은 날 위 칸 과제(Day 23 (1/2))까지 따라갔다. */
+  const calOrder = (x, y) => dueOf(x).localeCompare(dueOf(y)) ||
+    ((dayNum(x.title) || 0) - (dayNum(y.title) || 0)) || (x.title || "").localeCompare(y.title || "");
+  /* 서버(steps)와 같은 셈: 수업 요일이고 휴무일이 아닌 날만 '한 수업'으로 센다 */
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const okDay = (d) => days.indexOf(d.getDay()) >= 0 && !closed.days.has(iso(d));
+  const stepsBetween = (from, to) => {
+    const a = new Date(from + "T00:00:00"), b = new Date(to + "T00:00:00");
+    if (+a === +b) return 0;
+    let n = 0;
+    if (b > a) { const d = new Date(a); while (d < b) { d.setDate(d.getDate() + 1); if (okDay(d)) n++; } return Math.max(1, n); }
+    const d = new Date(b); while (d < a) { if (okDay(d)) n++; d.setDate(d.getDate() + 1); } return -Math.max(1, n);
+  };
+  const advance = (from, k) => {
+    const d = new Date(from + "T00:00:00"); const step = k >= 0 ? 1 : -1; let left = Math.abs(k), g = 0;
+    while (left > 0 && g++ < 3000) { d.setDate(d.getDate() + step); if (okDay(d)) left--; }
+    return iso(d);
+  };
+
   const doMove = (a, to) => {
     if (!a || !to || to === dueOf(a)) { setSel(null); return; }
-    const off = closed.days.has(to);
-    if (off && !confirm(`${to} 은 ${closed.names[to] || "휴무일"} 이에요. 그래도 그 날로 옮길까요?`)) { setSel(null); return; }
     setSel(null);
-    if (!moveRest) setLocal(p => ({ ...p, [a.id]: to }));   // 단일 이동은 바로 보여 준다
-    onMove(a, to, moveRest, days);
+    const order = dated.slice().sort(calOrder);
+    const i = order.findIndex(x => x.id === a.id);
+    const followers = i >= 0 ? order.slice(i + 1).filter(x => dueOf(x) >= dueOf(a)) : [];
+    setPending({ a, to, followers });
+  };
+  const commitMove = (rest) => {
+    const p = pending; setPending(null);
+    if (!p) return;
+    const { a, to, followers } = p;
+    if (closed.days.has(to) && !confirm(`${to} 은 ${closed.names[to] || "휴무일"} 이에요. 그래도 그 날로 옮길까요?`)) return;
+    // 화면에 먼저 옮겨 보인다(저장은 뒤에서). 서버 셈과 같아서 저장 뒤에도 그대로다.
+    const next = { [a.id]: to };
+    if (rest && followers.length) {
+      const k = stepsBetween(dueOf(a), to);
+      followers.forEach(x => { next[x.id] = advance(dueOf(x), k); });
+    }
+    setLocal(prev => ({ ...prev, ...next }));
+    onMove(a, to, rest, days, rest ? followers.map(x => x.id) : []);
   };
 
   const onDown = (e, a) => {
@@ -1717,14 +1752,8 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
       )}
 
       <div style={{ fontSize: 12, marginBottom: 6, color: "var(--navy)" }}>
-        {onlyOne
-          ? <>지금은 <b>끈 과제 하나만</b> 옮겨요.</>
-          : <>끌어 놓으면 <b>그 뒤 과제도 수업 횟수만큼 같이</b> 밀려요 (수업 요일·휴무일은 그대로 지켜요).</>}
+        끌어다 놓으면 <b>「이것만 옮기기」</b>와 <b>「뒤 과제도 같이 밀기」</b> 중에 고를 수 있어요.
       </div>
-      <label className="row" style={{ gap: 6, fontSize: 12, marginBottom: 8, cursor: "pointer", alignItems: "center" }}>
-        <input type="checkbox" checked={onlyOne} onChange={e => setOnlyOne(e.target.checked)} />
-        <span>이 과제 <b>하나만</b> 옮기기</span>
-      </label>
       <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>
         과제를 끌어다 다른 날에 놓으세요. 톡 누른 뒤 날짜를 눌러도 옮겨집니다.
         끌고 있는 동안 ‹ › 위에 머물면 다른 달로 넘어갑니다.
@@ -1853,7 +1882,33 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
           {shortOf(drag.a.title)}{drag.trash ? " → 🗑 버리기" : (drag.over ? ` → ${+drag.over.slice(5,7)}/${+drag.over.slice(8,10)}` : "")}
         </div>
       )}
-      {busy && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>일정 다시 잡는 중… (잠시만요)</div>}
+      {pending && (() => {
+        const md = (s) => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
+        const n = pending.followers.length;
+        return (
+          <div onClick={() => setPending(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 9500, background: "rgba(20,28,40,.35)",
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <div onClick={e => e.stopPropagation()} className="card"
+              style={{ maxWidth: 360, width: "100%", margin: 0, padding: 16, boxShadow: "0 12px 40px rgba(0,0,0,.25)" }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: "var(--navy)", marginBottom: 4 }}>
+                {shortOf(pending.a.title)} · {md(dueOf(pending.a))} → {md(pending.to)}
+              </div>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>어떻게 옮길까요?</div>
+              <button className="btn full" style={{ marginBottom: 8 }} onClick={() => commitMove(false)}>
+                이것만 옮기기
+              </button>
+              {n > 0 && (
+                <button className="btn-ghost full" style={{ marginBottom: 8 }} onClick={() => commitMove(true)}>
+                  뒤 과제도 같이 밀기 <span className="muted" style={{ fontWeight: 400 }}>(뒤 {n}개, 수업 요일 지켜서)</span>
+                </button>
+              )}
+              <button className="btn-ghost full" style={{ color: "var(--muted)" }} onClick={() => setPending(null)}>취소</button>
+            </div>
+          </div>
+        );
+      })()}
+      {busy && <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>일정 저장 중… (화면은 먼저 바뀌어 있어요)</div>}
     </div>
   );
 }
@@ -1980,14 +2035,15 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
     setBusy(false);
   };
 
-  const moveOnCalendar = async (a, toDate, moveRest, weekdays) => {
+  const moveOnCalendar = async (a, toDate, moveRest, weekdays, followerIds) => {
     if (!a.dueDate || toDate === a.dueDate) return;
     if (moveRest) setBusy(true);
     setErr("");
     try {
       if (moveRest) {
-        /* ★날짜 차이만큼 밀면 화·목반이 목·토로 흩어졌다 → 서버가 '수업 횟수'로 민다(steps). */
-        const ids = list.filter(x => x.dueDate && x.dueDate >= a.dueDate).map(x => x.id);
+        /* ★날짜 차이만큼 밀면 화·목반이 목·토로 흩어졌다 → 서버가 '수업 횟수'로 민다(steps).
+           뒤 과제는 달력이 고른 것(끈 과제 다음부터)만 — 같은 날 위 칸 과제는 안 따라간다. */
+        const ids = [a.id].concat(followerIds || []);
         await apiPost("/assignments/reschedule", { mode: "steps", ids, draggedId: a.id, toDate, weekdays: weekdays || [1,2,3,4,5] });
       } else {
         const r = await fetch("/api/assignments/" + a.id, {
