@@ -2832,6 +2832,24 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
       if (!assignIds.length) return setErr("학생을 선택해주세요.");
       assignedIds = assignIds;
     }
+    /* ★개별이 아니면 경고(원장 2026-10-02 "개별 선택 안 하면 경고 뜨게").
+       반별·전체로 내면 이미 이 교재를 받고 있는 학생에게 같은 Day 가 한 벌 더 들어가 겹친다
+       (배소이·추예린이 2~3벌씩 겹친 일, A-List 가 전교생 72명에게 퍼진 일). 받는 중인 학생 이름을 보여 준다. */
+    {
+      const has = (sid) => (all || []).some(a => a.published !== false && sameBook(a) &&
+        (a.assignedIds || []).length > 0 && a.assignedIds.includes(sid));
+      const targets = assignMode === "all" ? (students || []).map(s => s.id) : assignedIds;
+      const already = (students || []).filter(s => targets.includes(s.id) && has(s.id));
+      const names = already.map(s => pickLabel(s, students)).join(", ");
+      if (assignMode !== "individual") {
+        const who = assignMode === "all" ? `전체 학생 ${targets.length}명` : `${assignClasses.join(", ")} 학생 ${targets.length}명 모두`;
+        if (!confirm(`⚠ 개별 선택이 아니에요!\n\n${who}에게 이 교재가 나가요.` +
+          (already.length ? `\n\n이미 이 교재를 받고 있는 학생 ${already.length}명:\n${names}\n→ 이 학생들은 같은 Day 가 한 벌 더 생겨 겹쳐요.` : "") +
+          `\n\n새 학생에게만 내려면 [취소]를 누르고 ① 누구에게 → 「개별」에서 그 학생만 고르세요.\n\n그래도 ${who}에게 낼까요?`)) return;
+      } else if (already.length) {
+        if (!confirm(`⚠ ${names} 학생은 이미 이 교재를 받고 있어요.\n같은 Day 가 한 벌 더 생겨 겹칠 수 있어요.\n\n그래도 낼까요?`)) return;
+      }
+    }
     // 유닛 하나를 며칠씩 반복 (예: 5 → Unit1이 5일 연속, 그다음 Unit2가 5일…)
     const rep = Math.max(1, Number(assignRepeat) || 1);
     const totalSlots = chosen.length * rep;
