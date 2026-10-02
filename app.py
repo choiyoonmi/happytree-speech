@@ -1526,6 +1526,27 @@ def student_book_pieces(sid: str, request: Request, payload: dict = Body(...)):
         seq = mine[start:]
 
         # 단위(unit) = 새로 만들 조각의 원천. split=둘로, merge=여럿을 하나로, copy=날짜만 새로(다시 배치할 때)
+        # ★합치기 짝 — 같은 Day 의 조각이 여러 벌이면(1/2 두 개, 2/2 두 개) 한 벌씩 짝짓는다.
+        #   예전엔 붙어 있는 조각을 몽땅 이어서 같은 단어가 두 번 든 40개짜리가 나왔다(위지아 Unit 10, 2026-10-02).
+        merge_of, merge_grps = {}, []
+        if mode == "merge":
+            by_base = {}
+            for x in seq:
+                bb, nn = _piece_base(x.get("title"))
+                if nn:
+                    by_base.setdefault(bb, {}).setdefault(nn, []).append(x)
+            for bb, by_no in by_base.items():
+                nos = sorted(by_no)
+                if len(nos) < 2:
+                    continue
+                for k in range(max(len(v) for v in by_no.values())):
+                    grp = [by_no[nn][k] for nn in nos if k < len(by_no[nn])]
+                    if len(grp) == len(nos) and not any(g.get("id") in touched for g in grp):
+                        gi = len(merge_grps)
+                        merge_grps.append((bb, grp))
+                        for g in grp:
+                            merge_of[g.get("id")] = gi
+        emitted = set()
         units = []
         i = 0
         while i < len(seq):
@@ -1534,16 +1555,13 @@ def student_book_pieces(sid: str, request: Request, payload: dict = Body(...)):
                 i += 1
                 continue
             base, no = _piece_base(a.get("title"))
-            if mode == "merge" and no:
-                grp = [a]
-                j = i + 1
-                while j < len(seq) and _piece_base(seq[j].get("title"))[1] and _piece_base(seq[j].get("title"))[0] == base:
-                    grp.append(seq[j])
-                    j += 1
-                if len(grp) > 1 and not any(g.get("id") in touched for g in grp):
-                    units.append({"src": grp, "kind": "merge", "title": base})
-                    i = j
-                    continue
+            if mode == "merge" and a.get("id") in merge_of:
+                gi = merge_of[a.get("id")]
+                if gi not in emitted:
+                    emitted.add(gi)
+                    units.append({"src": merge_grps[gi][1], "kind": "merge", "title": merge_grps[gi][0]})
+                i += 1
+                continue
             n = len(a.get("items") or [])
             if mode == "split" and not no and n >= 2 and (not split_fixed or n > split_n):
                 at = (n + 1) // 2 if not split_fixed else max(1, min(split_n, n - 1))
