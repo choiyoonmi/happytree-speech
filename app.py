@@ -1271,7 +1271,7 @@ def student_postpone(sid: str, request: Request, payload: dict = Body(...)):
     relay = payload.get("relayStart") or None      # 날짜 다시 깔기: 이 날부터 하루 하나씩
     if not (sessions or until or to_date or relay):
         raise HTTPException(400, "몇 번 미룰지, 여행 기간, 또는 옮길 날짜를 정해 주세요.")
-    touched = set((load_student_subs(sid) or {}).keys())
+    touched = _touched_ids(sid)
 
     with _lock:
         db = load_db()
@@ -1282,7 +1282,7 @@ def student_postpone(sid: str, request: Request, payload: dict = Body(...)):
             # ★그 학생의 이 교재를 fromId 부터 relayStart 날부터 수업일마다 하나씩 다시 깐다(반 친구는 그대로)
             bk = payload.get("book") or ""
             all_bk = [a for a in mine if (a.get("book") or "") == bk]
-            key = lambda x: (_day_num(x.get("title")), _piece_base(x.get("title"))[1], x.get("dueDate") or "", x.get("title") or "")
+            key = lambda x: (_unit_num(x.get("title")), _piece_base(x.get("title"))[1], x.get("dueDate") or "", x.get("title") or "")
             order = sorted(all_bk, key=key)
             fid = payload.get("fromId")
             i0 = next((i for i, x in enumerate(order) if x.get("id") == fid), 0)
@@ -1326,7 +1326,7 @@ def student_postpone(sid: str, request: Request, payload: dict = Body(...)):
             elif only_id:
                 # ★달력에서 끈 과제 '다음'부터만 따라온다(원장 2026-10-01 "자꾸 이상하게 움직여").
                 #   같은 날 위 칸 과제(Day 23 (1/2))까지 따라가던 것.
-                key = lambda x: (x.get("dueDate") or "", _day_num(x.get("title")), x.get("title") or "")
+                key = lambda x: (x.get("dueDate") or "", _unit_num(x.get("title")), x.get("title") or "")
                 src_key = next((key(x) for x in tg if x["id"] == only_id), None)
                 if src_key is not None:
                     tg = [x for x in tg if x["id"] == only_id or key(x) > src_key]
@@ -1416,7 +1416,7 @@ def student_retest(sid: str, request: Request, payload: dict = Body(...)):
     from datetime import date as _d
     aid = payload.get("aid")
     dry = bool(payload.get("dryRun"))
-    touched = set((load_student_subs(sid) or {}).keys())
+    touched = _touched_ids(sid)
     with _lock:
         db = load_db()
         off = _off_for_student(db, sid)
@@ -1498,7 +1498,7 @@ def student_book_pieces(sid: str, request: Request, payload: dict = Body(...)):
     split_n = max(1, int(payload.get("splitN") or 10))
     resched = bool(payload.get("reschedule"))
     dry = bool(payload.get("dryRun"))
-    touched = set((load_student_subs(sid) or {}).keys())      # 기록이 하나라도 있는 과제
+    touched = _touched_ids(sid)      # 기록이 하나라도 있는 과제
 
     with _lock:
         db = load_db()
@@ -1515,7 +1515,7 @@ def student_book_pieces(sid: str, request: Request, payload: dict = Body(...)):
         mine = [a for a in db["assignments"]
                 if academy_of_student(a) == ac and a.get("published") is not False
                 and (a.get("book") or "") == book and sees(a)]
-        mine.sort(key=lambda a: (_day_num(a.get("title")), _piece_base(a.get("title"))[1],
+        mine.sort(key=lambda a: (_unit_num(a.get("title")), _piece_base(a.get("title"))[1],
                                  a.get("dueDate") or "9999", a.get("title") or ""))
         start = 0
         if payload.get("fromId"):
@@ -4196,6 +4196,36 @@ def get_activity_all():
 
 
 # ---------- 반 전체 진도표 ----------
+def _unit_num(title) -> int:
+    """★학생별 나누기·합치기·다시 깔기의 '순서'용 번호(2026-10-02 "단어책 합치기가 안 된대").
+    _day_num 은 'Day N' 만 읽어서 Word Up 400 처럼 'Unit N' 인 교재는 전부 0 이 됐다 →
+    Unit 10 (1/2) 와 (2/2) 가 정렬에서 떨어져 짝을 못 찾아 '합칠 것 0개'였다. 화면 dayNum 과 같은 규칙."""
+    import re
+    t = str(title or "")
+    m = (re.search(r"(?:day|unit|lesson|lec|chapter)\s*(\d+)", t, re.I)
+         or re.search(r"(?:유닛|레슨|단원|챕터)\s*(\d+)", t)
+         or re.search(r"(\d+)\s*(?:일차|과|강|주차)", t))
+    return int(m.group(1)) if m else 0
+
+
+def _touched_ids(sid):
+    """학생이 실제로 손댄 과제 — 제출했거나 녹음이 한 번이라도 있는 것.
+    ★열어 보기만 한 빈 기록(status 'none', 녹음 0)까지 '이미 한 과제'로 치면
+      합치기·미루기가 그 Day 를 통째로 건너뛰어 '안 된다'처럼 보였다(위지아 Word Up 400)."""
+    out = set()
+    for aid, sub in (load_student_subs(sid) or {}).items():
+        if not isinstance(sub, dict):
+            out.add(aid)
+            continue
+        if sub.get("status") in ("submitted", "reviewed"):
+            out.add(aid)
+            continue
+        takes = [t for row in (sub.get("items") or []) for t in (row or []) if t]
+        if takes or any(sub.get("whole") or []):
+            out.add(aid)
+    return out
+
+
 def _day_num(title) -> int:
     """'... Day 12 (1/2)' 에서 12 를 꺼낸다. 없으면 0."""
     import re
