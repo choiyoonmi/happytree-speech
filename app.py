@@ -304,6 +304,7 @@ def upsert_shared_student(shared: dict) -> dict:
     with _lock:
         db = load_db()
         student = next((s for s in db["students"] if str(s.get("id")) == sid), None)
+        before = dict(student) if student is not None else None
         if student is None:
             student = {"id": sid, "pw": "", "name": name, "className": ""}
             db["students"].append(student)
@@ -319,7 +320,10 @@ def upsert_shared_student(shared: dict) -> dict:
             student["academy"] = ACADEMY_DEFAULT
         if shared.get("pw") is not None:
             student["pw"] = str(shared.get("pw", "")).strip()
-        save_db(db)
+        # ★바뀐 게 없으면 저장하지 않는다(2026-10-06 디스크가 가득 차자 로그인마다 db.json 2.7MB 를
+        #   다시 쓰려다 실패해 아무도 로그인을 못 했다). 바뀌지 않은 로그인은 디스크를 안 건드린다.
+        if before != student:
+            save_db(db)
         return dict(student)
 
 
@@ -534,6 +538,17 @@ def health(detail: str = ""):
                 else:
                     use[p.name] = {"files": 1, "MB": round(p.stat().st_size / 2**20, 1)}
             out["usage"] = use
+            from collections import Counter
+            from datetime import datetime as _dtt
+            byk, bym = Counter(), Counter()
+            for f in AUDIO_DIR.iterdir():
+                if f.is_file():
+                    st = f.stat()
+                    k = f.name.split("_")[0] if "_" in f.name else "rec"
+                    byk[(k, f.suffix)] += st.st_size
+                    bym[_dtt.fromtimestamp(st.st_mtime).strftime("%Y-%m")] += st.st_size
+            out["audioByKind"] = {f"{k}{x}": round(v / 2**20, 1) for (k, x), v in byk.most_common(12)}
+            out["audioByMonth"] = {m: round(v / 2**20, 1) for m, v in sorted(bym.items())}
         probe = DATA_DIR / ".write_probe"
         probe.write_text("ok"); probe.unlink()
         out["writable"] = True
@@ -591,6 +606,16 @@ def _store_sources():
 
 # 마지막 동기화 결과 — /api/admin/store-status 에서 확인한다
 _last_sync = {"state": "아직 안 함"}
+
+
+@app.on_event("startup")
+def _drop_write_junk():
+    """쓰다 만 임시 파일 정리(디스크가 가득 찼을 때 남는 db.tmp 등)."""
+    for name in ("db.tmp", ".write_probe"):
+        try:
+            (DATA_DIR / name).unlink()
+        except Exception:
+            pass
 
 
 @app.on_event("startup")
