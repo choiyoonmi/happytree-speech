@@ -2898,6 +2898,12 @@ async def upload_audio(audio: UploadFile = File(...)):
         raise HTTPException(400, "빈 오디오 파일이에요.")
     if len(raw) > MAX_AUDIO_BYTES:
         raise HTTPException(413, "녹음 파일이 너무 커요.")
+    # ★학생 녹음 파일은 저장하지 않는다(원장 2026-10-06 "점수만 필요해").
+    #   녹음 25,250개(893MB)가 1GB 디스크를 꽉 채워 로그인·학습 기록 저장이 전부 500 이 났다.
+    #   점수는 채점 결과로 제출 기록에 따로 남으므로 파일이 없어도 그대로다.
+    #   다시 모으고 싶으면 Render 환경변수 KEEP_STUDENT_AUDIO=1.
+    if os.environ.get("KEEP_STUDENT_AUDIO", "") != "1":
+        return {"url": None, "saved": False}
     name = uuid.uuid4().hex + ".webm"
     with open(AUDIO_DIR / name, "wb") as f:
         f.write(raw)

@@ -138,7 +138,7 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
         ) : (
           <button className="btn-danger" onClick={stop}>■ 녹음 중지</button>
         )}
-        {take && <audio controls src={take.audio} />}
+        {take && take.audio && <audio controls src={take.audio} />}
       </div>
 
       {busy && !rec && (

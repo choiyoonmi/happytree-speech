@@ -4402,7 +4402,7 @@ function SubmissionDetail({ student, assignment, onBack }) {
                     borderBottom: ti<takes.length-1 ? "1px solid #F0EBDD" : "none" }}>
                     <div className="row">
                       <span className="muted" style={{ width:28, fontWeight:700 }}>{ti+1}회</span>
-                      <audio controls src={t.audio} style={{ flex:1 }} />
+                      {t.audio ? <audio controls src={t.audio} style={{ flex:1 }} /> : <span style={{ flex:1, color:'#999', fontSize:12 }}>녹음 파일 저장 안 함(점수만)</span>}
                     </div>
                     {t.score != null ? (
                       <div style={{ display:"flex", gap:8, marginTop:8, marginLeft:34, alignItems:"center", flexWrap:"wrap" }}>
