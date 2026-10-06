@@ -593,13 +593,13 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
   Object.keys(byDate).forEach(k => byDate[k].sort(dayCmp));
   noDate.sort(dayCmp);
 
-  // 익힘 완료 기준: 단계의 50% 이상 완료 (단어 4단계 중 2개↑, 문장 2단계 중 1개↑)
+  // 익힘 완료 기준: 단계 전부 완료 (단어 4단계 모두, 문장 2단계 모두) — 서버 STUDY_DONE_RATIO 와 같은 값
   const studyDone = (a) => {
     const rec = vocabProgress[a.id];
     if (!rec || !rec.byMode) return false;
     const stages = a.type === "sentence" ? ["smeaning", "unscramble"] : ["flash", "choice", "spell", "test"];
     const done = stages.filter(s => rec.byMode[s]).length;
-    return done / stages.length >= 0.5;
+    return done / stages.length >= 1;
   };
 
   // 달력 완료 배지: 전체 과제 기준으로 그날 완료한 활동 표시 (탭과 무관하게 한눈에)

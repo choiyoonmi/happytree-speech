@@ -64,6 +64,10 @@ _sub_locks_guard = threading.Lock()
 
 DEFAULT_DB = {"students": [], "assignments": [], "submissions": {}}
 
+# 익힘 완료 기준: 단계 전부(단어 4단계 모두, 문장 2단계 모두). 원장 2026-10-06 "2개만 했는데 완료 메시지가 온다"
+#   "4개 다 해야 익힘 완료" → 50%에서 100%로. 학생 화면(student.js studyDone)·관리자(admin.js studyDoneN)도 같은 값.
+STUDY_DONE_RATIO = 1.0
+
 SUB_DIR = DATA_DIR / "submissions"
 SUB_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -2287,7 +2291,7 @@ BOT_NOTIFY_URL = os.environ.get("BOT_NOTIFY_URL",
     "https://script.google.com/macros/s/AKfycbwHxEXK4Lz80L8A9zDiqIE8CNzNKSSiFCk6HYevmRdhde5eSRmSVATwHuRxsHBnv7Uh/exec")
 
 def _treetalk_today_status(student_id):
-    """오늘 트리톡 4활동 현황: 단어녹음/문장녹음 점수 + 단어익힘/문장익힘 완료(50%↑)."""
+    """오늘 트리톡 4활동 현황: 단어녹음/문장녹음 점수 + 단어익힘/문장익힘 완료(단계 전부)."""
     from datetime import datetime, timezone, timedelta
     d = datetime.now(timezone.utc) + timedelta(hours=9)
     today = "%d/%d" % (d.month, d.day)   # _now_kr()과 같은 'M/D'
@@ -2323,7 +2327,7 @@ def _treetalk_today_status(student_id):
         if not touched:
             continue
         stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
-        if sum(1 for s in stages if by.get(s)) / len(stages) >= 0.5:
+        if sum(1 for s in stages if by.get(s)) / len(stages) >= STUDY_DONE_RATIO:
             if atype.get(aid, "word") == "sentence":
                 res["sent_study"] = True
             else:
@@ -2383,7 +2387,7 @@ def _treetalk_done_ids_today() -> set:
             if not any(is_today(((bm or {}).get("last") or {}).get("at")) for bm in by.values()):
                 continue
             stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
-            if sum(1 for s in stages if by.get(s)) / len(stages) >= 0.5:
+            if sum(1 for s in stages if by.get(s)) / len(stages) >= STUDY_DONE_RATIO:
                 studied.add(sid)
                 break
 
@@ -2653,7 +2657,7 @@ def treetalk_points(ym: str = "", days: str = ""):
     days='9/15,9/16,...' 를 주면 그 날짜들(주간)만 집계(월별 대신). 주간 랭킹용.
     활동(회차)마다: 1점 + (만점 +5 · 80점↑ +3), 만점이면 +5만.
     - 녹음(단어/문장): 제출/완료된 submission 마다 1회, 점수=발음 평균(_avg_score_from_sub).
-    - 익힘(단어/문장): 완료(스테이지 50%↑)된 과제마다 1회, 점수=best(없으면 기본 1점)."""
+    - 익힘(단어/문장): 완료(스테이지 전부)된 과제마다 1회, 점수=best(없으면 기본 1점)."""
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc) + timedelta(hours=9)
     cur_ym = ym.strip() if ym else now.strftime("%Y-%m")
@@ -2766,7 +2770,7 @@ def treetalk_points(ym: str = "", days: str = ""):
             elif not any(in_period(((bm or {}).get("last") or {}).get("at")) for bm in by.values()):
                 continue
             stages = ["smeaning", "unscramble"] if atype.get(aid, "word") == "sentence" else ["flash", "choice", "spell", "test"]
-            if sum(1 for s in stages if by.get(s)) / len(stages) < 0.5:
+            if sum(1 for s in stages if by.get(s)) / len(stages) < STUDY_DONE_RATIO:
                 continue
             best = None
             for bm in by.values():
@@ -4181,11 +4185,11 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
             bm["last"] = {"correct": correct, "total": total, "score": score, "at": now}
             by[mode] = bm
         rec["byMode"] = by
-        # 익힘 완료(단계 50%↑) 새로 도달 시 트리톡 알림 트리거
+        # 익힘 완료(단계 전부) 새로 도달 시 트리톡 알림 트리거
         _adb = load_db_ro()
         _a = next((x for x in _adb.get("assignments", []) if x.get("id") == assignment_id), None)
         _stg = ["smeaning", "unscramble"] if (_a or {}).get("type", "word") == "sentence" else ["flash", "choice", "spell", "test"]
-        _fire_study = (sum(1 for s in _stg if s in _prev_keys) / len(_stg)) < 0.5 <= (sum(1 for s in _stg if s in by) / len(_stg))
+        _fire_study = (sum(1 for s in _stg if s in _prev_keys) / len(_stg)) < STUDY_DONE_RATIO <= (sum(1 for s in _stg if s in by) / len(_stg))
         complete = VOCAB_STAGES.issubset(set(by.keys()))
         rec["complete"] = complete
         if complete and not rec.get("completedAt"):
@@ -4529,7 +4533,7 @@ def progress_all(request: Request):
                 stages = ["smeaning", "unscramble"]
             else:
                 stages = ["flash", "choice", "spell", "test"]
-            if stages and sum(1 for x in stages if by.get(x)) / len(stages) >= 0.5:
+            if stages and sum(1 for x in stages if by.get(x)) / len(stages) >= STUDY_DONE_RATIO:
                 if atype.get(aid, "word") == "sentence":
                     s_done += 1
                 else:

@@ -4068,7 +4068,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
       .map(a => (subs[a.id]||{}).average).filter(x => x != null).slice(0,5);
     return v.length ? Math.round(v.reduce((a,b)=>a+b,0)/v.length) : null;
   })();
-  const studyDoneN = tabList.filter(a => { const st = studyOf(a); return st && st.done/st.total >= 0.5; }).length;
+  const studyDoneN = tabList.filter(a => { const st = studyOf(a); return st && st.done/st.total >= 1; }).length;
 
   return (
     <div className="body">
