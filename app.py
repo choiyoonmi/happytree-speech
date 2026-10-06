@@ -245,6 +245,12 @@ def load_db():
     return store.load_db(DB_PATH)
 
 
+def load_db_ro():
+    """읽기 전용 — 파일이 바뀌기 전까지 모든 요청이 한 벌을 같이 쓴다(메모리 절약).
+    ★받은 객체를 고치면 다른 요청에도 번진다. 고칠 일이 있으면 load_db() 를 쓸 것."""
+    return store.load_db_shared(DB_PATH)
+
+
 def save_db(db):
     store.save_db(DB_PATH, db)
 
@@ -503,7 +509,7 @@ ADMIN_ONLY = [Depends(require_admin)]
 
 @app.get("/api/health")
 def health():
-    db = load_db()
+    db = load_db_ro()
     return {
         "ok": True,
         "azure_key_set": bool(AZURE_KEY),
@@ -665,7 +671,7 @@ async def get_students(request: Request):
         else:
             _roster_sync_in_background()
     if rows is None:
-        rows = load_db()["students"]
+        rows = load_db_ro()["students"]
     return only_academy(rows, ac)
 
 
@@ -797,7 +803,7 @@ def get_assignments(request: Request):
     그러면 다른 학원 학생이 과제를 못 본다. 그래서 학생은 id 를 함께 보내고
     (프런트가 이미 학생 아이디를 갖고 있다) 그 학생의 학원 것을 준다.
     ★id 로 '남의 학원'을 볼 수는 없다 — 그 학생이 실제로 속한 학원만 나오기 때문이다."""
-    db = load_db()   # ★한 번만 읽는다(예전엔 학생 조회 때 load_db 를 두 번 불렀다)
+    db = load_db_ro()   # ★한 번만 읽는다(예전엔 학생 조회 때 load_db 를 두 번 불렀다)
     sid = str(request.query_params.get("student") or "").strip()
     admin = is_admin(request)
     if admin:
@@ -887,7 +893,7 @@ def _light_assignments(lst):
 @app.get("/api/assignment/{assignment_id}")
 def get_one_assignment(assignment_id: str, request: Request):
     """과제 하나 전체(시험 문제은행 포함) — 시험 응시 화면에서만 호출."""
-    a = next((x for x in load_db()["assignments"] if x.get("id") == assignment_id), None)
+    a = next((x for x in load_db_ro()["assignments"] if x.get("id") == assignment_id), None)
     if not a:
         raise HTTPException(404, "과제를 찾을 수 없어요.")
     return a
@@ -1896,7 +1902,7 @@ def get_class_days():
     """반마다 수업하는 요일(일=0…토=6). 원장 2026-09-23: 요일은 교재가 아니라 반마다 다르다.
     한 번 정해 두면 그 반의 모든 교재에서 그대로 쓴다(다시 고치기 전까지).
     offDays = 반마다 따로 정한 '수업 없는 날'(날짜)."""
-    db = load_db()
+    db = load_db_ro()
     return {"ok": True, "days": (db.get("classDays") or {}), "offDays": (db.get("classOffDays") or {})}
 
 
@@ -1956,7 +1962,7 @@ def set_class_days(payload: dict = Body(...)):
 @app.get("/api/schedule-history", dependencies=ADMIN_ONLY)
 def schedule_history():
     """최근 일정 변경 목록(최신순). 되돌리기 버튼이 쓴다."""
-    h = list(load_db().get("scheduleHistory") or [])
+    h = list(load_db_ro().get("scheduleHistory") or [])
     h.reverse()
     return {"ok": True, "items": [{k: v for k, v in x.items() if k not in ("changes", "snap")} for x in h]}
 
@@ -1965,7 +1971,7 @@ def schedule_history():
 def schedule_history_detail(hid: str):
     """★변경 한 건에 무슨 과제가 어떻게 바뀌었는지(읽기 전용, 2026-10-01 배소이 정리 유실 조사).
     snap: 바뀌기 전 모습 vs 지금 모습. changes: 날짜 바뀜(from→to)."""
-    db = load_db()
+    db = load_db_ro()
     rec = next((x for x in (db.get("scheduleHistory") or []) if x.get("id") == hid), None)
     if not rec:
         raise HTTPException(404, "그 기록을 못 찾았어요.")
@@ -2197,7 +2203,7 @@ def _treetalk_today_status(student_id):
     from datetime import datetime, timezone, timedelta
     d = datetime.now(timezone.utc) + timedelta(hours=9)
     today = "%d/%d" % (d.month, d.day)   # _now_kr()과 같은 'M/D'
-    db = load_db()
+    db = load_db_ro()
     atype = {}
     for a in db.get("assignments", []):
         atype[a.get("id")] = a.get("type", "word")
@@ -2256,7 +2262,7 @@ def _treetalk_done_ids_today() -> set:
             y, m, dd = str(s).split("-"); return date(int(y), int(m), int(dd))
         except Exception:
             return None
-    db = load_db()
+    db = load_db_ro()
     atype = {a.get("id"): a.get("type", "word") for a in db.get("assignments", [])}
 
     # (1) '지금 문장녹음을 하는' 학생 id 집합 — 최근~예정 문장 과제가 배정된 학생(리포트와 같은 매칭: assignedIds).
@@ -2508,7 +2514,7 @@ def due_today(back: int = 14):
         except Exception:
             return None
 
-    db = load_db()
+    db = load_db_ro()
     closed = get_closed_days()   # ★휴무일(학원 지정+공휴일)엔 학습이 빠진다 — 마감이 그날인 과제는 미완료로 안 센다
     all_ids = [str(s.get("id")) for s in db.get("students", [])]
     due_by, over_by = {}, {}          # 학생 → 아직 안 끝난 과제 id (오늘 마감 / 지난 마감)
@@ -2608,7 +2614,7 @@ def treetalk_points(ym: str = "", days: str = ""):
             return 4            # 1 + 80점 3
         return 1
 
-    db = load_db()
+    db = load_db_ro()
     atype = {a.get("id"): a.get("type", "word") for a in db.get("assignments", [])}
     # ★랭킹 집계는 '과제 마감일'이 속한 기간으로 센다(2026-09-21). 예전엔 '제출한 날' 기준이라,
     #   밀린 과제·미래 과제를 하루에 몰아 하면 그날 랭킹에 통째로 쌓였다(이채린 새 주 첫날 120점).
@@ -2688,7 +2694,7 @@ def treetalk_points(ym: str = "", days: str = ""):
 def _notify_treetalk(student_id, lesson="", due="", score=None):
     """트리톡 활동 완료 시 담당쌤(학년별, 입력봇이 결정)+원장께 4활동 현황 알림. best-effort."""
     try:
-        db = load_db()
+        db = load_db_ro()
         student = next((s for s in db.get("students", []) if s.get("id") == student_id), None)
         if not student:
             return
@@ -2725,7 +2731,7 @@ def _notify_treetalk(student_id, lesson="", due="", score=None):
 
 def _notify_reading_submission(student_id, assignment_id, sub):
     """학생이 낭독 숙제를 '제출'하면 원장님 텔레그램으로 알림."""
-    db = load_db()
+    db = load_db_ro()
     student = next((s for s in db.get("students", []) if s.get("id") == student_id), None)
     assignment = next((a for a in db.get("assignments", []) if a.get("id") == assignment_id), None)
     name = (student or {}).get("name") or student_id
@@ -2762,7 +2768,7 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
     import time
     now = _now_kr()
     # 과제 정보(회차·항목 수)
-    db = load_db()
+    db = load_db_ro()
     assignment = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
     # ※과제 날짜는 '마감일'이라 미리 해도 되지만, 마감 3일 전부터만 열린다(EARLY_OPEN_DAYS).
     #   화면에서도 잠그지만 서버에서도 막아야 직접 호출로 우회를 못 한다.
@@ -3432,7 +3438,7 @@ async def score_take(assignment_id: str, student_id: str, background: Background
 
 @app.post("/api/suggest-comment/{assignment_id}/{student_id}")
 def suggest_comment(assignment_id: str, student_id: str):
-    db = load_db()
+    db = load_db_ro()
     sub = get_submission_record(assignment_id, student_id)
     assignment = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
     student = next((s for s in db["students"] if s["id"] == student_id), None)
@@ -3532,7 +3538,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     """기간 내 학생의 학습 요약. start/end 는 YYYY-MM-DD."""
     from datetime import datetime, date, timedelta
 
-    db = load_db()
+    db = load_db_ro()
     student = next((s for s in db["students"] if s["id"] == student_id), None)
     if not student:
         raise HTTPException(404, "학생을 찾을 수 없어요.")
@@ -4054,7 +4060,7 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
         correct = min(correct, total)
         score = round(correct * 100 / total)
     now = _now_kr()
-    _early = next((x for x in load_db().get("assignments", []) if x.get("id") == assignment_id), None)
+    _early = next((x for x in load_db_ro().get("assignments", []) if x.get("id") == assignment_id), None)
     if _too_early(_early):
         raise HTTPException(403, _too_early_msg(_early))
     with _sub_lock(student_id):
@@ -4082,7 +4088,7 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
             by[mode] = bm
         rec["byMode"] = by
         # 익힘 완료(단계 50%↑) 새로 도달 시 트리톡 알림 트리거
-        _adb = load_db()
+        _adb = load_db_ro()
         _a = next((x for x in _adb.get("assignments", []) if x.get("id") == assignment_id), None)
         _stg = ["smeaning", "unscramble"] if (_a or {}).get("type", "word") == "sentence" else ["flash", "choice", "spell", "test"]
         _fire_study = (sum(1 for s in _stg if s in _prev_keys) / len(_stg)) < 0.5 <= (sum(1 for s in _stg if s in by) / len(_stg))
@@ -4192,7 +4198,7 @@ def submit_exam(assignment_id: str, student_id: str, payload: dict = Body(...)):
 
 def _exam_population(assignment_id: str):
     """이 시험을 친 모든 학생의 (grade, best, bestSeconds) 목록."""
-    db = load_db()
+    db = load_db_ro()
     gmap = {str(s.get("id")): str(s.get("grade") or "") for s in db.get("students", [])}
     out = []
     for sid in all_exam_student_ids():
@@ -4210,7 +4216,7 @@ def exam_report(assignment_id: str, student_id: str):
     rec = (load_exam(student_id) or {}).get(assignment_id)
     if not rec or rec.get("best") is None:
         raise HTTPException(404, "아직 이 시험 기록이 없어요.")
-    db = load_db()
+    db = load_db_ro()
     student = next((s for s in db.get("students", []) if str(s.get("id")) == str(student_id)), None)
     grade = str((student or {}).get("grade") or "")
     a = next((x for x in db.get("assignments", []) if x.get("id") == assignment_id), None)
@@ -4348,7 +4354,7 @@ def progress_all(request: Request):
     wk0, wk1 = mon.isoformat(), sun.isoformat()
 
     ac = academy_of(request)
-    db = load_db()
+    db = load_db_ro()
     students = only_academy(db.get("students", []), ac)
     acts = [a for a in only_academy(db.get("assignments", []), ac)
             if a.get("published", True) is not False and a.get("type") in ("word", "sentence")]
@@ -4488,7 +4494,7 @@ def push_unsubscribe(student_id: str, payload: dict = Body(default={})):
 @app.post("/api/push/test/{student_id}")
 def push_test(student_id: str):
     """이 학생 기기로 테스트 알림 발송."""
-    db = load_db()
+    db = load_db_ro()
     st = next((s for s in db.get("students", []) if s.get("id") == student_id), None)
     name = (st or {}).get("name") or "학생"
     sent = send_push_to_student(student_id, "트리톡 알림 테스트 🔔",
@@ -4498,7 +4504,7 @@ def push_test(student_id: str):
 
 def _do_remind_due(day: str) -> dict:
     """지정일 마감인데 아직 제출 안 한 학생들에게 낭독 숙제 알림 발송."""
-    db = load_db()
+    db = load_db_ro()
     students = db.get("students", [])
     assignments = db.get("assignments", [])
     sent = 0
@@ -4682,7 +4688,7 @@ def battle_create(payload: dict = Body(...)):
         aids = payload.get("assignmentIds")
         if not aids:
             aids = [payload["assignmentId"]] if payload.get("assignmentId") else []
-        db = load_db()
+        db = load_db_ro()
         titles = []
         for aid in aids:
             a = next((x for x in db["assignments"] if x["id"] == aid), None)
@@ -4834,7 +4840,7 @@ async def battle_ws(ws: WebSocket, code: str):
 # ---------- backup ----------
 @app.get("/api/backup", dependencies=ADMIN_ONLY)
 def backup():
-    db = load_db()
+    db = load_db_ro()
     subs = {}
     for sid in all_student_ids():
         subs[sid] = load_student_subs(sid)

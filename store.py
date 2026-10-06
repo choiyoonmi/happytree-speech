@@ -183,8 +183,32 @@ def load_db(path: Path) -> dict:
         return db
 
 
+# ── 읽기 전용 공유본 (2026-10-06, Render 메모리 초과 재시작) ──────────────
+# load_db() 는 부를 때마다 db.json(과제 2,400여 개)을 새로 파싱한다. 요청이 겹치면 그 사본이
+# 요청 수만큼 메모리에 떠 있었다. 읽기만 하는 곳은 파일이 바뀌기 전까지 한 벌을 같이 쓴다.
+# ★이걸로 받은 것은 절대 고치지 말 것 — 모든 요청이 같은 객체를 본다. 고칠 땐 load_db().
+_SHARED = {"key": None, "db": None}
+
+
+def load_db_shared(path: Path) -> dict:
+    if MODE == "d1":
+        return load_db(path)          # d1 에선 원본이 원격이라 파일 시각으로 판단할 수 없다
+    with LOCK:
+        try:
+            st = path.stat()
+            key = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = None
+        if key is not None and _SHARED["key"] == key and _SHARED["db"] is not None:
+            return _SHARED["db"]
+        db = load_db(path)
+        _SHARED["key"], _SHARED["db"] = key, db
+        return db
+
+
 def save_db(path: Path, db: dict):
     with LOCK:
+        _SHARED["key"], _SHARED["db"] = None, None
         if MODE == "file":
             _write_file(path, db)
             return
