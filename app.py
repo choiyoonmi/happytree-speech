@@ -608,6 +608,44 @@ def _store_sources():
 _last_sync = {"state": "아직 안 함"}
 
 
+_STUDENT_REC = re.compile(r"^[0-9a-f]{32}\.webm$")   # 학생 녹음만(선생님 음원 ex_/tts_ 는 제외)
+
+
+AUDIO_KEEP_DAYS = int(os.environ.get("AUDIO_KEEP_DAYS", "7"))
+
+
+def _purge_student_audio(days: int = AUDIO_KEEP_DAYS) -> tuple:
+    """학생 녹음 중 days 일 지난 것 삭제. 선생님 음원(ex_/tts_)·점수 기록은 안 건드린다."""
+    import time as _t
+    cut = _t.time() - days * 86400
+    n = freed = 0
+    for f in AUDIO_DIR.iterdir():
+        try:
+            if f.is_file() and _STUDENT_REC.match(f.name):
+                st = f.stat()
+                if st.st_mtime < cut:
+                    f.unlink(); n += 1; freed += st.st_size
+        except Exception:
+            pass
+    if n:
+        print(f"[audio-keep] {days}일 지난 학생 녹음 {n}개 삭제, {freed / 2**20:.1f}MB 확보")
+    return n, freed
+
+
+@app.on_event("startup")
+def _audio_retention_loop():
+    """켜질 때 한 번 + 6시간마다 오래된 녹음을 지운다."""
+    def run():
+        import time as _t
+        while True:
+            try:
+                _purge_student_audio()
+            except Exception as e:
+                print("[audio-keep] 실패:", e)
+            _t.sleep(6 * 3600)
+    threading.Thread(target=run, daemon=True).start()
+
+
 @app.on_event("startup")
 def _drop_write_junk():
     """쓰다 만 임시 파일 정리(디스크가 가득 찼을 때 남는 db.tmp 등)."""
@@ -2898,11 +2936,11 @@ async def upload_audio(audio: UploadFile = File(...)):
         raise HTTPException(400, "빈 오디오 파일이에요.")
     if len(raw) > MAX_AUDIO_BYTES:
         raise HTTPException(413, "녹음 파일이 너무 커요.")
-    # ★학생 녹음 파일은 저장하지 않는다(원장 2026-10-06 "점수만 필요해").
-    #   녹음 25,250개(893MB)가 1GB 디스크를 꽉 채워 로그인·학습 기록 저장이 전부 500 이 났다.
-    #   점수는 채점 결과로 제출 기록에 따로 남으므로 파일이 없어도 그대로다.
-    #   다시 모으고 싶으면 Render 환경변수 KEEP_STUDENT_AUDIO=1.
-    if os.environ.get("KEEP_STUDENT_AUDIO", "") != "1":
+    # ★녹음 파일은 7일만 보관한다(아래 _audio_retention_loop). 원장 2026-10-06 "녹음은 일주일 단위로
+    #   삭제해도 돼, 점수만 남겨줘". 녹음 25,250개(893MB)가 1GB 디스크를 꽉 채워 로그인·학습 기록
+    #   저장이 전부 500 이 났었다. 점수는 제출 기록(submissions)에 따로 남는다.
+    #   아예 저장을 끄려면 Render 환경변수 KEEP_STUDENT_AUDIO=0.
+    if os.environ.get("KEEP_STUDENT_AUDIO", "1") == "0":
         return {"url": None, "saved": False}
     name = uuid.uuid4().hex + ".webm"
     with open(AUDIO_DIR / name, "wb") as f:
