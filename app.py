@@ -508,7 +508,8 @@ ADMIN_ONLY = [Depends(require_admin)]
 
 
 @app.get("/api/health")
-def health():
+def health(detail: str = ""):
+    request_detail = detail == "1"
     db = load_db_ro()
     out = {
         "ok": True,
@@ -521,6 +522,18 @@ def health():
         import shutil
         du = shutil.disk_usage(DATA_DIR)
         out["diskMB"] = {"total": du.total // 2**20, "free": du.free // 2**20}
+        if request_detail:
+            use = {}
+            for p in DATA_DIR.iterdir():
+                if p.is_dir():
+                    n = sz = 0
+                    for f in p.rglob("*"):
+                        if f.is_file():
+                            n += 1; sz += f.stat().st_size
+                    use[p.name] = {"files": n, "MB": round(sz / 2**20, 1)}
+                else:
+                    use[p.name] = {"files": 1, "MB": round(p.stat().st_size / 2**20, 1)}
+            out["usage"] = use
         probe = DATA_DIR / ".write_probe"
         probe.write_text("ok"); probe.unlink()
         out["writable"] = True
