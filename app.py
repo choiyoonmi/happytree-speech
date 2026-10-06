@@ -3186,7 +3186,18 @@ def assess_with_sdk(wav_path: str, reference: str, debug: bool = False):
         recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
         pa_config.apply_to(recognizer)
 
-        kind, payload = _assess_continuous(recognizer, reference) if is_long else _assess_once(recognizer)
+        try:
+            kind, payload = _assess_continuous(recognizer, reference) if is_long else _assess_once(recognizer)
+        finally:
+            # ★메모리 초과 재시작(2026-10-06)의 한 축: 연속인식은 콜백이 recognizer 를 붙잡아
+            #   순환참조가 생기고, SDK 의 네이티브 메모리가 그만큼 늦게(또는 안) 풀린다.
+            #   채점이 끝나면 연결을 끊고 바로 놓아 준다.
+            for _sig in ("recognized", "canceled", "session_stopped"):
+                try:
+                    getattr(recognizer, _sig).disconnect_all()
+                except Exception:
+                    pass
+            del recognizer, audio_config
 
         if kind == "cancel":
             print(f"[assess] canceled (attempt {attempt+1}/3, long={is_long}): {payload}")   # 원본 기술 에러는 서버 로그에만
@@ -3202,9 +3213,66 @@ def assess_with_sdk(wav_path: str, reference: str, debug: bool = False):
         return payload   # ok
 
 
+# ── 채점 동시 실행 상한 (2026-10-06, Render 메모리 초과 재시작) ──────────────
+# 채점 한 건이 녹음 디코딩 + Azure SDK 인식기로 수십 MB 를 잠깐 쓴다. 상한이 없어서
+# 아이들이 한꺼번에 녹음을 올리면 스레드풀(최대 40)만큼 동시에 돌아 512MB 를 넘겼고,
+# 인스턴스가 재시작되며 그동안 트리톡 접속이 끊겼다. 넘치는 건 줄을 서서 기다린다
+# (score-take 는 백그라운드라 학생은 안 기다린다).
+_ASSESS_SEM = threading.BoundedSemaphore(int(os.environ.get("ASSESS_CONCURRENCY", "4")))
+
+
+def _release_memory():
+    """채점 뒤 큰 버퍼를 바로 돌려준다. glibc 는 free 한 메모리를 OS 에 잘 안 돌려주므로
+    malloc_trim 으로 반납시킨다(리눅스에서만, 실패해도 무시)."""
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
+def _decode_16k(raw: bytes):
+    """ffmpeg 가 바로 16kHz 모노로 바꿔 준다. 원본(48kHz 스테레오)을 파이썬 메모리에
+    통째로 펼치지 않아서 긴 통문장 녹음도 메모리를 1/6 쯤만 쓴다. 실패하면 None."""
+    import tempfile, subprocess
+    src = dst = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+            f.write(raw); src = f.name
+        dst = src + ".wav"
+        r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src,
+                            "-ar", "16000", "-ac", "1", "-sample_fmt", "s16", dst],
+                           capture_output=True, timeout=60)
+        if r.returncode != 0:
+            return None
+        return AudioSegment.from_file(dst, format="wav")
+    except Exception:
+        return None
+    finally:
+        for p in (src, dst):
+            if p:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+
 def _run_assessment(raw_bytes: bytes, text: str, debug: bool = False) -> dict:
     """오디오 bytes → 발음평가 결과(out dict). /api/assess 와 백그라운드 채점(score-take)이 함께 쓴다."""
-    seg, decoder = decode_audio(raw_bytes)
+    with _ASSESS_SEM:
+        try:
+            return _run_assessment_inner(raw_bytes, text, debug)
+        finally:
+            _release_memory()
+
+
+def _run_assessment_inner(raw_bytes: bytes, text: str, debug: bool = False) -> dict:
+    seg = _decode_16k(raw_bytes)
+    decoder = "ffmpeg16k"
+    if seg is None:
+        seg, decoder = decode_audio(raw_bytes)
     orig_dbfs = seg.dBFS
     orig_ms = len(seg)
     seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
