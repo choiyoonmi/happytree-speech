@@ -510,12 +510,24 @@ ADMIN_ONLY = [Depends(require_admin)]
 @app.get("/api/health")
 def health():
     db = load_db_ro()
-    return {
+    out = {
         "ok": True,
         "azure_key_set": bool(AZURE_KEY),
         "students": len(db["students"]),
         "assignments": len(db["assignments"]),
     }
+    # ★저장이 전부 500 이 날 때 Render 로그 없이도 디스크가 찼는지 보려고(2026-10-06)
+    try:
+        import shutil
+        du = shutil.disk_usage(DATA_DIR)
+        out["diskMB"] = {"total": du.total // 2**20, "free": du.free // 2**20}
+        probe = DATA_DIR / ".write_probe"
+        probe.write_text("ok"); probe.unlink()
+        out["writable"] = True
+    except Exception as e:
+        out["writable"] = False
+        out["writeError"] = f"{type(e).__name__}: {e}"[:200]
+    return out
 
 
 # ---------- auth ----------
