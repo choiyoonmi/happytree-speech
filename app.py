@@ -255,8 +255,68 @@ def load_db_ro():
     return store.load_db_shared(DB_PATH)
 
 
+# ── 뜻 칸에 품사만 든 단어 자동 채우기 (2026-10-08) ─────────────────────────
+# 원장 "단어익힘에 학습이 안 나온다". Word Up 800 숙제 사본(htt124·htt130) 113개 중 103개의 뜻이
+# 'noun'·'verb' 같은 품사뿐이었다 — 9/28 에 고친 뜻이 그 뒤 새로 만든 사본(나누기·다시 깔기)에 안 따라갔다.
+# 학생 화면은 뜻 없는 단어를 빼므로 단어가 다 빠져 학습이 안 나왔다.
+# → 저장할 때마다, 한글이 없는 뜻 칸을 같은 단어의 다른 과제 한글 뜻(가장 많이 쓴 것)으로 채운다.
+#   다른 과제에도 없는 단어는 아래 표로. 한글 뜻이 이미 있는 칸은 절대 안 건드린다.
+_HANGUL = re.compile(r"[가-힣]")
+_MEANING_FALLBACK = {
+    "agree": "동의하다", "because": "~때문에", "camping": "캠핑, 야영", "daily": "매일의, 날마다",
+    "exciting": "신나는, 흥미진진한", "far": "먼, 멀리", "fishing": "낚시", "furniture": "가구",
+    "leisure": "여가", "prefer": "더 좋아하다, 선호하다", "quality": "품질, 질", "request": "요청하다; 요청",
+    "rush": "서두르다, 급히 가다",
+}
+
+
+def _fill_missing_meanings(db) -> int:
+    from collections import Counter, defaultdict
+    seen = defaultdict(Counter)
+    asg = db.get("assignments") or []
+    for a in asg:
+        if (a.get("type") or "word") == "sentence":
+            continue
+        m = a.get("meanings") or []
+        for i, w in enumerate(a.get("items") or []):
+            if i < len(m) and isinstance(m[i], str) and _HANGUL.search(m[i]):
+                seen[str(w or "").strip().lower()][m[i].strip()] += 1
+    filled = 0
+    for a in asg:
+        if (a.get("type") or "word") == "sentence":
+            continue
+        items = a.get("items") or []
+        if not items:
+            continue
+        m = list(a.get("meanings") or [])
+        changed = False
+        for i, w in enumerate(items):
+            cur = m[i] if i < len(m) else ""
+            if isinstance(cur, str) and _HANGUL.search(cur):
+                continue
+            k = str(w or "").strip().lower()
+            got = seen[k].most_common(1)[0][0] if seen.get(k) else _MEANING_FALLBACK.get(k)
+            if not got:
+                continue
+            while len(m) <= i:
+                m.append("")
+            m[i] = got
+            changed = True
+            filled += 1
+        if changed:
+            a["meanings"] = m
+    return filled
+
+
 def save_db(db):
+    try:
+        n = _fill_missing_meanings(db)
+        if n:
+            print(f"[meanings] 품사뿐이던 뜻 {n}칸 채움")
+    except Exception as e:
+        print("[meanings] 채우기 실패(저장은 계속):", e)
     store.save_db(DB_PATH, db)
+
 
 
 
@@ -398,6 +458,18 @@ migrate_submissions_if_needed()
 
 
 app = FastAPI(title="HappyTree Reading Homework")
+
+
+@app.on_event("startup")
+def _repair_meanings_on_boot():
+    """켜질 때 한 번: 이미 들어가 있는 품사뿐인 뜻을 채운다(바뀔 게 있을 때만 저장)."""
+    try:
+        with _lock:
+            db = load_db()
+            if _fill_missing_meanings(db):
+                save_db(db)
+    except Exception as e:
+        print("[meanings] 부팅 보정 실패:", e)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://admin.happytreeacademy.com",
