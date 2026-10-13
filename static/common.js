@@ -106,11 +106,14 @@ function seriesOf(title) {
 }
 // 제목의 "Day/Unit/Lesson/과 N"에서 숫자만 뽑는다(정렬용). 없으면 null.
 
+// ★마지막 것을 읽는다(원장 2026-10-13 "김시안 Day1만 다 배정"). 교재 이름이 '…_2 Day1-24' 처럼
+//   번호를 품고 있으면 첫 것은 교재 이름 속 'Day1' 이라 24개가 전부 Day 1 로 보이고 1,10,11…,2 로 섞였다.
 function dayNum(title) {
   const t = title || "";
-  const m = /(?:day|unit|lesson|lec|chapter)\s*(\d+)/i.exec(t)
-    || /(?:유닛|레슨|단원|챕터)\s*(\d+)/.exec(t)
-    || /(\d+)\s*(?:일차|과|강|주차)/.exec(t);
+  const last = (re) => { const all = [...t.matchAll(re)]; return all.length ? all[all.length - 1] : null; };
+  const m = last(/(?:day|unit|lesson|lec|chapter)\s*(\d+)/gi)
+    || last(/(?:유닛|레슨|단원|챕터)\s*(\d+)/g)
+    || last(/(\d+)\s*(?:일차|과|강|주차)/g);
   return m ? parseInt(m[1], 10) : null;
 }
 

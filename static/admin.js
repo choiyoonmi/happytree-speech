@@ -1618,7 +1618,8 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
   const fromList = dated.filter(a => dueOf(a) >= reStart).sort((x, y) => dueOf(x).localeCompare(dueOf(y)));
 
   const shortOf = (t) => {
-    const m = /(?:day|unit|lesson)\s*\d+\s*(?:\(\s*\d+\s*\/\s*\d+\s*\))?/i.exec(t || "");
+    const all = [...(t || "").matchAll(/(?:day|unit|lesson)\s*\d+\s*(?:\(\s*\d+\s*\/\s*\d+\s*\))?/gi)];
+    const m = all.length ? all[all.length - 1] : null;   // ★마지막 것 — 교재 이름 속 'Day1-24' 말고
     return m ? m[0].replace(/\s+/g, " ") : (t || "").slice(0, 10);
   };
 

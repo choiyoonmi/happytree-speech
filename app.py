@@ -4464,10 +4464,12 @@ def _unit_num(title) -> int:
     Unit 10 (1/2) 와 (2/2) 가 정렬에서 떨어져 짝을 못 찾아 '합칠 것 0개'였다. 화면 dayNum 과 같은 규칙."""
     import re
     t = str(title or "")
-    m = (re.search(r"(?:day|unit|lesson|lec|chapter)\s*(\d+)", t, re.I)
-         or re.search(r"(?:유닛|레슨|단원|챕터)\s*(\d+)", t)
-         or re.search(r"(\d+)\s*(?:일차|과|강|주차)", t))
-    return int(m.group(1)) if m else 0
+    # ★마지막 것을 읽는다(2026-10-13) — '초등영어 단어가 된다_2 Day1-24 Day 10' 의 첫 것은 교재 이름 속 Day1 이라
+    #   24개가 전부 1 이 돼 다시 깔기가 1,10,11…,19,2,20… 글자순으로 날짜를 섞었다(김시안).
+    m = (re.findall(r"(?:day|unit|lesson|lec|chapter)\s*(\d+)", t, re.I)
+         or re.findall(r"(?:유닛|레슨|단원|챕터)\s*(\d+)", t)
+         or re.findall(r"(\d+)\s*(?:일차|과|강|주차)", t))
+    return int(m[-1]) if m else 0
 
 
 def _touched_ids(sid):
@@ -4491,8 +4493,8 @@ def _touched_ids(sid):
 def _day_num(title) -> int:
     """'... Day 12 (1/2)' 에서 12 를 꺼낸다. 없으면 0."""
     import re
-    m = re.search(r"Day\s*(\d+)", str(title or ""), re.I)
-    return int(m.group(1)) if m else 0
+    m = re.findall(r"Day\s*(\d+)", str(title or ""), re.I)   # 마지막 것(교재 이름 속 Day1-24 말고)
+    return int(m[-1]) if m else 0
 
 
 def _md_key(ts):
