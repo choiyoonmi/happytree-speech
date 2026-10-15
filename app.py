@@ -2718,8 +2718,16 @@ def due_today(back: int = 14):
     week_d = today_d - timedelta(days=today_d.weekday())
     overdue_week = sorted(sid for sid, aids in over_by.items()
                           if _has_unfinished(sid, [x for x in aids if (_iso(due_of.get(x)) or floor_d) >= week_d]))
+    # ★빠진 요일(원장 2026-10-15 "⏰ 월화수"): 이번 주 놓친 마감일의 요일 첫 글자, 월→일 순.
+    _WD = "월화수목금토일"
+    overdue_week_days = {}
+    for sid in overdue_week:
+        days = sorted({_iso(due_of.get(x)) for x in over_by.get(sid, [])
+                       if (_iso(due_of.get(x)) or floor_d) >= week_d and _has_unfinished(sid, [x])})
+        overdue_week_days[sid] = "".join(_WD[d.weekday()] for d in days if d)
     return {"ok": True, "date": today, "back": back_n,
             "notDone": not_done, "overdue": overdue, "overdueWeek": overdue_week,
+            "overdueWeekDays": overdue_week_days,
             "notDoneAll": sorted(set(not_done) | set(overdue))}
 
 
