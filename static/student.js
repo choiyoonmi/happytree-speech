@@ -896,7 +896,7 @@ function SentenceStudy({ assignment, student, voice, onClose }) {
 }
 
 function SentenceFlash({ pairs, title, voice, onBack, onDone }) {
-  const [order] = useState(() => shuffleArr(pairs));
+  const [order] = useState(() => shuffleArr(pairs).slice(0, studyCount(pairs.length)));
   const [i, setI] = useState(0);
   const [flip, setFlip] = useState(false);
   const doneRef = useRef(false);
@@ -923,7 +923,7 @@ function SentenceFlash({ pairs, title, voice, onBack, onDone }) {
 }
 
 function Unscramble({ pairs, title, voice, onBack, onDone }) {
-  const [order] = useState(() => shuffleArr(pairs.filter(p => (p.text||"").trim().split(/\s+/).length >= 2)));
+  const [order] = useState(() => { const ok = pairs.filter(p => (p.text||"").trim().split(/\s+/).length >= 2); return shuffleArr(ok).slice(0, studyCount(ok.length)); });
   const [i, setI] = useState(0);
   const [tokens, setTokens] = useState([]);
   const [bank, setBank] = useState([]);
@@ -1057,9 +1057,9 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
     </>
   );
   if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} label="카드 암기" voice={voice} onBack={backToModes} onDone={saveFlash} />;
-  if (mode === "choice") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="뜻 고르기" onBack={backToModes} onDone={saveResult} /> : needMeaning("뜻 고르기");
+  if (mode === "choice") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="뜻 고르기" onBack={backToModes} onDone={saveResult} limit={studyCount(quizPairs.length)} /> : needMeaning("뜻 고르기");
   if (mode === "spell") return quizPairs.length >= 1 ? <SpellQuiz pairs={quizPairs} title={cur.title} label="스펠링" onBack={backToModes} onDone={saveResult} /> : needMeaning("스펠링");
-  if (mode === "test") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="미니 테스트" onBack={backToModes} onDone={saveResult} limit={Math.min(20, quizPairs.length)} /> : needMeaning("미니 테스트");
+  if (mode === "test") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="미니 테스트" onBack={backToModes} onDone={saveResult} limit={Math.min(20, studyCount(quizPairs.length))} /> : needMeaning("미니 테스트");
 
   const bm = (rec && rec.byMode) || {};
   const doneCount = ["flash","choice","spell","test"].filter(k => bm[k]).length;
@@ -1107,7 +1107,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
 }
 
 function Flashcards({ pairs, title, voice, onBack, onDone, label }) {
-  const [order] = useState(() => shuffleArr(pairs));
+  const [order] = useState(() => shuffleArr(pairs).slice(0, studyCount(pairs.length)));
   const [i, setI] = useState(0);
   const [flip, setFlip] = useState(false);
   const [done, setDone] = useState(false);
@@ -1194,7 +1194,7 @@ function ChoiceQuiz({ pairs, title, onBack, onDone, limit, label }) {
 }
 
 function SpellQuiz({ pairs, title, onBack, onDone, label }) {
-  const [qs] = useState(() => shuffleArr(pairs));
+  const [qs] = useState(() => shuffleArr(pairs).slice(0, studyCount(pairs.length)));
   const [i, setI] = useState(0);
   const [val, setVal] = useState("");
   const [score, setScore] = useState(0);

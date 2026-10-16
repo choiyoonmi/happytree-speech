@@ -256,6 +256,11 @@ function AlignedFallback({ recognized }) {
   );
 }
 
+/* 단어익힘·문장익힘 한 판에 나오는 몫(원장 2026-10-16 "30개를 4단계 다 하는 건 너무 많다").
+   단계마다 따로 무작위로 뽑으니 4단계를 다 돌면 대부분의 단어가 한 번은 나온다. */
+const STUDY_RATIO = 0.6;
+function studyCount(n) { return Math.min(n, Math.max(1, Math.ceil(n * STUDY_RATIO))); }
+
 function shuffleArr(a) {
   const b = a.slice();
   for (let i = b.length - 1; i > 0; i--) {
