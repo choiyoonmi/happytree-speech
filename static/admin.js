@@ -530,34 +530,42 @@ function BulkUpload({ students, reload, onClose }) {
     const wb = XLSX.read(buf, { type:"array" });
     const parsed = [];
     let label = null;
+    let maxDay = 0;            // 지금까지 본 가장 큰 Day
+    const secBase = {};        // 'UPG' 같은 다른 묶음 이름 → 시작 직전 Day
+    const rest0HasWord = (cells) => cells.slice(1).some(v => /[a-zA-Z]/.test(v));
     for (const sheetName of wb.SheetNames) {
       let currentDay = dayNumber(sheetName);
       if (currentDay !== null) label = label || detectLabel(sheetName);
       const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header:1 });
       for (const r of raw) {
         if (!r || !r.length) continue;
-        const c0 = String(r[0] ?? "").trim();
-        const c1 = String(r[1] ?? "").trim();
-        const c2 = String(r[2] ?? "").trim();
-        const rowDay = dayNumber(c0);
-        if (/^(?:no\.?|번호)$/i.test(c0) || /^(?:english\s*word|영어\s*단어)$/i.test(c1)) continue;
-        if (rowDay !== null) {
-          currentDay = rowDay;
-          label = label || detectLabel(c0);
-          if (!c1) continue;
-          parsed.push({ day: currentDay, text: c1, meaning: c2 });
-          continue;
+        // Array.from: 엑셀 빈칸은 배열의 구멍으로 와서 map 이 건너뛴다(구멍이 undefined 로 남아 "undefined"가 영어로 잡힘)
+        const cells = Array.from(r, x => String(x ?? "").replace(/\u00a0/g, " ").trim());
+        // 표 머리글 줄(No · English Word · 뜻 …)은 건너뛴다
+        if (cells.every(v => !v || /^(?:no\.?|번호|english\s*word|영어\s*단어|word|단어|뜻|meaning|의미|품사)$/i.test(v))) continue;
+        let rowDay = dayNumber(cells[0]);
+        if (rowDay !== null) { currentDay = rowDay; label = label || detectLabel(cells[0]); maxDay = Math.max(maxDay, rowDay); }
+        else {
+          /* Day 말고 다른 이름의 묶음(예: 'UPG 1'~'UPG 10' 심화편)은 앞 Day 뒤에 이어 붙인다 → Day 61~70.
+             모르면 마지막 Day 에 330개가 몽땅 붙었다(2026-10-16 뜯어먹는 1800). 첫 칸이 '이름+숫자'뿐일 때만. */
+          const sec = cells[0].match(/^([A-Za-z가-힣]{1,10})[\s\-]*0*(\d{1,3})$/);
+          if (sec && rest0HasWord(cells)) {
+            const key = sec[1].toLowerCase();
+            if (!(key in secBase)) secBase[key] = maxDay;
+            rowDay = secBase[key] + Number(sec[2]);
+            currentDay = rowDay;
+          }
         }
-        const numberedRow = /^\d+$/.test(c0) && c1;
-        const wordCell = numberedRow ? c1 : (c0 || c1);
-        if (!wordCell) continue;
-        /* ★뜻 칸은 '자리'가 아니라 '한글이 든 칸'으로 고른다.
-           교재 엑셀이 [번호][단어][품사][뜻] 처럼 품사 열을 끼고 있으면 자리로만 집을 때
-           뜻 대신 'verb' 가 들어갔다(원장 2026-09-28 "스펠링에 verb 이런 게 나온다").
-           한글이 든 칸이 없을 때만 예전처럼 자리로 집는다. */
-        const korCell = r.map(x => String(x ?? "").trim()).slice(numberedRow ? 2 : 1)
-                         .find(v => /[가-힣]/.test(v)) || "";
-        const meaningCell = korCell || (numberedRow ? c2 : (c0 ? c1 : c2));
+        /* ★영어 칸은 '자리'가 아니라 '영문자가 든 칸'으로 찾는다.
+           [Day][번호][영어][뜻] 처럼 번호 열이 끼면 자리로 집을 때 번호 '1·2·3'이 영어로 들어가
+           영어가 하나도 없는 파일로 오인했다(원장 2026-10-16 '뜯어먹는 중학 영단어 1800' 이 안 올라감).
+           뜻 칸도 같은 이유로 그 뒤 '한글이 든 칸'으로 고른다(2026-09-28 품사 열 문제). */
+        const rest = cells.slice(rowDay !== null ? 1 : 0);
+        const wi = rest.findIndex(v => /[a-zA-Z]/.test(v));
+        if (wi < 0) continue;
+        const wordCell = rest[wi];
+        const korCell = rest.slice(wi + 1).find(v => /[가-힣]/.test(v)) || "";
+        const meaningCell = korCell || rest[wi + 1] || "";
         const sp = splitMeaning(wordCell);
         parsed.push({ day: currentDay, text: sp.text || wordCell, meaning: sp.meaning || meaningCell });
       }
