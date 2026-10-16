@@ -1011,7 +1011,12 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const reloadProgress = () => apiGet(`/vocab/${student.id}`).then(d => setRec(d[cur.id] || null)).catch(()=>{});
   useEffect(() => { reloadProgress(); }, []);
 
-  const pairs = cur.items.map((w, i) => ({ word: w, kor: (cur.meanings && cur.meanings[i]) || "", audio: (cur.exampleAudio && cur.exampleAudio[i]) || null }));
+  /* 교재 엑셀 맨 위 제목 줄이 단어로 들어온 경우가 있다(Word Up 400 Unit 1 첫 단어가
+     "Word Up 400 Vocabulary Lists"). 교재 이름과 같은 '단어'는 익힘에서 뺀다. */
+  const bookKey = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const isBookTitle = (w) => { const k = bookKey(w); return !!k && k.includes(" ") && (k === bookKey(cur.book) || bookKey(cur.title).startsWith(k)); };
+  const pairs = cur.items.map((w, i) => ({ word: w, kor: (cur.meanings && cur.meanings[i]) || "", audio: (cur.exampleAudio && cur.exampleAudio[i]) || null }))
+    .filter(p => !isBookTitle(p.word));
 
   /* ★뜻 칸에 품사(verb·noun·동사…)만 들어 있거나 아예 비어 있는 단어가 섞여 있다.
      교재 엑셀에 품사 열이 따로 있는데 그걸 뜻으로 읽어 들인 탓(원장 2026-09-28 제보
@@ -1204,17 +1209,21 @@ function SpellQuiz({ pairs, title, onBack, onDone, label }) {
   const q = qs[i];
   const norm = (s) => (s || "").trim().toLowerCase();
 
+  const next = (ns) => {
+    setScore(ns);
+    if (i + 1 >= qs.length) { setPhase("result"); onDone(ns, qs.length); }
+    else { setI(i + 1); setVal(""); setChecked(null); }
+  };
+  /* ★틀리면 정답 철자를 0.85초만 보여 주고 넘어가서 아이 눈엔 "스펠링이 안 나온다"였다
+     (원장 2026-10-16, 위지아 Word Up 400). 맞으면 그대로 바로 넘어가고,
+     틀리면 정답을 크게 띄운 채 '다음' 을 누를 때까지 기다린다. */
   const check = () => {
+    if (checked === "no") { next(score); return; }
     if (checked != null) return;
     const ok = norm(val) === norm(q.word) && norm(val) !== "";
     setChecked(ok ? "ok" : "no");
-    if (!ok) setWrong(w => [...w, q]);
-    const ns = score + (ok ? 1 : 0);
-    setTimeout(() => {
-      setScore(ns);
-      if (i + 1 >= qs.length) { setPhase("result"); onDone(ns, qs.length); }
-      else { setI(i + 1); setVal(""); setChecked(null); }
-    }, 850);
+    if (!ok) { setWrong(w => [...w, q]); return; }
+    setTimeout(() => next(score + 1), 850);
   };
 
   if (phase === "result") return <QuizResult title={title} label={label} score={score} total={qs.length} wrong={wrong} onBack={onBack} />;
@@ -1229,8 +1238,14 @@ function SpellQuiz({ pairs, title, onBack, onDone, label }) {
     <input className="field" value={val} onChange={e=>setVal(e.target.value)}
       onKeyDown={e=>{ if (e.key === "Enter") check(); }} placeholder="정답 입력" disabled={checked != null}
       style={{ marginTop:10, borderColor: checked==="ok" ? "#8FC7AA" : checked==="no" ? "#E8C4BC" : undefined }} />
-    {checked === "no" && <div style={{ marginTop:6, color:"var(--danger)", fontSize:13 }}>정답: <b>{q.word}</b></div>}
-    <button className="btn full" style={{ marginTop:10 }} onClick={check} disabled={checked != null}>확인</button>
+    {checked === "no" && <div className="card" style={{ marginTop:10, padding:"14px 16px", textAlign:"center", background:"#FBEFEC", borderColor:"#E8C4BC" }}>
+      <div style={{ fontSize:13, color:"var(--danger)" }}>정답 스펠링</div>
+      <div style={{ fontSize:28, fontWeight:800, color:"var(--navy)", letterSpacing:"0.04em", marginTop:4 }}>{q.word}</div>
+      {norm(val) && <div className="muted" style={{ fontSize:12, marginTop:4 }}>내가 쓴 것: {val}</div>}
+    </div>}
+    <button className="btn full" style={{ marginTop:10 }} onClick={check} disabled={checked === "ok"}>
+      {checked === "no" ? (i + 1 >= qs.length ? "결과 보기" : "다음 ›") : "확인"}
+    </button>
   </>;
 }
 
