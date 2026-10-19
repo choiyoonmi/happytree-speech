@@ -455,7 +455,7 @@ function AdminStudents({ students, reload }) {
 
 // ---------- Admin: bulk book upload ----------
 
-function BulkUpload({ students, reload, onClose }) {
+function BulkUpload({ students, assignments, reload, onClose }) {
   const [rows, setRows] = useState(null);       // [{day, text, meaning}]
   const [title, setTitle] = useState("");
   const [type, setType] = useState("word");
@@ -471,6 +471,12 @@ function BulkUpload({ students, reload, onClose }) {
      그 주 수업일마다 되풀이하고, 단어 교재는 수업일마다 다음 Day 로 넘어간다. */
   const [repeat, setRepeat] = useState(1);
   const [repTouched, setRepTouched] = useState(false);
+  /* ★등록하면서 바로 쪼갠다(2026-10-19 "브릭스 900 통째로 올리면서 학습을 쪼개고 싶은데 잘 안 된대").
+     전엔 통째로 올린 뒤 따로 나누기를 돌려야 했다. 그 사이 또 올리거나 나누기를 다시 돌리면
+     통째 Day 와 조각이 둘 다 남아(박수현 htt121: Day 18~60 이 두 벌) 하루에 두 개씩 나갔다.
+     제목은 기존 나누기와 같은 '… Day 3 (1/2)' — 합치기·진도·달력이 그대로 알아본다. */
+  const [pieces, setPieces] = useState(1);              // 한 유닛을 몇 조각으로: 1=안 나눔
+  const [pieceSameDay, setPieceSameDay] = useState(false); // true=조각을 같은 날 함께, false=하루에 한 조각씩
   const [mode, setMode] = useState("hidden");   // 기본값: 보관함(실수로 전체 배포 방지)
   const [classes, setClasses] = useState([]);
   const [ids, setIds] = useState([]);
@@ -777,15 +783,34 @@ function BulkUpload({ students, reload, onClose }) {
   }, [type, weekdays.length, repTouched]);
 
   const rep = Math.max(1, Number(repeat) || 1);
+  const pc = Math.max(1, Number(pieces) || 1);
+  // 유닛 하나의 조각 경계 — 단어 수가 조각 수보다 적으면 그만큼만 나눈다. 11개를 둘로 = 6·5
+  const cutsOf = (n) => {
+    const k = Math.max(1, Math.min(pc, n));
+    return Array.from({ length: k }, (_, p) => [Math.round(p * n / k), Math.round((p + 1) * n / k)]);
+  };
+  // 수업일 칸 하나에 들어가는 과제 묶음: 같은 날이면 유닛(반복 한 번)당 한 칸, 아니면 조각마다 한 칸
+  const slots = React.useMemo(() => {
+    const out = [];
+    groups.forEach((g, i) => {
+      const cuts = cutsOf(g.rows.length);
+      for (let k = 0; k < rep; k++) {
+        if (pieceSameDay || cuts.length === 1) out.push({ i, k, cuts });
+        else cuts.forEach(c => out.push({ i, k, cuts: [c], of: cuts.length, no: cuts.indexOf(c) + 1 }));
+      }
+    });
+    return out;
+  }, [groups, rep, pc, pieceSameDay]);
+  const totalCount = slots.reduce((s, x) => s + x.cuts.length, 0);
 
-  // 선택한 요일에 맞춰 마감일 계산 (반복까지 친 개수만큼)
+  // 선택한 요일에 맞춰 마감일 계산 (반복·조각까지 친 칸 수만큼)
   const dueDates = React.useMemo(() => {
     if (!groups.length || !weekdays.length) return [];
     const out = [];
     const [y,m,d] = startDate.split("-").map(Number);
     let cur = new Date(y, m-1, d);
     let guard = 0;
-    while (out.length < groups.length * rep && guard < 4000) {
+    while (out.length < slots.length && guard < 4000) {
       if (weekdays.includes(cur.getDay()) && !isClosedDay(cur)) {
         out.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`);
       }
@@ -793,7 +818,22 @@ function BulkUpload({ students, reload, onClose }) {
       guard++;
     }
     return out;
-  }, [groups.length, startDate, weekdays, rep]);
+  }, [groups.length, startDate, weekdays, slots.length]);
+
+  /* ★이미 이 교재를 받고 있는 학생 — 그대로 또 올리면 같은 Day 가 두 벌이 된다(박수현·김…, 2026-10-19).
+     보관함(학생에게 안 보임)·전체 배정은 따지지 않는다. */
+  const targetIds = mode === "class" ? students.filter(s => classes.includes(s.className)).map(s => s.id)
+    : mode === "individual" ? ids : [];
+  const already = React.useMemo(() => {
+    const bk = title.trim();
+    if (!bk || !targetIds.length) return [];
+    const mine = (assignments || []).filter(a => a.published !== false && (a.book || "").trim() === bk);
+    return targetIds.map(sid => {
+      const own = mine.filter(a => (a.assignedIds || []).map(String).includes(sid));
+      const s = students.find(x => x.id === sid);
+      return { sid, name: s ? pickLabel(s, students) : sid, n: own.length };
+    }).filter(x => x.n > 0);
+  }, [assignments, title, targetIds.join(","), students]);
 
   const autoTranslate = async () => {
     if (!rows) return;
@@ -822,6 +862,10 @@ function BulkUpload({ students, reload, onClose }) {
       if (!ids.length) return setErr("학생을 선택해주세요.");
       assignedIds = ids;
     }
+    if (!hidden && already.length && !confirm(
+      already.map(x => `${x.name}: 이미 「${title.trim()}」 과제 ${x.n}개`).join("\n") +
+      `\n\n그대로 등록하면 같은 ${unitLabel} 가 두 번 나가요.\n` +
+      `이미 받은 교재를 나누거나 날짜를 바꾸려면 교재 화면의 「👤 학생별 나누기·합치기」·「🗓 날짜 다시 깔기」를 쓰세요.\n\n그래도 새로 등록할까요?`)) return;
     setBusy(true); setErr("");
     try {
       // 뜻이 비어 있는 단어는 과제 등록 전에 자동으로 한글 뜻을 생성해요.
@@ -854,17 +898,27 @@ function BulkUpload({ students, reload, onClose }) {
       }
 
       const payload = [];
-      translatedGroups.forEach((g,i) => { for (let k = 0; k < rep; k++) payload.push({
-        title: `${title.trim()} ${unitLabel} ${g.day}` + (rep > 1 ? ` (${k+1}일차)` : ""),
-        book: title.trim(),
-        type, rounds, recordMode: type==="sentence" ? recordMode : "each",
-        items: g.rows.map(r=>r.text),
-        meanings: g.rows.map(r=>r.meaning || ""),
-        dueDate: hidden ? null : (dueDates[i * rep + k] || null),
-        assignedIds,
-        assignedClasses: mode==="class" ? classes : [],
-        published: !hidden,
-      }); });
+      slots.forEach((sl, si) => {
+        const g = translatedGroups[sl.i];
+        const all = cutsOf(g.rows.length);
+        sl.cuts.forEach(([lo, hi]) => {
+          const no = all.findIndex(c => c[0] === lo) + 1;
+          const rows = g.rows.slice(lo, hi);
+          payload.push({
+            // 조각 표시는 맨 끝에 — 서버 _piece_base·화면 합치기가 '(1/2)' 를 끝에서 찾는다
+            title: `${title.trim()} ${unitLabel} ${g.day}` + (rep > 1 ? ` (${sl.k+1}일차)` : "")
+              + (all.length > 1 ? ` (${no}/${all.length})` : ""),
+            book: title.trim(),
+            type, rounds, recordMode: type==="sentence" ? recordMode : "each",
+            items: rows.map(r=>r.text),
+            meanings: rows.map(r=>r.meaning || ""),
+            dueDate: hidden ? null : (dueDates[si] || null),
+            assignedIds,
+            assignedClasses: mode==="class" ? classes : [],
+            published: !hidden,
+          });
+        });
+      });
       const r = await apiPost("/assignments/bulk", { assignments: payload });
       await reload();
       alert(`${r.created}개 과제를 등록했어요!`);
@@ -1058,6 +1112,33 @@ function BulkUpload({ students, reload, onClose }) {
                 : "📚 단어 교재라 「반복 안 함」으로 뒀어요 — 수업일마다 다음 Day 가 나갑니다."}
             </div>
           )}
+
+          <div style={{height:12}} />
+          <label className="label">✂️ 한 {unitLabel} 를 나눠서 낼까요 <span className="muted" style={{ fontWeight:400 }}>(통째로 올리면서 바로 쪼개기)</span></label>
+          <div className="row" style={{ gap:6, marginBottom:6, flexWrap:"wrap" }}>
+            {[1,2,3].map(n => (
+              <button key={n} onClick={()=>setPieces(n)}
+                style={{ padding:"6px 12px", borderRadius:999, fontSize:12, fontWeight:700, border:"1px solid var(--navy)",
+                  background: pc===n ? "var(--navy)" : "#fff", color: pc===n ? "var(--cream)" : "var(--navy)" }}>
+                {n===1 ? "안 나눔" : `${n}조각으로`}
+              </button>
+            ))}
+          </div>
+          {pc > 1 && <>
+            <div className="seg" style={{ marginTop:0 }}>
+              <button className={!pieceSameDay?"on":""} onClick={()=>setPieceSameDay(false)}>하루에 한 조각씩</button>
+              <button className={pieceSameDay?"on":""} onClick={()=>setPieceSameDay(true)}>같은 날 조각 모두</button>
+            </div>
+            <div className="muted" style={{ marginTop:4, fontSize:12 }}>
+              {groups[0] && (() => {
+                const c = cutsOf(groups[0].rows.length);
+                return `예) ${unitLabel} ${groups[0].day} ${groups[0].rows.length}개 → ${c.map(([a,b]) => b - a + "개").join(" + ")}`;
+              })()}
+              {pieceSameDay
+                ? " · 그날 조각을 하나씩 따로 녹음해요(한 번에 하는 양은 같고, 녹음만 짧게 끊김)."
+                : " · 수업일마다 한 조각 — 하루 양이 줄고 교재 끝나는 날이 그만큼 늦어져요."}
+            </div>
+          </>}
           <div style={{height:12}} />
           <label className="label">배정 대상</label>
           <div className="seg" style={{marginTop:0}}>
@@ -1089,6 +1170,13 @@ function BulkUpload({ students, reload, onClose }) {
               ))}
             </div>
           )}
+          {already.length > 0 && (
+            <div style={{ marginTop:10, padding:"10px 12px", borderRadius:8, background:"#FFF4F2", border:"1px solid #E8B4AC", fontSize:12, color:"#8A2E22", lineHeight:1.6 }}>
+              ⚠️ <b>이미 이 교재를 받고 있어요</b> — 그대로 등록하면 같은 {unitLabel} 가 두 벌이 돼요.
+              {already.map(x => <div key={x.sid}>· {x.name}: 과제 {x.n}개</div>)}
+              이미 받은 교재를 쪼개거나 날짜를 바꾸려면 새로 올리지 말고 교재 화면의 <b>👤 학생별 나누기·합치기</b>를 쓰세요.
+            </div>
+          )}
 
           <div style={{height:16}} />
           <label className="label">단위 표기 (제목에 붙어요)</label>
@@ -1098,29 +1186,30 @@ function BulkUpload({ students, reload, onClose }) {
             ))}
           </div>
           <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:8, fontSize:13 }}>
-            등록 미리보기 ({groups.length * rep}개{rep > 1 ? ` · 유닛 ${groups.length}개 × ${rep}번` : ""})
+            등록 미리보기 ({totalCount}개{rep > 1 ? ` · 유닛 ${groups.length}개 × ${rep}번` : ""}{pc > 1 ? ` · ${unitLabel}마다 ${pc}조각` : ""})
           </div>
           <div style={{ maxHeight:200, overflowY:"auto", border:"1px solid var(--line)", borderRadius:8 }}>
-            {groups.map((g,i) => (
+            {groups.map((g,i) => {
+              const my = slots.map((s, si) => ({ ...s, si })).filter(s => s.i === i);
+              const f = (x) => `${x.slice(5).replace("-","/")} (${DAYNAMES[new Date(x).getDay()]})`;
+              const a = dueDates[my[0].si], b = dueDates[my[my.length - 1].si];
+              const nCut = cutsOf(g.rows.length).length;
+              return (
               <div key={g.day} style={{ padding:"8px 10px", borderBottom: i<groups.length-1?"1px solid #F0EBDD":"none",
                 display:"flex", justifyContent:"space-between", gap:8, fontSize:12 }}>
-                <span style={{ fontWeight:600 }}>{title || "교재명"} {unitLabel} {g.day}</span>
+                <span style={{ fontWeight:600 }}>{title || "교재명"} {unitLabel} {g.day}{nCut > 1 ? ` (${nCut}조각)` : ""}</span>
                 <span className="muted" style={{ whiteSpace:"nowrap" }}>
-                  {g.rows.length}개 · {(() => {
-                    const a = dueDates[i * rep], b = dueDates[i * rep + rep - 1];
-                    if (!a) return "-";
-                    const f = (x) => `${x.slice(5).replace("-","/")} (${DAYNAMES[new Date(x).getDay()]})`;
-                    return rep > 1 && b && b !== a ? `${f(a)} ~ ${f(b)} · ${rep}번` : f(a);
-                  })()}
+                  {g.rows.length}개 · {!a ? "-" : (b && b !== a ? `${f(a)} ~ ${f(b)}` : f(a))}{rep > 1 ? ` · ${rep}번` : ""}
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="row" style={{ marginTop:16 }}>
             <button className="btn-ghost" onClick={onClose}>취소</button>
             <button className="btn" onClick={submit} disabled={busy}>
-              {busy ? "등록 중..." : `${groups.length * rep}개 과제 등록하기`}
+              {busy ? "등록 중..." : `${totalCount}개 과제 등록하기`}
             </button>
           </div>
         </>
@@ -1251,7 +1340,7 @@ function AdminAssignments({ students, assignments, reload, voice }) {
           </button>
         </div>
       ) : showBulk ? (
-        <BulkUpload students={students} reload={reload} onClose={()=>setShowBulk(false)} />
+        <BulkUpload students={students} assignments={assignments} reload={reload} onClose={()=>setShowBulk(false)} />
       ) : (
         <div className="card">
           <div className="label" style={{ color:"var(--gold)", fontWeight:800, marginBottom:6 }}>① 무엇을 낼까요?</div>
