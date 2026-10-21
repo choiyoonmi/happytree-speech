@@ -474,6 +474,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://admin.happytreeacademy.com",
                    "https://student.happytreeacademy.com",
+                   "https://happytree-student.pages.dev",   # 포털 예비 주소(여기로 들어오면 트리톡 랭킹 점수가 빠졌음)
                    "https://happytree-kiosk.white21040.workers.dev"],
     allow_credentials=False,
     allow_methods=["GET"],
