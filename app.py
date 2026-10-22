@@ -2968,6 +2968,57 @@ def _rounds_done(items, item_count, rounds_total):
     return done
 
 
+# ── 단어급수 마지막 Day 를 끝내면 그 책 진급시험을 연다 (2026-10-22) ─────────────
+# 원장 "Day12가 완료되면 각 레벨별 해당 교재에 테스트가 자동으로 진행되었으면".
+# 마지막 Day = 그 학생에게 배정된 그 책 Day 중 번호가 가장 큰 것(LV2 는 12, LV3 이상은 15).
+# 나눠 낸 Day('(1/2)','(2/2)')는 조각이 다 끝나야 한다. 날짜와 상관없이 끝낸 순간 연다.
+# 보관함의 시험(published=false, 배정 없음)을 원본으로 두고 그 학생만 배정한 사본을 만든다.
+# ★원본을 공개하면 안 된다 — assignedIds 가 비어 있으면 학원 학생 전부에게 뜬다.
+_LV_BOOK = re.compile(r"^LV\d+ \d+권$")
+_DAY_NO = re.compile(r"Day\s*0*(\d+)")
+
+
+def _day_no(a):
+    m = _DAY_NO.search(a.get("title") or "")
+    return int(m.group(1)) if m else None
+
+
+def _maybe_open_exam(student_id, assignment):
+    book = (assignment or {}).get("book") or ""
+    if assignment.get("type") == "exam" or not _LV_BOOK.match(book):
+        return
+    sid = str(student_id)
+    mine = lambda a: sid in [str(x) for x in (a.get("assignedIds") or [])]
+    db = load_db_ro()
+    rows = [a for a in db["assignments"] if a.get("book") == book]
+    if any(a.get("type") == "exam" and mine(a) for a in rows):
+        return                                   # 이미 열어 줬다
+    days = [a for a in rows if a.get("type") != "exam" and a.get("published") is not False and mine(a)]
+    nums = [n for n in (_day_no(a) for a in days) if n is not None]
+    if not nums or _day_no(assignment) != max(nums):
+        return
+    subs = load_student_subs(student_id)
+    if not all((subs.get(a["id"]) or {}).get("completedAt") for a in days if _day_no(a) == max(nums)):
+        return
+    import copy as _copy, uuid
+    with _lock:
+        db = load_db()
+        rows = [a for a in db["assignments"] if a.get("book") == book and a.get("type") == "exam"]
+        if any(mine(a) for a in rows):
+            return
+        tpl = next((a for a in rows if a.get("published") is False and not a.get("assignedIds")), None)
+        if not tpl:
+            print(f"[exam] {book} 진급시험 원본이 보관함에 없음 — {sid} 시험 못 엶")
+            return
+        ex = _copy.deepcopy(tpl)
+        ex.update({"id": "a" + uuid.uuid4().hex[:10],"assignedIds": [sid], "assignedClasses": [],
+                   "published": True, "dueDate": _today_kr(), "autoDate": False,
+                   "examFrom": tpl["id"]})
+        db["assignments"].append(ex)
+        save_db(db)
+    print(f"[exam] {sid} {book} 마지막 Day 완료 → 진급시험 열림")
+
+
 @app.post("/api/submission/{assignment_id}/{student_id}")
 def save_submission(assignment_id: str, student_id: str, payload: dict = Body(...)):
     import time
@@ -3015,6 +3066,12 @@ def save_submission(assignment_id: str, student_id: str, payload: dict = Body(..
             ra["completedAt"] = existing["completedAt"]
         act["record"] = ra
         save_activity(student_id, act)
+
+    if existing.get("completedAt"):
+        try:
+            _maybe_open_exam(student_id, assignment)
+        except Exception as e:
+            print("[exam] 진급시험 자동 열기 실패(녹음 저장은 됨):", e)
 
     # 이번 저장으로 '제출됨' 상태가 새로 된 경우에만 알림 (중간 저장·재저장 시엔 안 보냄)
     if payload.get("status") == "submitted" and prev_status != "submitted":
