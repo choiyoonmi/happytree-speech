@@ -153,15 +153,29 @@ function useVoice() {
   return voice;
 }
 
+// 낱말 끝소리가 잘리던 것(short→"숄", 원장 10/22). 태블릿 음성엔진은 소리를 다 내보내기 전에
+// 재생을 닫아 마지막 자음(t·k·d)을 먹는다. 그래서
+//  ① 문장부호로 끝나지 않으면 마침표를 붙여 끝에 쉼을 만든다 — 잘려도 쉼이 잘리고 자음은 남는다.
+//  ② cancel() 직후 바로 speak() 하면 안드로이드·iOS 에서 새 소리가 끊기므로, 앞 소리가 있을 때만 끄고 잠깐 기다린다.
+//  ③ 크롬은 참조가 없는 utterance 를 재생 중에 치워 소리가 중간에 멎으므로 전역에 붙잡아 둔다.
+let _speakT = null;
 function speak(text, voice, rate) {
   if (!window.speechSynthesis) return alert("이 브라우저는 음성 재생을 지원하지 않아요.");
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
+  const s = String(text || "").trim();
+  if (!s) return;
+  const u = new SpeechSynthesisUtterance(/[.!?…]["')\]]*$/.test(s) ? s : s + ".");
   if (voice) u.voice = voice;
   u.lang = "en-US";
   u.rate = rate || 0.7;
   u.pitch = 1.05;
-  speechSynthesis.speak(u);
+  window._ttsUtter = u;
+  clearTimeout(_speakT);
+  if (speechSynthesis.speaking || speechSynthesis.pending) {
+    speechSynthesis.cancel();
+    _speakT = setTimeout(() => speechSynthesis.speak(u), 120);
+  } else {
+    speechSynthesis.speak(u);
+  }
 }
 // 선생님이 올린 음원(url)이 있으면 그걸 재생, 없으면 TTS로 읽기
 
