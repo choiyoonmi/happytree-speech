@@ -2899,14 +2899,22 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
     if (!roundsTargets.length) return setErr("해당하는 과제가 없어요.");
     setBusy(true); setErr("");
     try {
-      await Promise.all(roundsTargets.map(a => {
-        const body = { rounds: newRounds };
-        if (newRecordMode) body.recordMode = newRecordMode;   // 문장 녹음 방식도 함께 일괄 변경
-        return fetch("/api/assignments/" + a.id, {
-          method:"PATCH", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify(body)
+      // ★과제마다 PATCH 를 동시에 쏘면 서버가 db 를 수십 번 읽고 써서 메모리 초과로 재시작했다(10/22).
+      //   한 번에 보내고, 답이 없으면 60초 뒤 멈춤 대신 오류를 보여 준다.
+      const changes = { rounds: newRounds };
+      if (newRecordMode) changes.recordMode = newRecordMode;   // 문장 녹음 방식도 함께 일괄 변경
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 60000);
+      let r;
+      try {
+        r = await fetch("/api/assignments/patch-many", {
+          method:"POST", headers:{"Content-Type":"application/json"}, signal: ctl.signal,
+          body: JSON.stringify({ ids: roundsTargets.map(a => a.id), changes })
         });
-      }));
+      } catch (e) {
+        throw new Error(e.name === "AbortError" ? "서버가 답이 없어요. 잠시 뒤 다시 눌러 주세요." : e.message);
+      } finally { clearTimeout(timer); }
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "변경하지 못했어요.");
       await reload(); setPanel(null);
     } catch (e) { setErr(e.message); }
     setBusy(false);

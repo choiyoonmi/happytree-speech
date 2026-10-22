@@ -1921,28 +1921,60 @@ def _sync_exam_dates(db):
         ex["dueDate"] = _open_due((last + timedelta(days=1)).isoformat())   # 시험도 토·일·휴무일엔 안 놓는다
 
 
+_PATCH_ALLOWED = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio", "recordMode", "examples", "exampleKo", "passScore", "spellMode", "spellDecoys"}
+
+
+def _apply_patch(a, payload):
+    for k, v in payload.items():
+        if k not in _PATCH_ALLOWED:
+            continue
+        if k == "rounds":
+            a[k] = max(1, min(3, int(v or 3)))
+        elif k == "dueDate":
+            a[k] = _open_due(v) if v else None   # 토·일·휴무일에 놓이면 다음 평일로
+        elif k == "published":
+            a[k] = bool(v)
+        elif k in ("assignedIds", "assignedClasses", "items", "meanings", "exampleAudio"):
+            a[k] = v if isinstance(v, list) else []
+        else:
+            a[k] = str(v).strip()
+
+
+# ── 여러 과제 한 번에 고치기 (2026-10-22, 원장 "김응진 녹음방식 2회로 바꾸는데 '변경 중'에서 멈춤") ──
+# 회차 일괄변경이 과제마다 PATCH 를 동시에 쐈다. PATCH 하나가 db.json(3.7MB) 을 통째로 읽고·쓰고·D1 에
+# 올리므로 과제 수십 개면 그걸 수십 번 — 메모리 초과로 Render 가 재시작했고 화면은 답을 못 받아 멈췄다.
+# → 받은 id 전부를 한 번 읽고 한 번 저장한다. 고칠 수 있는 칸은 PATCH 와 같다.
+@app.post("/api/assignments/patch-many", dependencies=ADMIN_ONLY)
+def patch_many_assignments(request: Request, payload: dict = Body(...)):
+    ids = set(payload.get("ids") or [])
+    changes = payload.get("changes") or {}
+    if not ids or not isinstance(changes, dict):
+        raise HTTPException(400, "고칠 과제가 없어요.")
+    changes = {k: v for k, v in changes.items() if k in _PATCH_ALLOWED and k != "dueDate"}
+    if not changes:
+        raise HTTPException(400, "고칠 내용이 없어요.")
+    ac = academy_of(request)
+    with _lock:
+        db = load_db()
+        n = 0
+        for a in db["assignments"]:
+            if a["id"] in ids and academy_of_student(a) == ac:
+                _apply_patch(a, changes); n += 1
+        if n:
+            _sync_exam_dates(db)
+            save_db(db)
+    return {"changed": n}
+
+
 @app.patch("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: str, payload: dict = Body(...)):
     """과제 하나 수정 (마감일, 제목, 녹음 횟수, 배정 대상 등)."""
-    allowed = {"title", "dueDate", "rounds", "type", "book", "assignedIds", "assignedClasses", "published", "items", "meanings", "exampleAudio", "recordMode", "examples", "exampleKo", "passScore", "spellMode", "spellDecoys"}
     with _lock:
         db = load_db()
         for a in db["assignments"]:
             if a["id"] == assignment_id:
                 _due0 = a.get("dueDate")     # 되돌리기용(달력에서 끌어 옮긴 것도 포함)
-                for k, v in payload.items():
-                    if k not in allowed:
-                        continue
-                    if k == "rounds":
-                        a[k] = max(1, min(3, int(v or 3)))
-                    elif k == "dueDate":
-                        a[k] = _open_due(v) if v else None   # 토·일·휴무일에 놓이면 다음 평일로
-                    elif k == "published":
-                        a[k] = bool(v)
-                    elif k in ("assignedIds", "assignedClasses", "items", "meanings", "exampleAudio"):
-                        a[k] = v if isinstance(v, list) else []
-                    else:
-                        a[k] = str(v).strip()
+                _apply_patch(a, payload)
                 # 시험 날짜를 직접 바꾸면 자동조정 해제 / 그 외엔 시험 날짜 재동기화
                 if a.get("type") == "exam" and "dueDate" in payload:
                     a["autoDate"] = False
