@@ -1963,7 +1963,61 @@ def patch_many_assignments(request: Request, payload: dict = Body(...)):
         if n:
             _sync_exam_dates(db)
             save_db(db)
+    if n and ("rounds" in changes or "recordMode" in changes):
+        _complete_met_later([a for a in db["assignments"] if a["id"] in ids])
     return {"changed": n}
+
+
+# ── 회차를 줄이면 이미 채운 학생은 완료로 (2026-10-24, 원장 "김의진 목요일에 했는데 완료로 안 뜬다") ──
+# 완료 표시(status)는 학생이 '제출'을 눌러야만 바뀐다. 김의진은 3회차 중 2회차까지 하고 멈췄는데
+# 그 뒤 회차가 1회로 줄어 기준은 채웠지만, 다시 들어가 제출할 일이 없으니 계속 '안 함'으로 남았다.
+# → 회차·녹음방식을 바꾼 과제에 한해, 새 기준을 이미 채운 제출을 'submitted' 로 바꾼다.
+#   save_submission 을 안 거치므로 "방금 제출했다" 텔레그램 알림은 안 나간다.
+#   날짜는 지금이 아니라 그 학생이 녹음하던 때(completedAt 없으면 startedAt)로 남긴다.
+def _complete_met(assignments):
+    by_id = {a["id"]: a for a in assignments if a.get("type") != "exam"}
+    if not by_id:
+        return 0
+    n = 0
+    for sid in all_student_ids():
+        opened = []
+        with _sub_lock(sid):
+            subs = load_student_subs(sid)
+            changed = False
+            for aid, sub in subs.items():
+                a = by_id.get(aid)
+                if not a or not isinstance(sub, dict) or sub.get("status") in ("submitted", "reviewed"):
+                    continue
+                total = int(a.get("rounds", 3) or 3)
+                if a.get("recordMode") == "whole":
+                    whole = sub.get("whole") or []
+                    done = sum(1 for r in range(total) if r < len(whole) and whole[r])
+                else:
+                    done = _rounds_done(sub.get("items") or [], len(a.get("items") or []), total)
+                if done < total:
+                    continue
+                when = sub.get("completedAt") or sub.get("startedAt") or _now_kr()
+                sub.update({"status": "submitted", "submittedAt": sub.get("submittedAt") or when,
+                            "completedAt": sub.get("completedAt") or when,
+                            "roundsDone": done, "roundsTotal": total, "autoCompleted": _now_kr()})
+                changed = True
+                n += 1
+                opened.append(a)
+            if changed:
+                save_student_subs(sid, subs)
+        for a in opened:
+            try:
+                _maybe_open_exam(sid, a)
+            except Exception as e:
+                print("[exam] 진급시험 자동 열기 실패(자동 완료는 됨):", e)
+    if n:
+        print(f"[rounds] 회차 변경으로 자동 완료 {n}건")
+    return n
+
+
+def _complete_met_later(assignments):
+    """학생 수만큼 제출 기록을 읽으므로 응답을 붙잡지 않게 뒤에서 돌린다."""
+    threading.Thread(target=_complete_met, args=(assignments,), daemon=True).start()
 
 
 @app.patch("/api/assignments/{assignment_id}")
@@ -1983,6 +2037,8 @@ def update_assignment(assignment_id: str, payload: dict = Body(...)):
                 if "dueDate" in payload:
                     _hist_push(db, "날짜 옮기기", [{"id": a["id"], "from": _due0, "to": a.get("dueDate")}])
                 save_db(db)
+                if "rounds" in payload or "recordMode" in payload:
+                    _complete_met_later([a])
                 return a
     raise HTTPException(404, "과제를 찾을 수 없어요.")
 
