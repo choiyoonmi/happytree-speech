@@ -276,6 +276,12 @@ function StudentView({ student, onLogout }) {
         apiGet(`/assignments?student=${encodeURIComponent(student.id)}`),
         apiGet(`/student-submissions/${student.id}`).catch(() => ({})),
       ]);
+      // ★교재 엑셀 표기 정리: 'advertisement[ad]' 의 [ad](줄임말)는 화면·발음·스펠링에서 빼고,
+      //   'dialog(ue)' 처럼 단어에 붙은 괄호는 이어 붙인다(dialogue). 원본 데이터는 그대로.
+      //   녹음 기록은 칸 번호로 저장되므로 글자를 바꿔도 기록이 어긋나지 않는다.
+      const cleanItem = (w) => typeof w !== "string" ? w :
+        w.replace(/\s*\[[^\]]*\]/g, "").replace(/([A-Za-z])\(([A-Za-z]+)\)(?=$|[\s,])/g, "$1$2").trim();
+      list.forEach(a => { if (a.type !== "sentence" && Array.isArray(a.items)) a.items = a.items.map(cleanItem); });
       setAssignments(list);
       const map = {};
       list.forEach(a => {
