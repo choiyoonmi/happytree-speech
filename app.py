@@ -2020,13 +2020,17 @@ def _complete_met_later(assignments):
     threading.Thread(target=_complete_met, args=(assignments,), daemon=True).start()
 
 
-@app.patch("/api/assignments/{assignment_id}")
-def update_assignment(assignment_id: str, payload: dict = Body(...)):
+# ★관리자만(2026-10-26). 전엔 문이 없어서 주소만 알면 누구나 과제 내용·마감일·배정을 바꿀 수 있었다.
+#   부르는 곳은 관리자 화면뿐이고, 관리자 화면은 common.js 가 모든 /api 요청에 열쇠를 붙인다.
+#   다른 학원 과제는 patch-many 와 같이 404 로 감춘다.
+@app.patch("/api/assignments/{assignment_id}", dependencies=ADMIN_ONLY)
+def update_assignment(request: Request, assignment_id: str, payload: dict = Body(...)):
     """과제 하나 수정 (마감일, 제목, 녹음 횟수, 배정 대상 등)."""
+    ac = academy_of(request)
     with _lock:
         db = load_db()
         for a in db["assignments"]:
-            if a["id"] == assignment_id:
+            if a["id"] == assignment_id and academy_of_student(a) == ac:
                 _due0 = a.get("dueDate")     # 되돌리기용(달력에서 끌어 옮긴 것도 포함)
                 _apply_patch(a, payload)
                 # 시험 날짜를 직접 바꾸면 자동조정 해제 / 그 외엔 시험 날짜 재동기화
