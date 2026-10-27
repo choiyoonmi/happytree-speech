@@ -980,7 +980,7 @@ def get_assignments(request: Request):
         ac = academy_of_student(st) if st else ACADEMY_DEFAULT
     else:
         ac = ACADEMY_DEFAULT
-    rows = only_academy(db["assignments"], ac)
+    rows = [a for a in only_academy(db["assignments"], ac) if not a.get("deletedAt")]   # 지운 과제(기록 때문에 숨겨 둔 것)는 어디에도 안 보인다
     # ★기본은 보관함(published=false) 제외. 학생 화면은 어차피 보관함을 안 쓰므로
     #   그만큼 응답이 가벼워진다(자료가 쌓여도 학생 로딩이 안 무거워짐).
     #   관리자가 보관함을 관리할 때만 ?archived=1 로 전체를 받는다.
@@ -1098,6 +1098,46 @@ def add_assignment(request: Request, payload: dict = Body(...)):
     return a
 
 
+def _recorded_ids(db, ids) -> set:
+    """ids 중 학생 누구라도 기록(제출·녹음)이 있는 과제."""
+    ids, hit = set(ids), set()
+    if not ids:
+        return hit
+    for s in db.get("students", []):
+        sid = s.get("id")
+        if not sid:
+            continue
+        try:
+            hit |= (_touched_ids(sid) & ids)
+        except Exception:
+            hit |= ids          # 기록을 못 읽으면 지우지 않는 쪽으로
+        if hit == ids:
+            break
+    return hit
+
+
+def _drop_assignments(db, gone) -> int:
+    """★과제 지우기는 전부 여기로. 학생 기록이 걸린 과제는 지우지 않고 숨겨 둔다
+    (원장 2026-10-27 "서버에 기록이 남아있으면 제출로 기록해야 해! 지우면 안 돼!" —
+     초3 박수현 10월 과제 12개가 지워져 리포트에 6개만 잡혔다).
+    숨긴 과제 = published False · deletedAt · assignedIds ['__deleted__'](아무에게도 배정 안 됨 → 숙제·알림 계산에서 빠짐).
+    관리자 목록에도 안 보인다. 리포트는 학생 제출 기록으로 센다. 돌려주는 값 = 실제로 지운 수."""
+    gone = set(gone)
+    if not gone:
+        return 0
+    keep_ids, now, out = _recorded_ids(db, gone), _now_kr(), []
+    for a in db["assignments"]:
+        aid = a.get("id")
+        if aid not in gone:
+            out.append(a)
+        elif aid in keep_ids:
+            a.update({"published": False, "deletedAt": a.get("deletedAt") or now,
+                      "assignedIds": ["__deleted__"], "assignedClasses": []})
+            out.append(a)
+    db["assignments"] = out
+    return len(gone) - len(keep_ids)
+
+
 @app.delete("/api/assignments/{assignment_id}", dependencies=ADMIN_ONLY)
 def delete_assignment(request: Request, assignment_id: str):
     """★관리자 열쇠만으로는 부족하다. 그 과제가 '내 학원' 것이어야 한다.
@@ -1108,7 +1148,7 @@ def delete_assignment(request: Request, assignment_id: str):
         target = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
         if target is None or academy_of_student(target) != ac:
             raise HTTPException(404, "과제를 찾을 수 없어요.")
-        db["assignments"] = [a for a in db["assignments"] if a["id"] != assignment_id]
+        _drop_assignments(db, {assignment_id})
         save_db(db)
     return {"ok": True}
 
@@ -1133,7 +1173,7 @@ def delete_many_assignments(request: Request, payload: dict = Body(...)):
             return {"ok": True, "count": len(targets), "withRecords": len(done)}
         before = _snap(db)
         gone = {a["id"] for a in targets}
-        db["assignments"] = [a for a in db["assignments"] if a.get("id") not in gone]
+        _drop_assignments(db, gone)
         _hist_push_snap(db, "골라서 삭제", before, len(gone))
         save_db(db)
     return {"ok": True, "deleted": len(gone)}
@@ -1194,16 +1234,15 @@ def delete_all_assignments(request: Request, payload: dict = Body(...)):
         db = load_db()
         before = sum(1 for a in db["assignments"] if mine(a))
         if scope == "all":
-            db["assignments"] = [a for a in db["assignments"] if not mine(a)]
+            gone = {a["id"] for a in db["assignments"] if mine(a) and not a.get("deletedAt")}
         elif scope == "published":
-            db["assignments"] = [a for a in db["assignments"] if not (mine(a) and a.get("published", True))]
+            gone = {a["id"] for a in db["assignments"] if mine(a) and a.get("published", True)}
         elif scope == "archived":
-            db["assignments"] = [a for a in db["assignments"] if not (mine(a) and not a.get("published", True))]
+            gone = {a["id"] for a in db["assignments"] if mine(a) and not a.get("published", True) and not a.get("deletedAt")}
         else:
             raise HTTPException(400, "알 수 없는 삭제 범위예요.")
+        deleted = _drop_assignments(db, gone)
         save_db(db)
-        # before 는 '내 학원 것'만 셌으므로 남은 것도 같은 기준으로 세야 한다
-        deleted = before - sum(1 for a in db["assignments"] if mine(a))
     return {"deleted": deleted}
 
 
@@ -1267,10 +1306,8 @@ def dedupe_assignments(request: Request, payload: dict = Body(...)):
                     kept_conflict += 1
         if dry:
             return {"wouldDelete": len(to_delete), "keptConflict": kept_conflict}
-        before = len(db["assignments"])
-        db["assignments"] = [a for a in db["assignments"] if a["id"] not in to_delete]
+        deleted = _drop_assignments(db, to_delete)
         save_db(db)
-        deleted = before - len(db["assignments"])
     return {"deleted": deleted, "keptConflict": kept_conflict}
 
 
@@ -1317,10 +1354,8 @@ def dedupe_book(request: Request, payload: dict = Body(...)):
                 to_delete.add(a["id"])
         if dry:
             return {"wouldDelete": len(to_delete)}
-        before = len(db["assignments"])
-        db["assignments"] = [a for a in db["assignments"] if a["id"] not in to_delete]
+        deleted = _drop_assignments(db, to_delete)
         save_db(db)
-        deleted = before - len(db["assignments"])
     return {"deleted": deleted}
 
 
@@ -1340,7 +1375,7 @@ def clean_student_books(sid: str, payload: dict = Body(...)):
     with _lock:
         db = load_db()
         all_ids = [s.get("id") for s in db.get("students", []) if s.get("id")]
-        remaining = []
+        remaining, gone = [], set()
         for a in db["assignments"]:
             if a.get("published") is False:      # 보관함은 건드리지 않음
                 remaining.append(a)
@@ -1362,16 +1397,17 @@ def clean_student_books(sid: str, payload: dict = Body(...)):
                     converted += 1
                     remaining.append(a)
                 else:
-                    deleted += 1                              # 학생이 이 사람뿐이면 삭제
+                    gone.add(a["id"]); remaining.append(a)    # 학생이 이 사람뿐이면 삭제
             else:
                 new_ids = [x for x in ids if x != sid]
                 if not new_ids and not classes:
-                    deleted += 1                              # 이 학생 전용 → 과제 삭제
+                    gone.add(a["id"]); remaining.append(a)    # 이 학생 전용 → 과제 삭제
                 else:
                     a["assignedIds"] = new_ids
                     unassigned += 1
                     remaining.append(a)
         db["assignments"] = remaining
+        deleted = _drop_assignments(db, gone)   # 기록이 걸린 건 지우지 않고 숨긴다
         save_db(db)
     return {"unassigned": unassigned + converted, "deleted": deleted}
 
@@ -1567,7 +1603,7 @@ def student_unassign(sid: str, request: Request, payload: dict = Body(...)):
                 a["assignedClasses"] = []      # 반 배정으로 다시 저장하면 이 학생이 도로 들어가므로
                 removed = "unassigned"
             else:
-                db["assignments"] = [x for x in db["assignments"] if x.get("id") != a.get("id")]
+                _drop_assignments(db, {a.get("id")})
                 removed = "deleted"
         name = next((x.get("name") for x in db.get("students", []) if x.get("id") == sid), sid)
         _hist_push_snap(db, f"{name} 과제 빼기", before, len(targets))
@@ -1888,19 +1924,11 @@ def delete_assignments(request: Request, payload: dict = Body(...)):
         ids = {a["id"] for a in db["assignments"] if a["id"] in ids and academy_of_student(a) == ac}
         if not ids:
             raise HTTPException(404, "삭제할 과제를 찾을 수 없어요.")
-        before = len(db["assignments"])
-        db["assignments"] = [a for a in db["assignments"] if a["id"] not in ids]
+        deleted = _drop_assignments(db, ids)
         save_db(db)
-    for sid in all_student_ids():
-        with _sub_lock(sid):
-            subs = load_student_subs(sid)
-            changed = False
-            for aid in list(subs.keys()):
-                if aid in ids:
-                    del subs[aid]; changed = True
-            if changed:
-                save_student_subs(sid, subs)
-    return {"deleted": before - len(db["assignments"])}
+    # ★예전엔 여기서 학생 녹음 기록까지 지웠다. 기록은 절대 안 지운다(원장 2026-10-27).
+    #   (같은 주소의 앞 함수가 먼저 잡혀 이 함수는 안 불리지만, 혹시 불려도 기록이 남게)
+    return {"deleted": deleted}
 
 
 def _sync_exam_dates(db):
@@ -3897,8 +3925,11 @@ def student_report(student_id: str, start: str = "", end: str = ""):
 
     # ★과제가 지워져도 녹음 제출 기록은 남는다(원장 2026-10-27: 초3 박수현 10월 과제 12개가 지워져 6개만 잡혀 제출률 67%).
     #   지워진 과제의 제출은 제출일이 기간 안이면 '낸 과제'로 센다. 마감일을 모르니 제출일을 날짜로 쓴다.
-    #   submittedAt 은 'M/D HH:MM'(연도 없음) → 기간 안에 드는 연도로 맞춘다. 보관함(published=false)으로 옮긴 건 예전처럼 안 센다.
-    live_ids = {a.get("id") for a in db["assignments"]}
+    #   submittedAt 은 'M/D HH:MM'(연도 없음) → 기간 안에 드는 연도로 맞춘다.
+    #   ★지운 과제(지금은 숨겨 둠)·보관함으로 옮긴 과제·배정에서 빠진 과제도 이 학생이 냈으면 센다 — 서버에 기록이 있으면 제출이다.
+    #   과제가 남아 있으면 그 이름·마감일을, 아예 없으면 '(지워진 과제)'·제출일을 쓴다.
+    live_ids = {a.get("id") for a in assigned}
+    by_id = {a.get("id"): a for a in db["assignments"]}
 
     def sub_day(ts):
         try:
@@ -3917,8 +3948,17 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     for aid, sub in student_subs.items():
         if aid in live_ids or sub.get("status") not in ("submitted", "reviewed"):
             continue
+        old = by_id.get(aid)
+        if old and old.get("dueDate"):
+            if not in_range(old):
+                continue
+            assigned.append(old)
+            continue
         x = sub_day(sub.get("submittedAt") or sub.get("completedAt"))
         if not x:
+            continue
+        if old:
+            assigned.append(dict(old, dueDate=x.isoformat()))
             continue
         takes = sub.get("items") or []
         assigned.append({"id": aid, "title": "(지워진 과제)", "type": "word", "dueDate": x.isoformat(),
