@@ -71,8 +71,25 @@ def _load_listen():
 
 
 def _has(text, pats):
+    """핵심어가 들어 있나. 글자만 있는 패턴은 **낱말 단위**로 본다 —
+    'so' 가 'reason' 안에서 걸려, 질문만 따라 읽은 녹음이 92점이 나왔다(2026-10-27 실측)."""
     import re
-    return any(re.search(p, text) for p in (pats or []))
+    for p in (pats or []):
+        if re.fullmatch(r"[a-z' ]+", p):
+            p = r"\b" + re.escape(p) + r"(s|es|ed|ing)?\b"     # dog → dogs 도 받는다
+        if re.search(p, text):
+            return True
+    return False
+
+
+def _echo_ratio(text, question):
+    """답한 낱말 중 질문에 있던 낱말의 비율. 질문을 그대로 읽으면 1 에 가깝다."""
+    import re
+    qw = set(re.findall(r"[a-z']+", (question or "").lower()))
+    aw = re.findall(r"[a-z']+", text)
+    if not aw:
+        return 0.0
+    return sum(1 for w in aw if w in qw) / len(aw)
 
 
 def score_speak(item, out):
@@ -94,10 +111,15 @@ def score_speak(item, out):
     c2 = (1.0 if _has(text, item.get("need2")) else 0.0) if item.get("need2") else c1
     ln = min(1.0, words / max(1, int(item.get("minw") or 1)))
     content = 100 * (c1 + c2 + ln) / 3
+    # 질문을 되풀이한 것이 대부분이면 답이 아니다. 문장 틀("I like ___")은 질문 낱말을 쓰게 되니
+    # 낱말 일곱 할 이상이 질문에서 온 경우만 깎는다.
+    echo = _echo_ratio(text, item.get("q"))
+    if echo >= 0.7:
+        content *= 0.3
     delivery = ((pron or acc or 0) + (flu or 0)) / 2
     sc = 0.6 * content + 0.4 * delivery
     return {"score": round(sc), "content": round(content), "delivery": round(delivery),
-            "words": words, "fluency": flu, "pron": pron, "text": text}
+            "words": words, "fluency": flu, "pron": pron, "text": text, "echo": round(echo, 2)}
 
 
 def _ssml(item):
