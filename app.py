@@ -5284,7 +5284,7 @@ def restore(payload: dict = Body(...)):
 # ---------- 영어 레벨테스트(4영역) — leveltest.py 별채, 화면은 static/leveltest.html ----------
 from leveltest import make_router as _lt_router
 app.include_router(_lt_router(data_dir=DATA_DIR, azure_key=AZURE_KEY, azure_region=AZURE_REGION,
-                              admin_only=ADMIN_ONLY, is_admin=is_admin))
+                              admin_only=ADMIN_ONLY, is_admin=is_admin, run_assessment=_run_assessment))
 
 
 # ---------- static frontend (must be last) ----------

@@ -1,0 +1,507 @@
+[
+{
+"id": "S-A1",
+"band": "A",
+"type": "read",
+"ref": "I have a red bag.",
+"ko": "나는 빨간 가방이 있어요."
+},
+{
+"id": "S-A2",
+"band": "A",
+"type": "read",
+"ref": "The cat is on the bed.",
+"ko": "고양이가 침대 위에 있어요."
+},
+{
+"id": "S-A3",
+"band": "A",
+"type": "read",
+"ref": "I like apples and bananas.",
+"ko": "나는 사과와 바나나를 좋아해요."
+},
+{
+"id": "S-A4",
+"band": "A",
+"type": "read",
+"ref": "My mom is a good cook.",
+"ko": "우리 엄마는 요리를 잘해요."
+},
+{
+"id": "S-A5",
+"band": "A",
+"type": "frame",
+"q": "What color is a banana?",
+"qko": "바나나는 무슨 색이에요?",
+"frame": "It is ___.",
+"hints": [
+"yellow"
+],
+"need": [
+"yellow"
+],
+"minw": 1
+},
+{
+"id": "S-A6",
+"band": "A",
+"type": "frame",
+"q": "How many legs does a dog have?",
+"qko": "강아지는 다리가 몇 개예요?",
+"frame": "It has ___ legs.",
+"hints": [
+"four"
+],
+"need": [
+"four",
+"4"
+],
+"minw": 1
+},
+{
+"id": "S-A7",
+"band": "A",
+"type": "frame",
+"q": "What animal do you like?",
+"qko": "어떤 동물을 좋아해요?",
+"frame": "I like ___.",
+"hints": [
+"dogs",
+"cats",
+"rabbits",
+"lions"
+],
+"need": [
+"dog",
+"cat",
+"rabbit",
+"lion",
+"bird",
+"fish",
+"tiger",
+"panda",
+"horse",
+"bear",
+"monkey",
+"elephant",
+"hamster",
+"duck",
+"pig",
+"cow",
+"sheep",
+"giraffe",
+"penguin",
+"animal"
+],
+"minw": 1
+},
+{
+"id": "S-A8",
+"band": "A",
+"type": "frame",
+"q": "What do you drink in the morning?",
+"qko": "아침에 무엇을 마셔요?",
+"frame": "I drink ___.",
+"hints": [
+"milk",
+"water",
+"juice"
+],
+"need": [
+"milk",
+"water",
+"juice",
+"tea",
+"coffee",
+"soup",
+"drink"
+],
+"minw": 1
+},
+{
+"id": "S-B1",
+"band": "B",
+"type": "read",
+"ref": "We play soccer after school every Friday.",
+"ko": "우리는 금요일마다 방과 후에 축구를 해요."
+},
+{
+"id": "S-B2",
+"band": "B",
+"type": "read",
+"ref": "My sister is taller than me, but I am faster.",
+"ko": "언니는 나보다 키가 크지만 나는 더 빨라요."
+},
+{
+"id": "S-B3",
+"band": "B",
+"type": "read",
+"ref": "Yesterday I went to the library and read two books.",
+"ko": "어제 나는 도서관에 가서 책 두 권을 읽었어요."
+},
+{
+"id": "S-B4",
+"band": "B",
+"type": "frame",
+"q": "What is your favorite food? Why?",
+"qko": "가장 좋아하는 음식은 무엇이고, 왜 좋아해요?",
+"frame": "My favorite food is ___ because it is ___.",
+"hints": [
+"pizza",
+"chicken",
+"sweet",
+"delicious"
+],
+"need": [
+"because"
+],
+"minw": 6
+},
+{
+"id": "S-B5",
+"band": "B",
+"type": "frame",
+"q": "What did you do last weekend?",
+"qko": "지난 주말에 무엇을 했어요?",
+"frame": "Last weekend, I ___.",
+"hints": [
+"played",
+"watched",
+"visited",
+"went to"
+],
+"need": [
+"ed\\b",
+"went",
+"ate",
+"saw",
+"had",
+"made",
+"read",
+"rode",
+"swam",
+"did",
+"was",
+"were",
+"bought",
+"met"
+],
+"minw": 4
+},
+{
+"id": "S-B6",
+"band": "B",
+"type": "frame",
+"q": "What can you do well?",
+"qko": "무엇을 잘할 수 있어요?",
+"frame": "I can ___ well.",
+"hints": [
+"swim",
+"draw",
+"sing",
+"run fast"
+],
+"need": [
+"\\bcan\\b"
+],
+"minw": 3
+},
+{
+"id": "S-B7",
+"band": "B",
+"type": "frame",
+"q": "Tell me about your best friend.",
+"qko": "가장 친한 친구를 소개해 주세요.",
+"frame": "My best friend is ___. He/She is ___.",
+"hints": [
+"kind",
+"funny",
+"tall"
+],
+"need": [
+"friend",
+"\\bhe\\b",
+"\\bshe\\b",
+"name"
+],
+"minw": 6
+},
+{
+"id": "S-B8",
+"band": "B",
+"type": "frame",
+"q": "What is the weather like today?",
+"qko": "오늘 날씨는 어때요?",
+"frame": "It is ___ today.",
+"hints": [
+"sunny",
+"cloudy",
+"rainy",
+"cold",
+"warm"
+],
+"need": [
+"sunny",
+"cloudy",
+"rainy",
+"cold",
+"warm",
+"hot",
+"windy",
+"snowy",
+"nice",
+"clear",
+"cool",
+"fine"
+],
+"minw": 3
+},
+{
+"id": "S-C1",
+"band": "C",
+"type": "read",
+"ref": "Many students use their phones before bed. However, bright screens can make it harder to fall asleep.",
+"ko": "많은 학생이 자기 전에 휴대폰을 써요. 하지만 밝은 화면은 잠들기 어렵게 만들 수 있어요."
+},
+{
+"id": "S-C2",
+"band": "C",
+"type": "read",
+"ref": "Our class decided to plant a small garden. Everyone took turns watering the plants after lunch.",
+"ko": "우리 반은 작은 정원을 가꾸기로 했어요. 모두 점심 뒤에 돌아가며 물을 줬어요."
+},
+{
+"id": "S-C3",
+"band": "C",
+"type": "free",
+"q": "Do you prefer summer or winter? Give one reason.",
+"qko": "여름과 겨울 중 어느 쪽이 더 좋아요? 까닭을 하나 말해 주세요.",
+"frame": "I prefer ___ because ___.",
+"hints": [
+"swim",
+"snow",
+"vacation",
+"warm"
+],
+"need": [
+"summer",
+"winter"
+],
+"need2": [
+"because",
+"since",
+"so"
+],
+"minw": 10
+},
+{
+"id": "S-C4",
+"band": "C",
+"type": "free",
+"q": "What do you want to be in the future? Why?",
+"qko": "앞으로 무엇이 되고 싶어요? 왜 그런가요?",
+"frame": "I want to be ___ because ___.",
+"hints": [
+"teacher",
+"doctor",
+"help people"
+],
+"need": [
+"want to be",
+"wanna be",
+"would like to be",
+"dream"
+],
+"need2": [
+"because",
+"since",
+"so"
+],
+"minw": 10
+},
+{
+"id": "S-C5",
+"band": "C",
+"type": "free",
+"q": "Describe your favorite place in your town.",
+"qko": "우리 동네에서 가장 좋아하는 곳을 설명해 주세요.",
+"frame": "My favorite place is ___. I like it because ___.",
+"hints": [
+"park",
+"library",
+"quiet",
+"play"
+],
+"need": [
+"place",
+"park",
+"library",
+"store",
+"shop",
+"school",
+"cafe",
+"restaurant",
+"playground",
+"mall",
+"museum",
+"river",
+"mountain"
+],
+"need2": [
+"because",
+"it is",
+"there"
+],
+"minw": 10
+},
+{
+"id": "S-C6",
+"band": "C",
+"type": "free",
+"q": "Should students have homework every day? What do you think?",
+"qko": "학생들이 매일 숙제를 해야 할까요? 어떻게 생각해요?",
+"frame": "I think students should / should not ___ because ___.",
+"hints": [
+"practice",
+"rest",
+"tired"
+],
+"need": [
+"think",
+"should",
+"homework"
+],
+"need2": [
+"because",
+"since",
+"so"
+],
+"minw": 10
+},
+{
+"id": "S-C7",
+"band": "C",
+"type": "free",
+"q": "Tell me about a time you helped someone.",
+"qko": "누군가를 도와준 때를 이야기해 주세요.",
+"frame": "One day, I helped ___. I ___.",
+"hints": [
+"carried",
+"taught",
+"lost"
+],
+"need": [
+"helped",
+"help"
+],
+"need2": [
+"ed\\b",
+"was",
+"were",
+"gave",
+"told",
+"took",
+"found"
+],
+"minw": 10
+},
+{
+"id": "S-D1",
+"band": "D",
+"type": "read",
+"ref": "Although online classes are convenient, many students say they miss talking with friends face to face. Schools are now looking for ways to mix both.",
+"ko": "온라인 수업은 편리하지만, 많은 학생이 친구와 직접 이야기하던 것을 그리워해요. 학교들은 이제 둘을 섞는 방법을 찾고 있어요."
+},
+{
+"id": "S-D2",
+"band": "D",
+"type": "read",
+"ref": "If we reduce the amount of food we waste at home, we can save money and help the environment at the same time.",
+"ko": "집에서 버리는 음식을 줄이면 돈도 아끼고 환경도 함께 지킬 수 있어요."
+},
+{
+"id": "S-D3",
+"band": "D",
+"type": "free",
+"q": "Some people say smartphones should not be allowed at school. Do you agree or disagree? Explain your reasons.",
+"qko": "학교에서 스마트폰을 못 쓰게 해야 한다는 의견에 찬성해요, 반대해요? 까닭을 들어 말해 주세요.",
+"need": [
+"agree",
+"disagree",
+"think",
+"believe"
+],
+"need2": [
+"because",
+"since",
+"for example",
+"first",
+"also"
+],
+"minw": 25
+},
+{
+"id": "S-D4",
+"band": "D",
+"type": "free",
+"q": "What is one thing you would change about your school? Explain why and how.",
+"qko": "학교에서 한 가지를 바꾼다면 무엇을 바꾸고 싶어요? 왜, 어떻게 바꿀지 말해 주세요.",
+"need": [
+"change",
+"school",
+"want",
+"would"
+],
+"need2": [
+"because",
+"since",
+"so",
+"if"
+],
+"minw": 25
+},
+{
+"id": "S-D5",
+"band": "D",
+"type": "free",
+"q": "Describe a book, movie, or trip that changed the way you think.",
+"qko": "생각을 바꾸게 한 책·영화·여행을 하나 골라 설명해 주세요.",
+"need": [
+"book",
+"movie",
+"film",
+"trip",
+"travel",
+"read",
+"watched",
+"went"
+],
+"need2": [
+"because",
+"learned",
+"realized",
+"think",
+"felt"
+],
+"minw": 25
+},
+{
+"id": "S-D6",
+"band": "D",
+"type": "free",
+"q": "Is it better to study alone or with friends? Give reasons and an example.",
+"qko": "혼자 공부하는 것과 친구와 함께 공부하는 것 중 어느 쪽이 나아요? 까닭과 예를 들어 주세요.",
+"need": [
+"alone",
+"friends",
+"together"
+],
+"need2": [
+"because",
+"for example",
+"for instance",
+"since"
+],
+"minw": 25
+}
+]
