@@ -3895,6 +3895,35 @@ def student_report(student_id: str, start: str = "", end: str = ""):
         if a.get("published", True) and in_range(a) and (not a.get("assignedIds") or student_id in a["assignedIds"])
     ]
 
+    # ★과제가 지워져도 녹음 제출 기록은 남는다(원장 2026-10-27: 초3 박수현 10월 과제 12개가 지워져 6개만 잡혀 제출률 67%).
+    #   지워진 과제의 제출은 제출일이 기간 안이면 '낸 과제'로 센다. 마감일을 모르니 제출일을 날짜로 쓴다.
+    #   submittedAt 은 'M/D HH:MM'(연도 없음) → 기간 안에 드는 연도로 맞춘다. 보관함(published=false)으로 옮긴 건 예전처럼 안 센다.
+    live_ids = {a.get("id") for a in db["assignments"]}
+
+    def sub_day(ts):
+        try:
+            m, dd = map(int, str(ts or "").split(" ")[0].split("/"))
+        except Exception:
+            return None
+        for y in (d_end.year, d_end.year - 1):
+            try:
+                x = date(y, m, dd)
+            except ValueError:
+                continue
+            if d_start <= x <= d_end:
+                return x
+        return None
+
+    for aid, sub in student_subs.items():
+        if aid in live_ids or sub.get("status") not in ("submitted", "reviewed"):
+            continue
+        x = sub_day(sub.get("submittedAt") or sub.get("completedAt"))
+        if not x:
+            continue
+        takes = sub.get("items") or []
+        assigned.append({"id": aid, "title": "(지워진 과제)", "type": "word", "dueDate": x.isoformat(),
+                         "items": [""] * len(takes), "rounds": max([len(t or []) for t in takes] or [3]) or 3})
+
     rows = []
     all_scores = []
     weak_words = {}
