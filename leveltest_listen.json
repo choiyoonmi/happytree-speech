@@ -1,0 +1,1302 @@
+[
+{
+"id": "H1-1",
+"lv": 1,
+"script": [
+{
+"sp": "N",
+"t": "a red cap"
+}
+]
+},
+{
+"id": "H1-2",
+"lv": 1,
+"script": [
+{
+"sp": "N",
+"t": "three birds"
+}
+]
+},
+{
+"id": "H1-3",
+"lv": 1,
+"script": [
+{
+"sp": "N",
+"t": "under the desk"
+}
+]
+},
+{
+"id": "H1-4",
+"lv": 1,
+"script": [
+{
+"sp": "N",
+"t": "a big ship"
+}
+]
+},
+{
+"id": "H1-5",
+"lv": 1,
+"script": [
+{
+"sp": "N",
+"t": "my brother"
+}
+]
+},
+{
+"id": "H1-6",
+"lv": 1,
+"script": [
+{
+"sp": "N",
+"t": "fifteen pencils"
+}
+]
+},
+{
+"id": "H1-7",
+"lv": 1,
+"script": [
+{
+"sp": "N",
+"t": "a black cat"
+}
+]
+},
+{
+"id": "H1-8",
+"lv": 1,
+"script": [
+{
+"sp": "N",
+"t": "on Monday"
+}
+]
+},
+{
+"id": "H2-1",
+"lv": 2,
+"script": [
+{
+"sp": "N",
+"t": "Tom has three red balls."
+}
+]
+},
+{
+"id": "H2-2",
+"lv": 2,
+"script": [
+{
+"sp": "N",
+"t": "My cat is sleeping on the bed."
+}
+]
+},
+{
+"id": "H2-3",
+"lv": 2,
+"script": [
+{
+"sp": "N",
+"t": "My grandmother plays the piano."
+}
+]
+},
+{
+"id": "H2-4",
+"lv": 2,
+"script": [
+{
+"sp": "N",
+"t": "We go swimming on Saturday."
+}
+]
+},
+{
+"id": "H2-5",
+"lv": 2,
+"script": [
+{
+"sp": "N",
+"t": "Mina is reading a book."
+}
+]
+},
+{
+"id": "H2-6",
+"lv": 2,
+"script": [
+{
+"sp": "N",
+"t": "It is cold and windy today."
+}
+]
+},
+{
+"id": "H2-7",
+"lv": 2,
+"script": [
+{
+"sp": "N",
+"t": "The library is next to the bank."
+}
+]
+},
+{
+"id": "H2-8",
+"lv": 2,
+"script": [
+{
+"sp": "N",
+"t": "I get up at seven thirty."
+}
+]
+},
+{
+"id": "H3-1",
+"lv": 3,
+"script": [
+{
+"sp": "G",
+"t": "Where is my cap? Is it on the bed?"
+},
+{
+"sp": "B",
+"t": "No, it's not. It's under the chair."
+}
+]
+},
+{
+"id": "H3-2",
+"lv": 3,
+"script": [
+{
+"sp": "B",
+"t": "Who plays the piano in your family, Sora?"
+},
+{
+"sp": "G",
+"t": "My sister does. My mom and my brother play the violin."
+}
+]
+},
+{
+"id": "H3-3",
+"lv": 3,
+"script": [
+{
+"sp": "G",
+"t": "Do you want some apple juice or orange juice?"
+},
+{
+"sp": "B",
+"t": "Orange juice, please. I had apple juice this morning."
+}
+]
+},
+{
+"id": "H3-4",
+"lv": 3,
+"script": [
+{
+"sp": "B",
+"t": "Mina, are you going home now?"
+},
+{
+"sp": "G",
+"t": "No. I'm going to the library first, and then to the park."
+}
+]
+},
+{
+"id": "H3-5",
+"lv": 3,
+"script": [
+{
+"sp": "G",
+"t": "Tom, is that man your dad?"
+},
+{
+"sp": "B",
+"t": "No, that's my uncle. My dad is next to him, with my grandpa."
+}
+]
+},
+{
+"id": "H3-6",
+"lv": 3,
+"script": [
+{
+"sp": "G",
+"t": "What are you drawing, Jake?"
+},
+{
+"sp": "B",
+"t": "I'm drawing three trees and a bird."
+}
+]
+},
+{
+"id": "H3-7",
+"lv": 3,
+"script": [
+{
+"sp": "B",
+"t": "Sora, is your birthday on Thursday?"
+},
+{
+"sp": "G",
+"t": "No, it's on Friday. My birthday party is on Saturday."
+}
+]
+},
+{
+"id": "H3-8",
+"lv": 3,
+"script": [
+{
+"sp": "G",
+"t": "Do you have a pet?"
+},
+{
+"sp": "B",
+"t": "Yes, I have a cat. My friend has two dogs."
+}
+]
+},
+{
+"id": "H4-1",
+"lv": 4,
+"script": [
+{
+"sp": "B",
+"t": "Mina, what time does the movie start?"
+},
+{
+"sp": "G",
+"t": "It starts at four thirty."
+},
+{
+"sp": "B",
+"t": "My piano class ends at three thirty. Let's meet at four."
+},
+{
+"sp": "G",
+"t": "Okay. See you at the bus stop at four."
+}
+]
+},
+{
+"id": "H4-2",
+"lv": 4,
+"script": [
+{
+"sp": "W",
+"t": "Can I help you?"
+},
+{
+"sp": "B",
+"t": "Yes, please. I'm looking for the bookstore."
+},
+{
+"sp": "W",
+"t": "Go straight one block. It's next to the bakery, across from the bank."
+},
+{
+"sp": "B",
+"t": "Next to the bakery. Thank you!"
+}
+]
+},
+{
+"id": "H4-3",
+"lv": 4,
+"script": [
+{
+"sp": "G",
+"t": "How many students are in your class, Tom?"
+},
+{
+"sp": "B",
+"t": "Twenty-three. How about your class?"
+},
+{
+"sp": "G",
+"t": "We have thirty. Your class is small."
+},
+{
+"sp": "B",
+"t": "Yes, but it's very noisy!"
+}
+]
+},
+{
+"id": "H4-4",
+"lv": 4,
+"script": [
+{
+"sp": "B",
+"t": "Excuse me. How much is this blue cap?"
+},
+{
+"sp": "W",
+"t": "It's fifteen dollars."
+},
+{
+"sp": "B",
+"t": "And the red one?"
+},
+{
+"sp": "W",
+"t": "The red one is fifty dollars."
+},
+{
+"sp": "B",
+"t": "Wow. Then I'll take the blue one."
+}
+]
+},
+{
+"id": "H4-5",
+"lv": 4,
+"script": [
+{
+"sp": "G",
+"t": "Mom, did you see my umbrella?"
+},
+{
+"sp": "W",
+"t": "Your yellow umbrella? It's by the door."
+},
+{
+"sp": "G",
+"t": "No, that's Dad's. Mine is green."
+},
+{
+"sp": "W",
+"t": "Oh, then look in your room."
+}
+]
+},
+{
+"id": "H4-6",
+"lv": 4,
+"script": [
+{
+"sp": "B",
+"t": "Let's go swimming on Saturday."
+},
+{
+"sp": "G",
+"t": "I can't. I visit my grandma on Saturdays."
+},
+{
+"sp": "B",
+"t": "How about Sunday afternoon?"
+},
+{
+"sp": "G",
+"t": "Sunday is good. Let's go at two. I have to be home by four."
+}
+]
+},
+{
+"id": "H4-7",
+"lv": 4,
+"script": [
+{
+"sp": "M",
+"t": "Sora, where do you want to eat lunch?"
+},
+{
+"sp": "G",
+"t": "How about the Chinese restaurant or the noodle shop?"
+},
+{
+"sp": "M",
+"t": "The Chinese restaurant is closed today, and the noodle shop is too far. What about the pizza place near the park?"
+},
+{
+"sp": "G",
+"t": "Great! I love pizza."
+}
+]
+},
+{
+"id": "H4-8",
+"lv": 4,
+"script": [
+{
+"sp": "W",
+"t": "How many eggs do we need for the cake?"
+},
+{
+"sp": "B",
+"t": "The book says four eggs."
+},
+{
+"sp": "W",
+"t": "We have only two. Can you buy some at the store?"
+},
+{
+"sp": "B",
+"t": "Sure. I'll buy six."
+}
+]
+},
+{
+"id": "H5-1",
+"lv": 5,
+"script": [
+{
+"sp": "G",
+"t": "Hi, Tom. Are you busy now?"
+},
+{
+"sp": "B",
+"t": "Not really. I'm just reading a comic book. Why?"
+},
+{
+"sp": "G",
+"t": "I'm making a birthday card for Mina. Can you help me with it?"
+},
+{
+"sp": "B",
+"t": "Sure. I'm not good at drawing, but I can write the message."
+},
+{
+"sp": "G",
+"t": "Great! Thank you, Tom."
+}
+]
+},
+{
+"id": "H5-2",
+"lv": 5,
+"script": [
+{
+"sp": "W",
+"t": "Jake, you're late again. What happened?"
+},
+{
+"sp": "B",
+"t": "I'm sorry, Ms. Kim. I missed the school bus."
+},
+{
+"sp": "W",
+"t": "Did you get up late?"
+},
+{
+"sp": "B",
+"t": "No, I got up early. But I left my homework at home, so I went back to get it."
+},
+{
+"sp": "W",
+"t": "I see. Next time, check your bag the night before."
+}
+]
+},
+{
+"id": "H5-3",
+"lv": 5,
+"script": [
+{
+"sp": "B",
+"t": "Mom, can we go to the park this afternoon?"
+},
+{
+"sp": "W",
+"t": "I'm sorry, but it's going to rain this afternoon."
+},
+{
+"sp": "B",
+"t": "Then can we see a movie at the theater?"
+},
+{
+"sp": "W",
+"t": "The theater is too far. How about baking cookies at home together?"
+},
+{
+"sp": "B",
+"t": "Okay! Let's do that."
+}
+]
+},
+{
+"id": "H5-4",
+"lv": 5,
+"script": [
+{
+"sp": "G",
+"t": "Sam, I'm going to visit my grandma this weekend."
+},
+{
+"sp": "B",
+"t": "That sounds fun. Where does she live?"
+},
+{
+"sp": "G",
+"t": "In Busan. Can you feed my cat while I'm away?"
+},
+{
+"sp": "B",
+"t": "Sure. Do I need to walk your dog, too?"
+},
+{
+"sp": "G",
+"t": "No, my brother will take care of the dog. Just the cat, please."
+}
+]
+},
+{
+"id": "H5-5",
+"lv": 5,
+"script": [
+{
+"sp": "M",
+"t": "Hello. Can I help you?"
+},
+{
+"sp": "G",
+"t": "Yes. I bought this T-shirt here yesterday."
+},
+{
+"sp": "M",
+"t": "Is there a problem with it?"
+},
+{
+"sp": "G",
+"t": "It's too small for me. Can I change it for a bigger one?"
+},
+{
+"sp": "M",
+"t": "Of course. Here's a large one."
+}
+]
+},
+{
+"id": "H5-6",
+"lv": 5,
+"script": [
+{
+"sp": "B",
+"t": "Sora, are you coming to the soccer game tomorrow?"
+},
+{
+"sp": "G",
+"t": "I want to, but I can't."
+},
+{
+"sp": "B",
+"t": "Why not? Do you have a piano lesson?"
+},
+{
+"sp": "G",
+"t": "No, that's on Friday. My cousin is coming from Canada, so I have to go to the airport."
+},
+{
+"sp": "B",
+"t": "Oh, I see. Have fun with your cousin!"
+}
+]
+},
+{
+"id": "H5-7",
+"lv": 5,
+"script": [
+{
+"sp": "W",
+"t": "Minho, did you finish your homework?"
+},
+{
+"sp": "B",
+"t": "Not yet, Mom. I'm playing a game now."
+},
+{
+"sp": "W",
+"t": "Dinner is at seven. Finish your homework before dinner."
+},
+{
+"sp": "B",
+"t": "Okay. Can I play the game after dinner?"
+},
+{
+"sp": "W",
+"t": "Yes, but only for thirty minutes."
+}
+]
+},
+{
+"id": "H5-8",
+"lv": 5,
+"script": [
+{
+"sp": "G",
+"t": "Hi, Ben. Where are you going?"
+},
+{
+"sp": "B",
+"t": "I'm going to the library."
+},
+{
+"sp": "G",
+"t": "To read books there?"
+},
+{
+"sp": "B",
+"t": "No, I'm going to return these books. They're due today."
+},
+{
+"sp": "G",
+"t": "Can I come with you? I want to borrow a book about space."
+},
+{
+"sp": "B",
+"t": "Sure, let's go."
+}
+]
+},
+{
+"id": "H6-1",
+"lv": 6,
+"script": [
+{
+"sp": "N",
+"t": "Attention, students. This is your principal speaking. Because of the heavy rain, tomorrow's sports day will be moved to next Friday. Please bring your gym clothes on that day. Classes will start at nine tomorrow as usual."
+}
+]
+},
+{
+"id": "H6-2",
+"lv": 6,
+"script": [
+{
+"sp": "N",
+"t": "Welcome to the City Science Museum. The robot show starts at two thirty in Hall B. Today, the dinosaur room will close at four for cleaning. The museum closes at six. Thank you for visiting."
+}
+]
+},
+{
+"id": "H6-3",
+"lv": 6,
+"script": [
+{
+"sp": "G",
+"t": "I have a pet hamster named Coco. She is small and white. Every morning, I give her fresh water and seeds. On weekends, I clean her cage. Taking care of Coco makes me happy."
+}
+]
+},
+{
+"id": "H6-4",
+"lv": 6,
+"script": [
+{
+"sp": "W",
+"t": "Listen, everyone. Tomorrow we're going on a field trip to the zoo. We'll meet in front of the school gate, not in the classroom. The bus leaves at eight thirty. Don't forget to bring your lunch."
+}
+]
+},
+{
+"id": "H6-5",
+"lv": 6,
+"script": [
+{
+"sp": "N",
+"t": "Hello, campers. Tonight we will watch the stars on the hill. It will be cold, so please bring a warm jacket. You don't need a flashlight or snacks, because we will give them to everyone. Please leave your phone in your room."
+}
+]
+},
+{
+"id": "H6-6",
+"lv": 6,
+"script": [
+{
+"sp": "N",
+"t": "Attention, shoppers. We found a small blue backpack near the food court. It has a teddy bear on it. If it's yours, please come to the information desk on the first floor. Thank you."
+}
+]
+},
+{
+"id": "H6-7",
+"lv": 6,
+"script": [
+{
+"sp": "B",
+"t": "Our class is having a bake sale on Friday. I'm going to make chocolate cookies. One cookie is five hundred won, and a box of six cookies is two thousand won. All the money will go to the animal shelter."
+}
+]
+},
+{
+"id": "H6-8",
+"lv": 6,
+"script": [
+{
+"sp": "W",
+"t": "Good afternoon, students. The school library will be closed this Wednesday for a book fair. You can return your books on Tuesday or Thursday. The book fair will be held in the gym. Many new books will be on sale there."
+}
+]
+},
+{
+"id": "H7-1",
+"lv": 7,
+"script": [
+{
+"sp": "W",
+"t": "Jake, you look down. What's wrong?"
+},
+{
+"sp": "B",
+"t": "I practiced for the school speech contest for two weeks."
+},
+{
+"sp": "W",
+"t": "Right, it was this morning, wasn't it?"
+},
+{
+"sp": "B",
+"t": "Yes. But when I stood on the stage, I forgot the second half of my speech."
+},
+{
+"sp": "W",
+"t": "Oh no. Did your teacher say anything?"
+},
+{
+"sp": "B",
+"t": "She said I could try again next month. But I don't know if I want to."
+}
+]
+},
+{
+"id": "H7-2",
+"lv": 7,
+"script": [
+{
+"sp": "G",
+"t": "Dad, can you take me to the library? I need a book for my report."
+},
+{
+"sp": "M",
+"t": "Sorry, Sora. I have to finish this work first. Maybe in an hour?"
+},
+{
+"sp": "G",
+"t": "But the library closes at five. It's already four."
+},
+{
+"sp": "M",
+"t": "Hmm. Then why don't you ask your big brother? He's going to the bookstore next to the library."
+},
+{
+"sp": "G",
+"t": "Is he leaving now?"
+},
+{
+"sp": "M",
+"t": "Yes, he's putting on his shoes right now."
+},
+{
+"sp": "G",
+"t": "Great! I'll go and catch him."
+}
+]
+},
+{
+"id": "H7-3",
+"lv": 7,
+"script": [
+{
+"sp": "W",
+"t": "Hi, Tom. Please sit down. How have you been?"
+},
+{
+"sp": "B",
+"t": "Not bad. But my tooth has been hurting since Monday."
+},
+{
+"sp": "W",
+"t": "Which one? Can you show me?"
+},
+{
+"sp": "B",
+"t": "This one, on the left. It hurts when I drink something cold."
+},
+{
+"sp": "W",
+"t": "Let me take a look. Open wide, please. Hmm, I see a small hole."
+},
+{
+"sp": "B",
+"t": "Do I need a shot? I'm scared of shots."
+},
+{
+"sp": "W",
+"t": "Don't worry. It will be quick, and I'll be very gentle."
+}
+]
+},
+{
+"id": "H7-4",
+"lv": 7,
+"script": [
+{
+"sp": "B",
+"t": "Mina, are you coming to the soccer game on Saturday?"
+},
+{
+"sp": "G",
+"t": "I wish I could. Do you know what day Saturday is?"
+},
+{
+"sp": "B",
+"t": "Umm, is it your birthday?"
+},
+{
+"sp": "G",
+"t": "No, mine is in June. It is my grandma's birthday."
+},
+{
+"sp": "B",
+"t": "Oh, is there a party?"
+},
+{
+"sp": "G",
+"t": "Yes, a big dinner at a restaurant in Busan. We are leaving on Friday night."
+},
+{
+"sp": "B",
+"t": "Sounds great. Have a good time!"
+}
+]
+},
+{
+"id": "H7-5",
+"lv": 7,
+"script": [
+{
+"sp": "W",
+"t": "Next, please. Hello, where are you going today?"
+},
+{
+"sp": "M",
+"t": "To Jeju. Here is my ticket."
+},
+{
+"sp": "W",
+"t": "Thank you. Do you have any bags to check?"
+},
+{
+"sp": "M",
+"t": "Just this big one. I'll carry the small one with me."
+},
+{
+"sp": "W",
+"t": "Okay. Your seat is by the window. Boarding starts at two thirty at gate twelve."
+},
+{
+"sp": "M",
+"t": "Gate twelve. Thanks a lot."
+}
+]
+},
+{
+"id": "H7-6",
+"lv": 7,
+"script": [
+{
+"sp": "B",
+"t": "Mom, I can't find my history homework. I'm sure I put it on my desk."
+},
+{
+"sp": "W",
+"t": "Did you look in your backpack?"
+},
+{
+"sp": "B",
+"t": "Twice. It's not there."
+},
+{
+"sp": "W",
+"t": "Hmm. Yesterday your little sister was drawing at your desk."
+},
+{
+"sp": "B",
+"t": "Oh no. She uses my papers for drawing all the time."
+},
+{
+"sp": "W",
+"t": "Go and ask her. And next time, put your homework in a file."
+},
+{
+"sp": "B",
+"t": "Okay. Yuna! Did you take my paper?"
+}
+]
+},
+{
+"id": "H7-7",
+"lv": 7,
+"script": [
+{
+"sp": "G",
+"t": "Wow, this cake is so good! Did you buy it at the bakery on Main Street?"
+},
+{
+"sp": "B",
+"t": "No. Guess who made it."
+},
+{
+"sp": "G",
+"t": "Your mom? She's a great cook."
+},
+{
+"sp": "B",
+"t": "Nope. She was busy at work all week."
+},
+{
+"sp": "G",
+"t": "Then your dad?"
+},
+{
+"sp": "B",
+"t": "He can't even fry an egg. It was me! I watched a video and tried three times."
+},
+{
+"sp": "G",
+"t": "No way! You should open a bakery."
+}
+]
+},
+{
+"id": "H7-8",
+"lv": 7,
+"script": [
+{
+"sp": "W",
+"t": "Excuse me, I left my umbrella on the bus this morning. Bus number seven."
+},
+{
+"sp": "M",
+"t": "What does it look like?"
+},
+{
+"sp": "W",
+"t": "It's long and yellow, with a wooden handle."
+},
+{
+"sp": "M",
+"t": "Let me check. We have three umbrellas from bus seven. Is this it?"
+},
+{
+"sp": "W",
+"t": "No, mine is yellow. That one is green."
+},
+{
+"sp": "M",
+"t": "How about this one?"
+},
+{
+"sp": "W",
+"t": "Yes! That's it. It was a present from my daughter. Thank you so much."
+}
+]
+},
+{
+"id": "H8-1",
+"lv": 8,
+"script": [
+{
+"sp": "N",
+"t": "Good morning, students. This is your vice principal speaking."
+},
+{
+"sp": "N",
+"t": "As you know, our school festival is next Friday."
+},
+{
+"sp": "N",
+"t": "This year, we are looking for students to help at the information desk."
+},
+{
+"sp": "N",
+"t": "Helpers will guide visitors and hand out maps of the school."
+},
+{
+"sp": "N",
+"t": "If you are interested, please write your name on the list in the teachers' office by this Wednesday."
+},
+{
+"sp": "N",
+"t": "Helpers will get two hours of volunteer time."
+},
+{
+"sp": "N",
+"t": "We hope many of you will join us. Thank you."
+}
+]
+},
+{
+"id": "H8-2",
+"lv": 8,
+"script": [
+{
+"sp": "G",
+"t": "Jake, you look tired. Did you stay up late again?"
+},
+{
+"sp": "B",
+"t": "Yeah, I studied until two in the morning for the math test."
+},
+{
+"sp": "G",
+"t": "Two? That's too late. Do you do that every night?"
+},
+{
+"sp": "B",
+"t": "Almost. I think more hours of study means better grades."
+},
+{
+"sp": "G",
+"t": "Not really. I read that our brain organizes what we learned while we sleep."
+},
+{
+"sp": "B",
+"t": "Really? So sleeping is part of studying?"
+},
+{
+"sp": "G",
+"t": "Exactly. If you sleep well, you'll remember more. Try going to bed before twelve this week."
+},
+{
+"sp": "B",
+"t": "Okay, I'll give it a try."
+}
+]
+},
+{
+"id": "H8-3",
+"lv": 8,
+"script": [
+{
+"sp": "G",
+"t": "Hello, everyone. I'm Sora, the leader of the Green Earth Club."
+},
+{
+"sp": "G",
+"t": "Our club meets every Thursday after school in the science room."
+},
+{
+"sp": "G",
+"t": "We have about twenty members now."
+},
+{
+"sp": "G",
+"t": "Every month, we pick up trash at the park near our school."
+},
+{
+"sp": "G",
+"t": "Last month, we also planted fifty trees by the river."
+},
+{
+"sp": "G",
+"t": "This year, we want to start a used clothes market."
+},
+{
+"sp": "G",
+"t": "Anyone can join us, even first graders."
+},
+{
+"sp": "G",
+"t": "Come and visit us this Thursday!"
+}
+]
+},
+{
+"id": "H8-4",
+"lv": 8,
+"script": [
+{
+"sp": "B",
+"t": "Mina, did you sign up for the school camping trip?"
+},
+{
+"sp": "G",
+"t": "Not yet. When is it?"
+},
+{
+"sp": "B",
+"t": "It's on the last weekend of May."
+},
+{
+"sp": "G",
+"t": "How much does it cost?"
+},
+{
+"sp": "B",
+"t": "Forty thousand won. That includes food and the bus."
+},
+{
+"sp": "G",
+"t": "What should we bring?"
+},
+{
+"sp": "B",
+"t": "A sleeping bag and a flashlight. The school will give us tents."
+},
+{
+"sp": "G",
+"t": "Sounds fun. I'll sign up today."
+}
+]
+},
+{
+"id": "H8-5",
+"lv": 8,
+"script": [
+{
+"sp": "W",
+"t": "Hello, is this Mr. Kim? This is Sunny Library calling."
+},
+{
+"sp": "M",
+"t": "Yes, speaking."
+},
+{
+"sp": "W",
+"t": "Last week, you asked us to save the book The Lost Island for you."
+},
+{
+"sp": "M",
+"t": "Oh, right. Has it come back?"
+},
+{
+"sp": "W",
+"t": "Yes, someone returned it this morning. We will keep it for you until Saturday."
+},
+{
+"sp": "M",
+"t": "Great. I thought I had to wait another week."
+},
+{
+"sp": "W",
+"t": "Please bring your library card when you come."
+},
+{
+"sp": "M",
+"t": "Okay. I'll stop by tomorrow after work."
+}
+]
+},
+{
+"id": "H8-6",
+"lv": 8,
+"script": [
+{
+"sp": "G",
+"t": "Dad, the school concert is tonight, and I left my violin at home!"
+},
+{
+"sp": "M",
+"t": "Oh no. Where are you now?"
+},
+{
+"sp": "G",
+"t": "At school. We have practice at four, and the concert starts at six."
+},
+{
+"sp": "M",
+"t": "I'm still at the office. I can't leave until five thirty."
+},
+{
+"sp": "G",
+"t": "Then can Mom bring it?"
+},
+{
+"sp": "M",
+"t": "She's on a business trip in Daegu. Hmm, Grandpa lives near our house. I'll call him and ask him to bring it to you."
+},
+{
+"sp": "G",
+"t": "Thank you, Dad. Tell him it's in my room, next to the bed."
+}
+]
+},
+{
+"id": "H8-7",
+"lv": 8,
+"script": [
+{
+"sp": "M",
+"t": "Welcome to Sky Science Museum. How can I help you?"
+},
+{
+"sp": "W",
+"t": "Two adult tickets and one child ticket, please."
+},
+{
+"sp": "M",
+"t": "Adult tickets are twelve thousand won each, and child tickets are six thousand won."
+},
+{
+"sp": "W",
+"t": "My son is thirteen. Can he get a child ticket?"
+},
+{
+"sp": "M",
+"t": "I'm sorry. Child tickets are only for twelve and under."
+},
+{
+"sp": "W",
+"t": "I see. Then three adult tickets."
+},
+{
+"sp": "M",
+"t": "We also have a special space show. It's three thousand won more per person."
+},
+{
+"sp": "W",
+"t": "No, thanks. Just the regular tickets, please."
+}
+]
+},
+{
+"id": "H8-8",
+"lv": 8,
+"script": [
+{
+"sp": "M",
+"t": "Hi, class. Today I want to talk about something many of you do every night: using your phone in bed."
+},
+{
+"sp": "M",
+"t": "The light from the screen tells your brain that it is still daytime."
+},
+{
+"sp": "M",
+"t": "So it becomes harder to fall asleep."
+},
+{
+"sp": "M",
+"t": "Even thirty minutes of phone use can make your sleep shorter."
+},
+{
+"sp": "M",
+"t": "Try putting your phone outside your room one hour before bed."
+},
+{
+"sp": "M",
+"t": "Instead, you can read a book or listen to quiet music."
+},
+{
+"sp": "M",
+"t": "You'll feel much better the next morning."
+}
+]
+}
+]
