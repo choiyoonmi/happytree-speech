@@ -1,0 +1,175 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>레벨테스트 채점</title>
+<link rel="icon" href="/favicon-32.png">
+<!-- 영어 레벨테스트(4영역) 선생님 화면 — 2026-10-27.
+     결과 명단 → 한 명 열기 → 말하기 녹음 다시 듣기 · 쓴 글 채점표(내용·문법·어휘 1~4) · 최종 단계 확정.
+     비밀번호는 트리톡 관리자 비밀번호. 이 창(sessionStorage)에만 둔다. -->
+<style>
+:root{--ink:#1B2430;--ink2:#46505E;--ink3:#79838F;--ground:#FBFAF7;--surface:#fff;--sunk:#F4F2ED;
+      --line:#E4E0D8;--acc:#1C6FA8;--acc-bg:#EAF2F8;--ok:#2F7D5B;--ok-bg:#E9F2EE;--no:#B4472E;--no-bg:#FBEDE9;
+      --sans:'IBM Plex Sans KR',system-ui,sans-serif}
+:root:not([data-theme="light"]){@media (prefers-color-scheme:dark){
+  --ink:#EDEAE3;--ink2:#B6BDC6;--ink3:#8A939D;--ground:#14181D;--surface:#1B2026;--sunk:#222831;
+  --line:#333B45;--acc:#6DB2E0;--acc-bg:#152430;--ok:#7CC4A2;--ok-bg:#15251E;--no:#E08C74;--no-bg:#2B1A16}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.55}
+.wrap{max-width:980px;margin:0 auto;padding:24px 16px 60px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:24px 0 8px}
+.sub{color:var(--ink3);font-size:12.5px;margin:0 0 18px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:0 0 14px}
+input,select,textarea,button{font:inherit;color:var(--ink)}
+input,select,textarea{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+button{cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--surface);padding:8px 13px}
+button.pri{background:var(--ink);color:var(--ground);border-color:var(--ink);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:11px;color:var(--ink3);font-weight:600}
+tr.row{cursor:pointer} tr.row:hover td{background:var(--sunk)}
+.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:4px;background:var(--acc-bg);color:var(--acc)}
+.tag.wait{background:var(--no-bg);color:var(--no)} .tag.done{background:var(--ok-bg);color:var(--ok)}
+.lv{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.lv>div{border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+.lv dt{font-size:11px;color:var(--ink3)} .lv dd{margin:2px 0 0;font-size:18px;font-weight:700;color:var(--acc)}
+.lv input{width:64px;text-align:center;margin-top:4px}
+.ans{font-family:Georgia,serif;font-size:15px;background:var(--sunk);border-radius:8px;padding:10px 12px;white-space:pre-wrap}
+.rub{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 0;font-size:13px}
+.muted{color:var(--ink3);font-size:12.5px}
+.err{color:var(--no)}
+@media (max-width:640px){.hide-sm{display:none}}
+</style></head><body>
+<div class="wrap">
+  <h1>영어 레벨테스트 · 채점</h1>
+  <p class="sub">말하기 녹음을 다시 듣고, 쓴 글을 채점하고, 최종 단계를 확정합니다. 시험 화면: <a href="/leveltest.html" target="_blank">/leveltest.html</a></p>
+  <div id="app"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+let PW = '';
+try { PW = sessionStorage.getItem('ltpw') || ''; } catch (e) {}
+let ROWS = [];
+const H = () => ({ 'x-ht-admin': PW });
+
+function login(msg) {
+  $('app').innerHTML = '<div class="card"><p>트리톡 관리자 비밀번호를 넣어 주세요.</p>'
+    + '<input id="pw" type="password" autocomplete="current-password" style="width:240px"> <button class="pri" onclick="tryPw()">열기</button>'
+    + (msg ? '<p class="err">' + esc(msg) + '</p>' : '') + '</div>';
+  const p = $('pw'); p.focus(); p.onkeydown = e => { if (e.key === 'Enter') tryPw(); };
+}
+async function tryPw() { PW = $('pw').value.trim(); try { sessionStorage.setItem('ltpw', PW); } catch (e) {} load(); }
+
+async function load() {
+  if (!PW) return login();
+  $('app').innerHTML = '<p class="muted">불러오는 중…</p>';
+  let r;
+  try { r = await fetch('/api/lt/results', { headers: H() }); } catch (e) { return login('서버에 닿지 않아요.'); }
+  if (r.status === 401) { try { sessionStorage.removeItem('ltpw'); } catch (e) {} return login('비밀번호가 맞지 않아요.'); }
+  ROWS = (await r.json()).rows || [];
+  list();
+}
+
+const lvOf = (x, k) => { const t = x.teacher && x.teacher.final; return t && t[k] != null ? t[k] : x[k]; };
+function status(x) {
+  if (x.teacher && x.teacher.final) return '<span class="tag done">확정</span>';
+  if (x.wPending) return '<span class="tag wait">쓰기 채점 대기</span>';
+  return '<span class="tag">자동 채점</span>';
+}
+function list() {
+  const show = ROWS.filter(x => !x.test || $('showtest') && $('showtest').checked);
+  $('app').innerHTML = '<div class="card"><label class="muted"><input type="checkbox" id="showtest" onchange="list()"'
+    + (document.getElementById('showtest') && document.getElementById('showtest').checked ? ' checked' : '') + '> 시험 삼아 본 것도 보기</label>'
+    + ' <button onclick="load()" style="float:right">새로고침</button></div>'
+    + '<div class="card" style="overflow-x:auto"><table><thead><tr><th>날짜</th><th>이름</th><th>학년</th>'
+    + '<th>단어</th><th>듣기</th><th class="hide-sm">문장</th><th>독해</th><th>쓰기</th><th>말하기</th><th>상태</th></tr></thead><tbody>'
+    + (show.length ? show.map(x => '<tr class="row" onclick="open1(\'' + x.rid + '\')"><td>' + esc((x.rid || '').slice(4, 8).replace(/(..)(..)/, '$1/$2'))
+        + '</td><td><b>' + esc(x.name || '이름 없음') + '</b>' + (x.test ? ' <span class="tag">시험용</span>' : '') + '</td><td>' + esc(x.grade)
+        + '</td><td>' + (lvOf(x, 'v') == null ? '—' : (lvOf(x, 'v') + 1) + '칸') + '</td><td>' + (lvOf(x, 'h') ?? '—')
+        + '</td><td class="hide-sm">' + (lvOf(x, 'g') ?? '—') + '</td><td>' + (lvOf(x, 'r') == null ? '—' : 'LV' + lvOf(x, 'r'))
+        + '</td><td>' + (lvOf(x, 'w') ?? '—') + '</td><td>' + (lvOf(x, 's') ?? '—') + '</td><td>' + status(x) + '</td></tr>').join('')
+      : '<tr><td colspan="10" class="muted">아직 응시 결과가 없어요.</td></tr>')
+    + '</tbody></table></div>';
+}
+
+let CUR = null;
+const RUB = [['c', '내용'], ['g', '문법'], ['v', '어휘']];
+const WBASE = { A: 1, B: 3, C: 5 };
+function open1(rid) {
+  CUR = ROWS.find(x => x.rid === rid); if (!CUR) return;
+  const x = CUR, t = x.teacher || {}, fin = t.final || {};
+  const opens = (x.write || []).filter(w => w.type === 'open');
+  /* 단어 칸은 저장이 0부터, 화면은 1부터 — 고치는 칸도 화면과 같은 1부터로 보여 주고 저장할 때 1을 뺀다 */
+  const shown = k => { const v = fin[k] ?? x[k]; return v == null ? '' : (k === 'v' ? v + 1 : v); };
+  const L = (k, name, show) => '<div><dt>' + name + '</dt><dd>' + show + '</dd><input id="f_' + k + '" type="number" min="1" value="' + shown(k) + '"></div>';
+  $('app').innerHTML = '<p><button onclick="list()">← 명단</button></p>'
+    + '<div class="card"><h2 style="margin-top:0">' + esc(x.name || '이름 없음') + ' · ' + esc(x.grade) + ' · ' + esc(x.ts) + '</h2>'
+    + '<p class="muted">위 굵은 숫자가 자동 판정, 아래 칸이 확정할 값입니다. 고칠 것만 바꾸고 맨 아래 「채점 저장」을 누르세요.</p>'
+    + '<div class="lv">' + L('v', '단어 칸', x.v == null ? '—' : (x.v + 1) + '칸') + L('h', '듣기', x.h ?? '—')
+    + L('g', '문장 만들기', x.g ?? '—') + L('r', '독해 LV', x.r ?? '—')
+    + L('w', '쓰기', (x.w ?? '—') + (x.wPending ? ' 잠정' : '')) + L('s', '말하기', (x.s ?? '—') + (x.sAvg != null ? ' (' + x.sAvg + '점)' : '')) + '</div></div>'
+
+    + '<div class="card"><h2 style="margin-top:0">쓰기 · ' + esc(x.wBand || '') + '묶음</h2>'
+    + ((x.write || []).length ? (x.write || []).map(w => w.type === 'order'
+        ? '<p>' + (w.ok ? '✅' : '❌') + ' ' + esc(w.ko) + '<br><span class="ans" style="display:inline-block">' + esc(w.made || '') + '</span>'
+          + (w.ok ? '' : ' <span class="muted">정답 ' + esc(w.ans) + '</span>') + '</p>'
+        : '<div style="margin:12px 0"><p style="margin:0 0 4px"><b>' + esc(w.q) + '</b> <span class="muted">(' + (w.words || 0) + '낱말 · 기대 ' + (w.minw || '') + '낱말)</span></p>'
+          + '<div class="ans">' + (w.skipped ? '<span class="muted">건너뜀</span>' : esc(w.text)) + '</div>'
+          + '<div class="rub">' + RUB.map(([k, nm]) => nm + ' <select id="r_' + w.id + '_' + k + '" onchange="calcW()">'
+              + ['', 1, 2, 3, 4].map(n => '<option' + ((t.write && t.write[w.id] && t.write[w.id][k] == n && n !== '') ? ' selected' : '') + '>' + n + '</option>').join('')
+              + '</select>').join('') + ' <span class="muted">4 잘함 · 3 보통 · 2 부족 · 1 거의 못함</span></div></div>').join('')
+      : '<p class="muted">쓰기 기록이 없어요(쓰기가 생기기 전 응시).</p>')
+    + (opens.length ? '<p id="wcalc" class="muted"></p>' : '') + '</div>'
+
+    + '<div class="card"><h2 style="margin-top:0">말하기 · ' + esc(x.sBand || '') + '묶음</h2>'
+    + ((x.speak || []).length ? '<table><thead><tr><th>문항</th><th>들린 말(기계 받아쓰기)</th><th>점수</th><th>녹음</th></tr></thead><tbody>'
+        + x.speak.map((s, i) => '<tr><td>' + (s.type === 'read' ? '따라 읽기' : '답하기') + (s.hint ? ' <span class="tag">힌트</span>' : '') + '<br><span class="muted">' + esc(s.prompt) + '</span></td>'
+          + '<td>' + (s.skipped ? '<span class="muted">건너뜀</span>' : esc(s.text)) + '</td><td>' + (s.score ?? '—')
+          + (s.content != null ? '<br><span class="muted">내용 ' + s.content + ' · 전달 ' + s.delivery + '</span>' : '') + '</td>'
+          + '<td>' + (s.rec ? '<button onclick="playRec(\'' + s.rec + '\', this)">▶ 듣기</button>' : '') + '</td></tr>').join('')
+        + '</tbody></table>' : '<p class="muted">말하기 기록이 없어요.</p>') + '</div>'
+
+    + '<div class="card"><h2 style="margin-top:0">선생님 메모</h2><textarea id="memo" rows="3" style="width:100%">' + esc(t.memo || '') + '</textarea>'
+    + '<p style="margin:12px 0 0"><button class="pri" onclick="save()">채점 저장 · 단계 확정</button> <span id="msg" class="muted"></span></p></div>';
+  calcW();
+  window.scrollTo(0, 0);
+}
+/* 글 채점표 → 쓰기 단계. 묶음(A 1~2 · B 3~4 · C 5~6) 안에서 평균 3 이상이면 위, 2 이상이면 아래, 그 밑이면 한 칸 아래 */
+function calcW() {
+  const x = CUR, opens = (x.write || []).filter(w => w.type === 'open' && !w.skipped);
+  const box = $('wcalc'); if (!box) return;
+  const vals = [];
+  opens.forEach(w => RUB.forEach(([k]) => { const v = +($('r_' + w.id + '_' + k) || {}).value; if (v) vals.push(v); }));
+  if (vals.length < opens.length * 3) { box.textContent = '채점표를 다 고르면 쓰기 단계가 계산됩니다.'; return; }
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length, base = WBASE[x.wBand] || 1;
+  const lv = Math.max(1, avg >= 3 ? base + 1 : avg >= 2 ? base : base - 1);
+  box.innerHTML = '채점표 평균 <b>' + avg.toFixed(1) + '</b> → 쓰기 <b>' + lv + '단계</b> (위 쓰기 칸에 넣었습니다)';
+  $('f_w').value = lv;
+}
+async function playRec(name, btn) {
+  btn.disabled = true; btn.textContent = '불러오는 중…';
+  try {
+    const r = await fetch('/api/lt/speak-audio/' + name, { headers: H() });
+    if (!r.ok) throw new Error(r.status);
+    const url = URL.createObjectURL(await r.blob());
+    const a = new Audio(url); a.onended = () => { btn.disabled = false; btn.textContent = '▶ 듣기'; };
+    await a.play(); btn.textContent = '♪ 듣는 중';
+  } catch (e) { btn.disabled = false; btn.textContent = '못 불러옴'; }
+}
+async function save() {
+  const x = CUR, write = {};
+  (x.write || []).filter(w => w.type === 'open').forEach(w => {
+    write[w.id] = {}; RUB.forEach(([k]) => { const v = +($('r_' + w.id + '_' + k) || {}).value; if (v) write[w.id][k] = v; });
+  });
+  const final = {};
+  ['v', 'h', 'g', 'r', 'w', 's'].forEach(k => { const v = $('f_' + k).value; final[k] = v === '' ? null : (k === 'v' ? +v - 1 : +v); });
+  $('msg').textContent = '저장 중…';
+  const r = await fetch('/api/lt/grade/' + x.rid, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, H()),
+    body: JSON.stringify({ write, final, memo: $('memo').value }) });
+  if (!r.ok) { $('msg').textContent = '저장 못 했어요 (' + r.status + ')'; return; }
+  x.teacher = (await r.json()).teacher;
+  $('msg').textContent = '저장했어요 ✓';
+}
+load();
+</script>
+</body></html>
