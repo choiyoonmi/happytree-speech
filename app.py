@@ -1671,6 +1671,113 @@ def student_retest(sid: str, request: Request, payload: dict = Body(...)):
     return {"ok": True, **preview}
 
 
+@app.post("/api/skip-day", dependencies=ADMIN_ONLY)
+def skip_day(request: Request, payload: dict = Body(...)):
+    """★학원 전체 '이 날 수업 없음 → 이 날 과제는 다음 수업에 복습'(원장 2026-10-29 할로윈 파티).
+    "오늘 과제를 다음 시간 복습으로. 아직 시험 전이라 다음 진도가 나가면 안 돼."
+
+    ★그날 과제는 그대로 두고, 다음 수업에 같은 과제를 **한 번 더**(reviewOf) 낸다 — 옮기는 게 아니다.
+    그 뒤 과제는 (학생 × 교재) 줄마다 **한 칸씩** 뒤로 — 각 과제가 그 줄의 '다음 과제 날짜'로 가고,
+    맨 끝 것만 한 수업 뒤로. 요일을 짐작하지 않으니 월수반·화목반이 섞여 있어도 일정 모양이 그대로다.
+    그날 과제가 없는 교재는 안 건드린다.
+    같이 받는 과제인데 학생마다 갈 날짜가 다르면 그 학생들만 떼어 낸다(기록 있는 학생은 원래 과제에 남김).
+    body {date:'YYYY-MM-DD', dryRun?}"""
+    import copy as _copy
+    day = str(payload.get("date") or "").strip()
+    if len(day) != 10:
+        raise HTTPException(400, "날짜가 필요해요.")
+    dry = bool(payload.get("dryRun"))
+    ac = academy_of(request)
+    with _lock:
+        db = load_db()
+        before = _snap(db)
+        studs = only_academy(db.get("students", []), ac)
+        names = {x.get("id"): x.get("name") or x.get("id") for x in studs}
+        all_ids = [x.get("id") for x in studs if x.get("id")]
+        live = [a for a in db["assignments"]
+                if academy_of_student(a) == ac and a.get("published") is not False and a.get("dueDate")]
+
+        def who(a):
+            ids = [str(x) for x in (a.get("assignedIds") or [])]
+            return [x for x in (ids if ids else all_ids) if not x.startswith("~")]
+
+        today_tasks = [a for a in live if a["dueDate"] == day]
+        chains = {(sid, a.get("book") or "") for a in today_tasks for sid in who(a) if sid in names}
+        touched = {sid: _touched_ids(sid) for sid, _ in chains}
+        want = {}       # (sid, aid) -> 새 날짜
+        reviews = {}    # (원래 과제 id, 날짜) -> [학생]
+        for sid, bk in sorted(chains):
+            tasks = [a for a in live if (a.get("book") or "") == bk and a["dueDate"] >= day and sid in who(a)]
+            dates = sorted({a["dueDate"] for a in tasks})
+            ok = _allowed_fn(_student_days(db, sid, tasks), _off_for_student(db, sid) | {day})
+            nxt = {d: (dates[i + 1] if i + 1 < len(dates) else _advance(_pdate(d), 1, ok).isoformat())
+                   for i, d in enumerate(dates)}
+            for a in tasks:
+                if a["dueDate"] == day:
+                    reviews.setdefault((a["id"], nxt[day]), []).append(sid)   # 그날 것은 그대로, 다음 수업에 복습
+                else:
+                    want[(sid, a["id"])] = nxt[a["dueDate"]]
+
+        moves, forks, kept = [], [], 0
+        for a in [x for x in live if any((s, x["id"]) in want for s in who(x))]:
+            groups = {}
+            for s in who(a):
+                groups.setdefault(want.get((s, a["id"]), a["dueDate"]), []).append(s)
+            tch = {s for s in who(a) if a["id"] in touched.get(s, set())}
+            # 원래 과제에 남을 무리: 기록 있는 학생이 있는 무리 > 날짜 안 바뀌는 무리 > 가장 큰 무리
+            stay = (next((d for d, ss in groups.items() if tch & set(ss)), None)
+                    or (a["dueDate"] if a["dueDate"] in groups else None)
+                    or max(groups, key=lambda d: len(groups[d])))
+            for d, ss in groups.items():
+                if d == stay:
+                    continue
+                if tch & set(ss):          # 기록 있는 학생은 떼어 내면 기록이 끊긴다 — 그대로 둔다
+                    kept += len(tch & set(ss))
+                    ss = [s for s in ss if s not in tch]
+                    if not ss:
+                        continue
+                forks.append((a, d, ss))
+            if stay != a["dueDate"]:
+                moves.append((a, stay, groups[stay]))
+
+        byid = {a["id"]: a for a in today_tasks}
+
+        def row(a, frm, to, ss, kind):
+            return {"kind": kind, "book": a.get("book") or "", "title": a.get("title"), "from": frm, "to": to,
+                    "students": [names.get(s, s) for s in ss]}
+        preview = ([row(a, a["dueDate"], d, ss, "move") for a, d, ss in moves]
+                   + [row(a, a["dueDate"], d, ss, "move") for a, d, ss in forks]
+                   + [row(byid[aid], day, d, ss, "review") for (aid, d), ss in reviews.items()])
+        preview.sort(key=lambda x: (x["students"][0] if x["students"] else "", x["book"], x["from"]))
+        out = {"ok": True, "date": day, "todayTasks": len(today_tasks), "moved": len(moves) + len(forks),
+               "reviews": len(reviews), "keptDone": kept, "preview": preview}
+        if dry or not (moves or forks or reviews):
+            return out
+        for a, d, ss in forks:
+            b = _copy.deepcopy(a)
+            b.update({"id": "a" + uuid.uuid4().hex[:10], "assignedIds": ss, "assignedClasses": [],
+                      "published": True, "dueDate": d})
+            if len(ss) == 1:
+                b["personalOf"] = ss[0]
+            a["assignedIds"] = [s for s in who(a) if s not in ss]
+            a["assignedClasses"] = []      # 반 배정으로 다시 저장하면 떼어 낸 학생이 도로 들어가므로
+            db["assignments"].insert(0, b)
+        for a, d, _ in moves:
+            a["dueDate"] = d
+        for (aid, d), ss in reviews.items():
+            r = _copy.deepcopy(byid[aid])
+            r.update({"id": "a" + uuid.uuid4().hex[:10], "dueDate": d, "assignedIds": ss, "assignedClasses": [],
+                      "published": True, "reviewOf": aid})
+            if len(ss) == 1:
+                r["personalOf"] = ss[0]
+            r.pop("retestOf", None); r.pop("retestN", None); r.pop("retestedBy", None)
+            db["assignments"].insert(0, r)
+        md = f"{int(day[5:7])}/{int(day[8:10])}"
+        _hist_push_snap(db, f"{md} 수업 없음 → 다음 수업 복습", before, len(preview))
+        save_db(db)
+    return out
+
+
 _PIECE_RE = re.compile(r"\s*\((\d+)\s*/\s*(\d+)\)\s*$")
 
 

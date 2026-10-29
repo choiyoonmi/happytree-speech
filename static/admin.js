@@ -4380,7 +4380,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
                     opacity: delBusy===a.id ? 0.5 : 1, borderLeft: late ? "4px solid var(--danger)" : "4px solid transparent" }}>
                   <div style={{ minWidth:0 }}>
                     <div style={{ fontWeight:700, fontSize:14 }}>{a.title}
-                      {a.retestOf ? <span style={{ marginLeft:6, fontSize:11, color:"#C2410C", fontWeight:800 }}>🔁 재시험{a.retestN > 1 ? ` ${a.retestN}회` : ""}</span> : null}</div>
+                      {a.reviewOf ? <span style={{ marginLeft:6, fontSize:11, color:"#B45309", fontWeight:800 }}>📖 복습</span> : null}{a.retestOf ? <span style={{ marginLeft:6, fontSize:11, color:"#C2410C", fontWeight:800 }}>🔁 재시험{a.retestN > 1 ? ` ${a.retestN}회` : ""}</span> : null}</div>
                     <div className="muted" style={{ marginTop:3 }}>
                       {a.items.length}개 · {a.rounds||3}회
                       {a.dueDate ? ` · 마감 ${formatDue(a.dueDate)}` : ""}
@@ -5159,10 +5159,67 @@ function PeoplePanel({ students, reload }) {
 
 // 현황 탭: 학습현황과 제출확인을 소탭으로 (제출확인이 스크롤 아래 묻혀 '없어진 줄' 오해 방지)
 
+/* 학원 전체 '이 날 수업 없음'(원장 2026-10-29 할로윈 파티) — 그날 과제는 그대로 두고
+   다음 수업에 같은 과제를 복습으로 한 번 더, 원래 다음 진도부터는 한 칸씩 뒤로. */
+function SkipDayBar({ reload }) {
+  const todayIso = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  const [open, setOpen] = useState(false);
+  const [day, setDay] = useState(todayIso);
+  const [pv, setPv] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [stamp, setStamp] = useState(0);
+  const run = async (dry) => {
+    setBusy(true);
+    try {
+      const r = await apiPost("/skip-day", { date: day, dryRun: dry });
+      if (dry) setPv(r);
+      else { setPv(null); setOpen(false); setStamp(Date.now()); await reload(); alert(`복습 ${r.reviews}개를 넣고, 뒤 과제 ${r.moved}개를 한 칸씩 미뤘어요.`); }
+    } catch (e) { alert("못 했어요: " + e.message); }
+    setBusy(false);
+  };
+  const rv = pv ? pv.preview.filter(p => p.kind === "review") : [];
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <UndoBar reload={reload} stamp={stamp} />
+      {!open ? (
+        <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => setOpen(true)}>🎃 수업 없는 날 → 다음 수업 복습</button>
+      ) : (
+        <div style={{ background: "#FFF8EC", border: "1px solid #F3D9A8", borderRadius: 10, padding: 12 }}>
+          <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <b style={{ fontSize: 14 }}>🎃 학원 전체 수업 없는 날</b>
+            <input type="date" value={day} onChange={e => { setDay(e.target.value); setPv(null); }} />
+            <button className="btn-ghost" disabled={busy} onClick={() => run(true)}>미리 보기</button>
+            <button className="btn-ghost" style={{ marginLeft: "auto" }} onClick={() => { setOpen(false); setPv(null); }}>✕ 닫기</button>
+          </div>
+          <div style={{ fontSize: 12, color: "#7A5B2A", marginTop: 6 }}>
+            그날 과제는 그대로 두고, 다음 수업에 같은 과제를 <b>복습으로 한 번 더</b> 넣어요. 원래 다음 진도부터는 한 칸씩 뒤로 밀려요. 그날 과제가 없는 교재는 그대로예요.
+          </div>
+          {pv && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 13, marginBottom: 6 }}>
+                그날 과제 <b>{pv.todayTasks}</b>개 → 복습 <b>{pv.reviews}</b>개 추가 · 뒤 과제 <b>{pv.moved}</b>개 한 칸씩 미룸
+              </div>
+              <div style={{ maxHeight: 220, overflow: "auto", fontSize: 12, background: "#fff", borderRadius: 8, padding: 8 }}>
+                {rv.map((p, i) => (
+                  <div key={i}>📖 {p.students.join(", ")} · {p.title} → <b>{p.to}</b> 복습</div>
+                ))}
+              </div>
+              <button className="btn" style={{ marginTop: 8 }} disabled={busy || !(pv.reviews || pv.moved)}
+                onClick={() => { if (confirm("이대로 적용할까요? (↩ 되돌리기로 통째로 되돌릴 수 있어요)")) run(false); }}>
+                {busy ? "적용하는 중…" : "적용하기"}</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HomePanel({ students, assignments, reload }) {
   const [sub, setSub] = useState("progress");   // 기본 = 진도(원장님이 가장 자주 찾는 화면)
   return (
     <>
+      <SkipDayBar reload={reload} />
       <div className="tabs" style={{ marginBottom:14 }}>
         {[["progress","📈 진도"],["dash","📊 학습현황"],["review","🎤 제출확인"]].map(([id,l]) => (
           <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
