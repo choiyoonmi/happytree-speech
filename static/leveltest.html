@@ -123,6 +123,36 @@ textarea.wbox{resize:vertical;line-height:1.6}
 .opt:disabled{cursor:default}
 #nextq:disabled{opacity:.35;cursor:default}
 
+/* ── 🧪 화면 자동 맞춤(2026-10-29 원장 "레벨테스트를 태블릿·컴퓨터 환경에 맞게 자동 맞춤") ──
+   태블릿·컴퓨터 = 틀을 넓히고 글자 키움 / 손가락 = 보기·버튼 크게 /
+   독해: 가로 화면이면 지문 왼쪽(제 상자 안에서 스크롤)·문제 오른쪽, 세로면 지문 위(높이 제한).
+   태블릿은 스크롤 막대가 안 보여 → 지문 상자 아래에 그림자(더 있으면만 보임)로 '이어진다'를 알린다. */
+.card > .psg{max-height:calc(100vh - 300px);max-height:calc(100dvh - 300px);min-height:160px;overflow:auto;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  background:linear-gradient(var(--sunk) 30%,transparent) center top,linear-gradient(transparent,var(--sunk) 70%) center bottom,
+    radial-gradient(farthest-side at 50% 0,rgba(0,0,0,.14),transparent) center top,radial-gradient(farthest-side at 50% 100%,rgba(0,0,0,.18),transparent) center bottom;
+  background-repeat:no-repeat;background-size:100% 40px,100% 40px,100% 12px,100% 14px;background-attachment:local,local,scroll,scroll;background-color:var(--sunk)}
+@media (min-width:900px){
+  .wrap{max-width:860px}
+  .opt{font-size:17px;padding:14px 17px}
+  .word{font-size:46px}
+  .gq{font-size:21px}
+  .gq.rq{font-size:17.5px}
+  .psg .en{font-size:17.5px}
+  .meta{font-size:12.5px}
+}
+@media (min-width:1300px){ .wrap{max-width:980px} }
+@media (orientation:landscape) and (min-width:900px){
+  .card:has(> .psg){display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);column-gap:24px;align-items:start}
+  .card:has(> .psg) > .meta{grid-column:1/-1}
+  .card:has(> .psg) > .psg{grid-column:1;grid-row:2/span 3;max-height:calc(100vh - 300px);max-height:calc(100dvh - 300px)}
+  .card:has(> .psg) > .gq,.card:has(> .psg) > .opts,.card:has(> .psg) > .go{grid-column:2}
+  .card:has(> .psg) > .gq.rq{margin-top:0}
+}
+@media (orientation:portrait){ .card > .psg{max-height:40vh;max-height:40dvh} }
+@media (max-height:860px) and (orientation:landscape){ .wrap{padding-top:16px} .head{margin-bottom:12px;padding-bottom:10px} .lscale{margin-bottom:10px} .card{padding:18px 20px} }
+@media (pointer:coarse){ .opt{min-height:54px;align-items:center} .go{min-height:54px} .tile{padding:11px 16px;font-size:19px} }
+
 /* ── 시작·결과 ── */
 .name{width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--sunk);
        border:1px solid transparent;border-radius:10px;padding:12px 14px;margin:14px 0 0}
