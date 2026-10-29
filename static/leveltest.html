@@ -1335,10 +1335,12 @@ async function cohort(R) {
   try {
     const sv = await fetch('/api/lt/result', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(full) });
     if (!sv.ok) throw new Error('save ' + sv.status);
+    if (LT_AP) { let rid = ''; try { rid = (await sv.clone().json()).rid || ''; } catch (e) {} ltEng(R, rid); }   /* 🧪 레벨테스트 포털로 */
     const res = await fetch('/api/lt/peers');
     /* 판정 방식이 바뀌면 m 을 올린다 — 옛 방식 기록과 섞으면 칸의 뜻이 달라 견주기가 틀어진다 */
     rows = ((await res.json()).rows || []).filter(x => x.m === 3);
   } catch (e) {
+    if (LT_AP && !ltSent) ltEng(R, '');
     box.innerHTML = '<div class="none">응시 기록을 서버에 남기지 못했습니다 — 판정과 시간은 위에 그대로 있습니다. 화면을 캡처해 두세요.</div>';
     return;
   }
@@ -1374,6 +1376,57 @@ async function cohort(R) {
     + '</tbody></table>'
     + (rows.length < 5 ? '<div class="none">아직 응시 기록이 ' + rows.length + '명뿐입니다 — '
         + '쌓일수록 상위%가 정확해집니다.</div>' : '');
+}
+
+
+/* ══ 🧪 레벨테스트 포털(test.happytreeacademy.com)에서 열렸을 때 — ?ap=응시자 아이디 (2026-10-29) ══
+   포털에서 이름·학년을 받아 바로 시작하고(초1은 초2 문제로), 끝나면 영역마다 문항별 수준·정오·걸린 시간·
+   들은 횟수를 보낸다. 리포트(포털 report.js)가 실수한 자리·틀린 유형·처리 속도·푸는 스타일을 판단한다.
+   쓰기 글은 여기서 잠정 — 확정은 채점 화면(rid 를 같이 보내 둔다). */
+const LT_PORTAL = 'https://test.happytreeacademy.com';
+const LT_AP = (function () { try { return (new URLSearchParams(location.search).get('ap') || '').replace(/[^a-z0-9]/gi, '').slice(0, 16); } catch (e) { return ''; } })();
+let ltBooted = false, ltSent = false;
+function ltSaved(ok) { const el = document.getElementById('lt-saved'); if (el) el.innerHTML = ok ? '✓ 결과가 선생님께 전달됐어요' : '⚠️ 결과를 보내지 못했어요 — 선생님께 말씀해 주세요'; }
+function ltPost(kind, data, tries) {
+  tries = tries || 0;
+  fetch(LT_PORTAL + '/api/result', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ ap: LT_AP, kind: kind, data: data }) })
+    .then(r => { if (!r.ok) throw 0; ltSaved(true); })
+    .catch(() => { if (tries < 3) setTimeout(() => ltPost(kind, data, tries + 1), 1500 * (tries + 1)); else ltSaved(false); });
+}
+function ltStrip(h) { const d = document.createElement('div'); d.innerHTML = String(h == null ? '' : h); return (d.textContent || '').replace(/\s+/g, ' ').trim(); }
+function ltEngBoot() {
+  fetch(LT_PORTAL + '/api/ap?id=' + LT_AP, { cache: 'no-store' }).then(r => r.json()).then(r => {
+    if (!r || !r.ok) throw 0;
+    const o = loadRun();
+    if (o && o.ap !== LT_AP) clearRun();          /* 이 기기에 다른 학생이 하다 만 시험 — 지운다 */
+    if (loadRun()) return home();                 /* 이 학생이 하다 만 시험 — 이어 하기 */
+    let g = r.grade === '초1' ? '초2' : r.grade;
+    if (!START[g]) g = Object.keys(START)[0];
+    start(g); S.name = r.name; S.ap = LT_AP; saveRun('q');
+  }).catch(() => { alert('응시 정보를 찾지 못했어요. 레벨테스트 포털에서 다시 열어 주세요.'); location.href = LT_PORTAL; });
+}
+function ltEng(R, rid) {
+  ltSent = true;
+  const card = document.querySelector('#app .card');
+  if (card && !document.getElementById('lt-saved')) card.insertAdjacentHTML('afterbegin',
+    '<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eef4ff;border:1.5px solid #c9d8f5;border-radius:12px;padding:12px 14px;margin-bottom:14px;">'
+    + '<span id="lt-saved" style="font-weight:700;color:#16305c;">결과를 선생님께 보내는 중…</span>'
+    + '<a href="' + LT_PORTAL + '/?ap=' + LT_AP + '" style="padding:10px 16px;background:#16305c;color:#fff;border-radius:9px;font-weight:800;text-decoration:none;">🧪 레벨테스트 목록으로</a></div>');
+  const r1 = x => Math.round((x || 0) * 10) / 10;
+  let n = 0;
+  const items = []
+    .concat(S.log.map(x => ({ n: ++n, area: '단어', type: (x.ri + 1) + '칸', lv: x.ri, ok: x.ok ? 1 : 0, t: r1(x.sec), q: ltStrip(x.w), my: ltStrip(x.chose), ans: ltStrip(x.k) })))
+    .concat(S.hlog.map(x => ({ n: ++n, area: '듣기', type: x.lv + '단계', lv: x.lv, ok: x.ok ? 1 : 0, t: r1(x.sec), plays: x.plays || 1, q: ltStrip(x.q).slice(0, 70), my: ltStrip(x.chose), ans: ltStrip(x.right) })))
+    .concat(S.glog.map(x => ({ n: ++n, area: '문장', type: ltStrip(x.name) + (x.ch ? ' (' + ltStrip(x.ch) + ')' : ''), lv: x.gi, ok: x.ok ? 1 : 0, t: r1(x.sec), wr: x.wr ? 1 : 0, q: ltStrip(x.q).slice(0, 70), my: ltStrip(x.chose), ans: ltStrip(x.right) })))
+    .concat(S.rlog.map(x => ({ n: ++n, area: '독해', type: 'LV' + x.lv, lv: x.lv, ok: x.ok ? 1 : 0, t: r1(x.sec), q: ltStrip(x.t) + ' — ' + ltStrip(x.q).slice(0, 50), my: ltStrip(x.chose) })));
+  const speak = (S.slog || []).map(x => ({ type: x.type, score: x.score == null ? null : x.score, skipped: x.skipped ? 1 : 0, hint: x.hint ? 1 : 0, text: ltStrip(x.text).slice(0, 80), prompt: ltStrip(x.prompt).slice(0, 60) }));
+  const write = (S.wlog || []).map(x => ({ type: x.type, ok: x.type === 'order' ? (x.ok ? 1 : 0) : null, skipped: x.skipped ? 1 : 0, words: x.words || 0, text: ltStrip(x.type === 'order' ? x.made : x.text).slice(0, 160), q: ltStrip(x.type === 'order' ? x.ko : x.q).slice(0, 60) }));
+  ltPost('eng', { v: 1, test: '영어 4영역 ' + R.grade, grade: R.grade, rid: rid,
+    v_: R.v, h: R.h, g: R.g, r: R.r, w: R.w, s: R.s, sAvg: R.sAvg, sBand: R.sBand, wBand: R.wBand, wPending: R.wPending,
+    max: { v: WALK.length, h: HLV.length, g: DLV.length, r: 10 },
+    names: { v: R.v == null ? '' : ltStrip(BOOK(WALK[R.v])), h: R.h == null ? '' : ltStrip(HNAME[R.h]), g: R.g == null ? '' : ltStrip(DNAME[R.g]) },
+    ok: R.ok, n: R.n, med: R.med, tot: R.tot, solid: R.solid, effort: R.effort, guess: R.guess,
+    items: items, speak: speak, write: write });
 }
 
 /* ══ 중간 저장 — 새로고침·뒤로 가기·태블릿 잠금으로 튕겨도 그 문항부터 이어 한다 ══
@@ -1417,6 +1470,7 @@ function runWhere(o) {
 }
 
 function home() {
+  if (LT_AP && !ltBooted) { ltBooted = true; return ltEngBoot(); }
   const o = loadRun();
   if (o) {
     document.getElementById('app').innerHTML =
