@@ -87,13 +87,29 @@ SHORT = [
     {"day": 4, "vowel": "o", "families": [
         {"name": "-og", "words": [["dog", "개", "🐶"], ["log", "통나무", "🪵"], ["fog", "안개", "🌫️"], ["jog", "조깅하다", "🏃"]]},
         {"name": "-ot", "words": [["hot", "뜨거운", "🔥"], ["pot", "냄비", "🍲"], ["dot", "점", "🔵"], ["cot", "아기 침대", "🛏️"]]},
-        {"name": "-op · -ox", "words": [["top", "팽이", "🪀"], ["mop", "대걸레", "🧹"], ["box", "상자", "📦"], ["fox", "여우", "🦊"]]}]},
+        {"name": "-op · -ox", "words": [["hop", "깡충 뛰다", "🐇"], ["mop", "대걸레", "🧹"], ["box", "상자", "📦"], ["fox", "여우", "🦊"]]}]},
     {"day": 5, "vowel": "u", "families": [
         {"name": "-un", "words": [["sun", "해", "☀️"], ["run", "달리다", "🏃‍♂️"], ["bun", "빵", "🍞"], ["fun", "재미있는", "🎉"]]},
         {"name": "-ug", "words": [["bug", "벌레", "🐛"], ["hug", "안아 주다", "🤗"], ["mug", "머그컵", "☕"], ["jug", "주전자", "🫖"]]},
         {"name": "-ut · -up", "words": [["nut", "견과", "🥜"], ["cut", "자르다", "✂️"], ["cup", "컵", "🥤"], ["pup", "강아지", "🐕"]]}]},
 ]
 SHORT_WORDS = [w for d in SHORT for f in d["families"] for w in f["words"]]
+
+# 모음별 문장(원장 2026-10-30 "단모음별 문장 만들기 & 녹음 & 퀴즈") — 그날 단어 + 쉬운 낱말만
+SENTS = {
+    "a": [["The cat has a hat.", "고양이가 모자를 가졌어요.", "🐱🎩"], ["A man has a fan.", "남자가 부채를 가졌어요.", "👨🪭"],
+          ["The bat is on the map.", "박쥐가 지도 위에 있어요.", "🦇🗺️"], ["The rat is in the bag.", "쥐가 가방 안에 있어요.", "🐀👜"]],
+    "e": [["The hen is on the bed.", "암탉이 침대 위에 있어요.", "🐔🛏️"], ["The jet is red.", "제트기가 빨개요.", "✈️🔴"],
+          ["The vet has a pen.", "수의사가 펜을 가졌어요.", "🩺🖊️"], ["Ten men get wet.", "남자 열 명이 젖어요.", "👬💦"]],
+    "i": [["The pig is big.", "돼지가 커요.", "🐷🐘"], ["A pig can dig.", "돼지가 땅을 팔 수 있어요.", "🐷⛏️"],
+          ["The pin is in the bin.", "핀이 통 안에 있어요.", "📍🗑️"], ["I can fix it.", "나는 그걸 고칠 수 있어요.", "🙋🔧"]],
+    "o": [["The fox is in the box.", "여우가 상자 안에 있어요.", "🦊📦"], ["The dog is on the log.", "개가 통나무 위에 있어요.", "🐶🪵"],
+          ["The pot is hot.", "냄비가 뜨거워요.", "🍲🔥"], ["I can jog.", "나는 달릴 수 있어요.", "🙋🏃"]],
+    "u": [["The bug is in the mug.", "벌레가 컵 안에 있어요.", "🐛☕"], ["The sun is hot.", "해가 뜨거워요.", "☀️🔥"],
+          ["A pup can run.", "강아지가 달릴 수 있어요.", "🐕🏃‍♂️"], ["I hug the pup.", "나는 강아지를 안아요.", "🤗🐕"]],
+}
+for _d in SHORT:
+    _d["sents"] = [{"id": f"s{_d['vowel']}{i + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for i, x in enumerate(SENTS[_d["vowel"]])]
 
 
 def _ph(ipa, letter):
@@ -118,6 +134,9 @@ def _audio_table():
             t[f"word-{w[0]}"] = f'<prosody rate="-10%">{w[0]}</prosody>'
     for w in SHORT_WORDS:
         t[f"word-{w[0]}"] = f'<prosody rate="-10%">{w[0]}</prosody>'
+    for d in SHORT:
+        for x in d["sents"]:
+            t[f"sent-{x['id']}"] = f'<prosody rate="-20%">{x["en"]}</prosody>'
     for i, ok in enumerate(["Great job!", "Good try!"]):
         t[f"fb-{i}"] = ok
     return t
@@ -291,7 +310,8 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                              "letters": a.get("items"), "dueDate": a.get("dueDate"),
                              "done": bool(s.get("completedAt")), "doneAt": s.get("completedAt"),
                              "quiz": q.get("score"), "steps": len(ph.get("done") or {}),
-                             "chart": ph.get("chart")})   # 복습 소리표 녹음 {url, at, n, mode, sec}
+                             "chart": ph.get("chart"),   # 복습 소리표 녹음 {url, at, n, mode, sec}
+                             "sents": ph.get("sents") or {}})   # 문장 읽기 {id: {en, score, url, at}}
 
         exam_out = None
         if exam:
