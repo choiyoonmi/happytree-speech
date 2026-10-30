@@ -322,7 +322,7 @@ function meet(k){
      <button class="big en" id="lt" style="background:none">${k.toUpperCase()}<b>${k}</b></button>
      <div class="row" style="margin-top:8px"><div class="card" style="padding:10px 20px"><span class="emoji" style="font-size:70px">${L.words[0][2]}</span>
        <div class="word en" style="font-size:44px">${hi(L.key,k)}</div></div>
-       <div class="light" style="font-size:26px">소리 <b class="en" style="color:var(--gold)">/${L.ipa}/</b> '${L.ko}'</div></div>
+       <div class="light" style="font-size:26px">소리 <b style="color:var(--gold)">${L.ko}</b></div></div>
      <div class="stars" id="st"></div><button class="btn hide" id="nx">다음 ▶</button>`);
   let n = 0;
   const lt = $('#lt');
@@ -340,7 +340,7 @@ function meet(k){
 function parrot(k){
   const L = C.letters[k];
   let got = 0;
-  h(`<p class="guide">🦜 앵무새처럼 따라 해요!<small>🔊 듣고 → 🎤 눌러 '${L.ko}' 하고 말해요</small></p>
+  h(`<p class="guide">🦜 앵무새처럼 따라 해요!<small>🔊 듣고 → 🎤 눌러 ${L.ko} 소리를 말해요</small></p>
      <div class="row"><div class="big en" style="font-size:min(30vw,180px)">${k}</div>
        <button class="spk" id="sp">🔊</button><div id="mic"></div></div>
      <div class="msg" id="msg"></div>
@@ -437,7 +437,7 @@ function firstLight(res, k, w){
   const ph = C.letters[k].pos==='end' ? phs[phs.length-1] : phs[0];
   if(!ph) return '';
   const a = ph.acc, col = a>=70?'var(--green)':a>=45?'var(--yellow)':'var(--red)';
-  const say = a>=70?'아주 좋아요!':a>=45?'조금만 더 또렷하게':`'${C.letters[k].ko}' 를 더 크게!`;
+  const say = a>=70?'아주 좋아요!':a>=45?'조금만 더 또렷하게':`${C.letters[k].ko} 소리를 더 크게!`;
   return `<span class="light"><i style="background:${col}"></i>${C.letters[k].pos==='end'?'끝소리':'첫소리'} <b class="en">${k}</b> ${say}</span>`;
 }
 function words(k){
