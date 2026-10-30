@@ -4291,7 +4291,52 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             f"단어익힘도 {vocab_summary['studiedSets']}개 단어장에서 평균 {vocab_summary['avgBest']}점을 기록하며 스스로 복습했어요."
         )
 
+    # ── 파닉스(LV1) 이달 요약 — 국영수 월간 통합 성적표 영어 칸의 '🔤 파닉스' 줄(원장 2026-10-30) ──
+    #   발음 평균(overallAverage)에는 안 섞는다. 퀴즈는 듣기·읽기 선택형이라 발음 점수와 뜻이 다르다.
+    ph_names = {"LV1 1권": "알파벳", "LV1 2권": "단모음", "LV1 3권": "장모음", "LV1 4권": "이중자음",
+                "LV1 5권": "이중모음", "LV1 6권": "총복습", "LV1 사이트워즈": "사이트워즈"}
+    ph_days, ph_quiz, ph_say, ph_sent, ph_areas, ph_lt, ph_exams, ph_last = 0, [], [], [], {}, {}, [], None
+    for a in assigned:
+        if a.get("book") not in ph_names:
+            continue
+        sub = student_subs.get(a["id"]) or {}
+        if a.get("type") == "exam":
+            er = (load_exam(student_id) or {}).get(a["id"]) or {}
+            if er.get("best") is not None:
+                ph_exams.append({"title": a.get("title"), "score": er["best"], "pass": er["best"] >= int(a.get("passScore") or 70)})
+            continue
+        ph = sub.get("phonics") or {}
+        if sub.get("status") in ("submitted", "reviewed"):
+            ph_days += 1
+            if not ph_last or (a.get("dueDate") or "") >= (ph_last.get("dueDate") or ""):
+                ph_last = a
+        q = ph.get("quiz") or {}
+        if q.get("score") is not None:
+            ph_quiz.append(q["score"])
+        for t, v in (q.get("byType") or {}).items():
+            o = ph_areas.setdefault(t, [0, 0]); o[0] += int(v.get("ok") or 0); o[1] += int(v.get("n") or 0)
+        for k, v in (q.get("letters") or {}).items():
+            o = ph_lt.setdefault(k, [0, 0]); o[0] += int(v.get("ok") or 0); o[1] += int(v.get("n") or 0)
+        ph_say += [t["score"] for t in (ph.get("takes") or {}).values() if t and t.get("score") is not None]
+        ph_sent += [t["score"] for t in (ph.get("sents") or {}).values() if t and t.get("score") is not None]
+    ph_area_ko = {"snd": "소리 듣고 글자", "pic": "그림 보고 첫소리", "case": "큰·작은 글자", "word": "듣고 그림",
+                  "read": "단어 읽기", "vowel": "가운데 소리", "pat": "철자 고르기", "first": "첫 글자", "say": "말하기",
+                  "sent": "문장 읽기", "hsent": "문장 듣기", "sfind": "듣고 단어 찾기", "sblank": "문장 빈칸"}
+    phonics = None
+    if ph_days or ph_quiz or ph_exams:
+        phonics = {
+            "days": ph_days,
+            "book": (ph_last or {}).get("book"), "bookName": ph_names.get((ph_last or {}).get("book"), ""),
+            "lastTitle": (ph_last or {}).get("title"),
+            "quizAvg": avg_of(ph_quiz), "sayAvg": avg_of(ph_say), "sentAvg": avg_of(ph_sent),
+            "learned": len([k for k, v in ph_lt.items() if v[1] and v[0] == v[1]]),
+            "weak": [(k.upper() if len(k) == 1 else k) for k, v in sorted(ph_lt.items(), key=lambda x: x[1][0] / (x[1][1] or 1)) if v[0] < v[1]][:5],
+            "areas": [{"label": ph_area_ko.get(t, t), "value": round(v[0] / v[1] * 100)} for t, v in ph_areas.items() if v[1]],
+            "exams": ph_exams,
+        }
+
     return {
+        "phonics": phonics,
         "student": {"name": student.get("name"), "className": student.get("className")},
         "period": {"start": d_start.isoformat(), "end": d_end.isoformat()},
         "overallAverage": overall,
