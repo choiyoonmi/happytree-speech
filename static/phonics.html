@@ -1276,7 +1276,10 @@ function examRun(){
   const want = A ? (A.items||[]).map(x=>String(x).toLowerCase()) : null;
   if(SHORTMODE){
     const words = sd => sd.families.flatMap(f=>f.words.map(w=>w[0])).join();
-    SD = (want && C.short.days.find(x=>words(x)===want.join())) || C.short.days.find(x=>x.day===(+QS.get('day')||1)) || C.short.days[0];
+    // 단어로 찾고, 못 찾으면(단어를 바꾼 뒤 배정된 옛 과제) 제목의 'Day N' 으로
+    const tday = A && +(((A.title||'').match(/Day\s*0*(\d+)/)||[])[1]||0);
+    SD = (want && C.short.days.find(x=>words(x)===want.join())) || (tday && C.short.days.find(x=>x.day===tday))
+         || C.short.days.find(x=>x.day===(+QS.get('day')||1)) || C.short.days[0];
     DAY = SD.day; LET = [SD.vowel];
   } else {
   const d = want ? C.days.find(x=>x.letters.join()===want.join()) : C.days.find(x=>x.day===(+QS.get('day')||1));

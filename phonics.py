@@ -194,12 +194,18 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
     try:
         with lock:
             db = load_db()
-            have = {a.get("id") for a in db["assignments"]}
+            have = {a.get("id"): a for a in db["assignments"]}
             new = [a for a in _templates() if a["id"] not in have]
-            if new:
+            # 아직 아무에게도 안 나간 원본은 내용(제목·단어)을 지금 데이터로 맞춘다(단어를 바꿨을 때 — 10/30 top→hop)
+            fixed = 0
+            for t in _templates():
+                o = have.get(t["id"])
+                if o and o.get("published") is False and not o.get("assignedIds") and                         (o.get("items") != t["items"] or o.get("title") != t["title"]):
+                    o["items"], o["title"] = t["items"], t["title"]; fixed += 1
+            if new or fixed:
                 db["assignments"].extend(new)
                 save_db(db)
-                print(f"[phonics] 보관함에 파닉스 원본 {len(new)}개 넣음")
+                print(f"[phonics] 보관함 파닉스 원본 새로 {len(new)}개 · 고침 {fixed}개")
     except Exception as e:
         print("[phonics] 보관함 원본 넣기 실패:", e)
 
