@@ -4157,7 +4157,8 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             _v = next((c for c in (_its[0] if _its else "") if c in "aeiou"), "")
             ph = {"quiz": q.get("score"),
                   # 알파벳은 그날 글자(A·B·C), 단모음은 단어 12개라 '단모음 a' 로 줄인다
-                  "letters": [k.upper() for k in _its] if len(_its) <= 3 else [f"단모음 {_v}"],
+                  "letters": [k.upper() for k in _its] if len(_its) <= 3 else
+                             [f"{'장모음' if a.get('book') == 'LV1 3권' else '단모음'} {_v}"],
                   "weak": [(k.upper() if len(k) == 1 else k) for k, v in lt.items() if (v or {}).get("ok", 0) < (v or {}).get("n", 0)],
                   "exam": a.get("type") == "exam"}
             avg = None
