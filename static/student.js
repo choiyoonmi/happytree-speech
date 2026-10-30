@@ -254,8 +254,8 @@ function PhonicsFrame({ a, student, onClose }) {
     window.addEventListener("message", on);
     return () => window.removeEventListener("message", on);
   }, []);
-  const src = `/phonics.html?aid=${encodeURIComponent(a.id)}&sid=${encodeURIComponent(student.id)}` +
-    `&name=${encodeURIComponent(student.name || "")}`;
+  const who = `sid=${encodeURIComponent(student.id)}&name=${encodeURIComponent(student.name || "")}`;
+  const src = a.course ? `/phonics-course.html?${who}` : `/phonics.html?aid=${encodeURIComponent(a.id)}&${who}`;
   return <iframe src={src} allow="microphone; autoplay" title="파닉스"
     style={{ position:"fixed", inset:0, width:"100%", height:"100%", border:0, zIndex:50, background:"#fff8e7" }} />;
 }
@@ -588,6 +588,14 @@ function StudentView({ student, onLogout }) {
           <span style={{ fontSize:12, color:"var(--gold-soft)", fontWeight:700 }}>문해숨 · 수학숨 숙제 →</span>
         </a>
         <div style={{ marginBottom:12 }}><PushBell studentId={student.id} /></div>
+        {mine.some(isPhonics) && (
+          <button onClick={()=>setOpenPhonics({ course:true })} className="card"
+            style={{ display:"flex", width:"100%", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12,
+              background:"#fff6d8", border:"1.5px solid var(--gold)" }}>
+            <span style={{ fontWeight:800, fontSize:15, color:"var(--navy)" }}>🌱 파닉스 10개월 과정 · 오늘의 학습</span>
+            <span style={{ color:"var(--navy)", fontSize:20 }}>›</span>
+          </button>
+        )}
         <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress} closedDays={closedDays} closedNames={closedNames}
           onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} onOpenExam={setOpenExam}
           onOpenPhonics={setOpenPhonics} />
