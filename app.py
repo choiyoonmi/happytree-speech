@@ -3485,7 +3485,11 @@ def _pa_words(pa):
     out = []
     try:
         for w in (pa.words or []):
-            out.append({"word": w.word, "accuracy": w.accuracy_score, "errorType": w.error_type})
+            d = {"word": w.word, "accuracy": w.accuracy_score, "errorType": w.error_type}
+            ph = getattr(w, "phonemes", None)
+            if ph:   # granularity=Phoneme 일 때만 있다(파닉스 첫소리 신호등)
+                d["phonemes"] = [{"p": x.phoneme, "acc": x.accuracy_score} for x in ph]
+            out.append(d)
     except Exception:
         pass
     return out
@@ -3599,7 +3603,7 @@ def _assess_continuous(recognizer, reference):
     })
 
 
-def assess_with_sdk(wav_path: str, reference: str, debug: bool = False):
+def assess_with_sdk(wav_path: str, reference: str, debug: bool = False, phoneme: bool = False):
     """Azure Speech SDK로 발음평가. REST API는 점수를 누락하는 알려진 문제가 있어 SDK를 사용.
 
     ★ 반환값의 text(=recognizedText)를 '아이가 말한 문장'으로 쓰면 안 된다.
@@ -3639,7 +3643,8 @@ def assess_with_sdk(wav_path: str, reference: str, debug: bool = False):
     pa_config = speechsdk.PronunciationAssessmentConfig(
         reference_text=reference,
         grading_system=speechsdk.PronunciationAssessmentGradingSystem.HundredMark,
-        granularity=speechsdk.PronunciationAssessmentGranularity.Word,
+        granularity=(speechsdk.PronunciationAssessmentGranularity.Phoneme if phoneme
+                     else speechsdk.PronunciationAssessmentGranularity.Word),
         enable_miscue=len(reference.strip().split()) > 2,
     )
 
@@ -3728,16 +3733,16 @@ def _decode_16k(raw: bytes):
                     pass
 
 
-def _run_assessment(raw_bytes: bytes, text: str, debug: bool = False) -> dict:
+def _run_assessment(raw_bytes: bytes, text: str, debug: bool = False, phoneme: bool = False) -> dict:
     """오디오 bytes → 발음평가 결과(out dict). /api/assess 와 백그라운드 채점(score-take)이 함께 쓴다."""
     with _ASSESS_SEM:
         try:
-            return _run_assessment_inner(raw_bytes, text, debug)
+            return _run_assessment_inner(raw_bytes, text, debug, phoneme)
         finally:
             _release_memory()
 
 
-def _run_assessment_inner(raw_bytes: bytes, text: str, debug: bool = False) -> dict:
+def _run_assessment_inner(raw_bytes: bytes, text: str, debug: bool = False, phoneme: bool = False) -> dict:
     seg = _decode_16k(raw_bytes)
     decoder = "ffmpeg16k"
     if seg is None:
@@ -3765,7 +3770,7 @@ def _run_assessment_inner(raw_bytes: bytes, text: str, debug: bool = False) -> d
     }
 
     try:
-        r = assess_with_sdk(wav_path, text, debug)
+        r = assess_with_sdk(wav_path, text, debug, phoneme)
     finally:
         try:
             os.unlink(wav_path)
@@ -5392,6 +5397,11 @@ def restore(payload: dict = Body(...)):
 from leveltest import make_router as _lt_router
 app.include_router(_lt_router(data_dir=DATA_DIR, azure_key=AZURE_KEY, azure_region=AZURE_REGION,
                               admin_only=ADMIN_ONLY, is_admin=is_admin, run_assessment=_run_assessment))
+
+# ---------- 파닉스 Lv1 — phonics.py 별채, 화면은 static/phonics.html ----------
+from phonics import make_router as _ph_router
+app.include_router(_ph_router(data_dir=DATA_DIR, azure_key=AZURE_KEY, azure_region=AZURE_REGION,
+                              run_assessment=_run_assessment))
 
 
 # ---------- static frontend (must be last) ----------
