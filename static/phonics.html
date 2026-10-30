@@ -106,6 +106,15 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 .toast{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);font-size:min(30vw,170px);pointer-events:none;animation:yay 1s forwards;z-index:9}
 @keyframes yay{0%{transform:translate(-50%,-50%) scale(.2)}40%{transform:translate(-50%,-50%) scale(1.15)}100%{transform:translate(-50%,-80%) scale(1);opacity:0}}
 .qc{background:#fff;border-radius:22px;min-width:120px;height:110px;font-size:64px;color:var(--navy);font-weight:700;box-shadow:0 5px 0 #e2d6bb;padding:0 18px}
+.chart{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;width:100%;max-width:820px;margin:8px 0}
+.cc{background:#fff;border-radius:12px;padding:8px 6px;display:flex;align-items:baseline;gap:6px;box-shadow:0 3px 0 #e7dcc2;transition:transform .15s}
+.cc b{font-size:26px;color:var(--navy)} .cc span{font-size:18px;color:#5b5140}
+.cc.now{background:var(--gold);transform:scale(1.12);box-shadow:0 0 0 4px #fff3c4} .cc.now b,.cc.now span{color:#fff}
+.cc.done{background:#eef7ee}
+.seg2{display:flex;gap:8px;margin-bottom:6px}
+.seg2 button{background:#fff;border-radius:999px;padding:8px 16px;font-size:18px;box-shadow:0 3px 0 #e2d6bb}
+.seg2 button.on{background:var(--navy);color:#fff}
+@media (max-width:560px){ .chart{grid-template-columns:repeat(4,minmax(0,1fr))} }
 .cards5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;width:100%;max-width:760px;margin-top:4px}
 .c5{background:#fff;border-radius:20px;padding:10px 4px 8px;box-shadow:0 5px 0 #e7dcc2;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative}
 .c5 .e{font-size:min(11vw,64px);line-height:1.1}
@@ -140,8 +149,8 @@ const EMBED = !!(AID && SID);
 let C = null;             // /api/phonics/content
 let A = null;             // 이 과제(트리톡)
 let LET = [], DAY = 1, STEPS = [], cur = -1;
-const NAMES = {meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기', quiz:'오늘의 퀴즈'};
-const ICON  = {meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏', quiz:'🏆'};
+const NAMES = {review:'복습 소리표', meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기', quiz:'오늘의 퀴즈'};
+const ICON  = {review:'🔁', meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏', quiz:'🏆'};
 const QAREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기'};
 const store = {
   get(){ try{ return JSON.parse(localStorage.getItem('ht_phonics')||'{}') }catch(e){ return {} } },
@@ -284,8 +293,13 @@ async function assess(text, blob){
 }
 
 // ── 흐름 ───────────────────────────────────────────────────────────
+// 복습 소리표(원장 2026-10-30): 알파벳은 '앞날까지 배운 글자'를 매일 먼저 소리 내어 읽고 녹음한다
+// (1일차는 없음). 단모음 책부터는 이 목록을 26자 전체로 바꿔 매일 전체 녹음을 한다.
+let REVIEW = [];
 function build(){
   STEPS = [];
+  REVIEW = C.days.filter(d=>d.day < DAY).flatMap(d=>d.letters);
+  if(REVIEW.length) STEPS.push({t:'review'});
   LET.forEach(k=>['meet','parrot','trace','words'].forEach(t=>STEPS.push({t,k})));
   ['bubble','fish','memory','quiz'].forEach(t=>STEPS.push({t}));
 }
@@ -297,8 +311,8 @@ let doneLock = false;   // '다음' 을 두 번 눌러 한 칸 건너뛰지 않�
 function finish(){ if(doneLock || cur<0) return; doneLock = true; S.done[key(cur)] = 1; save(); cur+1 < STEPS.length ? run(cur+1) : go('end') }
 function run(i){
   cur = i; doneLock = false; const s = STEPS[i]; dots();
-  $('#title').textContent = (s.k ? s.k.toUpperCase()+s.k+' · ' : '섞어 놀기 · ') + NAMES[s.t];
-  ({meet, parrot, trace, words, bubble, fish, memory, quiz})[s.t](s.k);
+  $('#title').textContent = (s.k ? s.k.toUpperCase()+s.k+' · ' : s.t==='review' ? '' : '섞어 놀기 · ') + NAMES[s.t];
+  ({review, meet, parrot, trace, words, bubble, fish, memory, quiz})[s.t](s.k);
 }
 function homeBtn(){ cur<0 ? leave() : go('map') }
 function go(where){
@@ -308,11 +322,14 @@ function go(where){
   $('#title').textContent = (A ? A.title : '해피트리 파닉스 · '+DAY+'일차');
   const nextI = STEPS.findIndex((s,i)=>!S.done[key(i)]);
   const node = i => `<button class="node ${S.done[key(i)]?'done':i===nextI?'next':''}" data-i="${i}">${ICON[STEPS[i].t]}<span>${NAMES[STEPS[i].t]}</span></button>`;
-  let lanes = LET.map(k=>{
+  const rv = STEPS.findIndex(s=>s.t==='review');
+  let lanes = rv<0 ? '' : `<div class="lane"><div class="lt" style="font-size:26px">복습</div>${node(rv)}
+    <span style="font-size:18px;color:#8a7d60">${REVIEW.length}글자 소리 녹음</span></div>`;
+  lanes += LET.map(k=>{
     const ids = STEPS.map((s,i)=>s.k===k?i:-1).filter(i=>i>=0);
     return `<div class="lane"><div class="lt en">${k.toUpperCase()}${k}</div>${ids.map(node).join('')}</div>`;
   }).join('');
-  const mix = STEPS.map((s,i)=>s.k?-1:i).filter(i=>i>=0);
+  const mix = STEPS.map((s,i)=>s.k||s.t==='review'?-1:i).filter(i=>i>=0);
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">섞어<br>놀기</div>${mix.map(node).join('')}</div>`;
   h(`<p class="guide">${SNAME?SNAME+', ':''}오늘은 <span class="en" style="font-size:32px">${LET.map(k=>k.toUpperCase()).join(' · ')}</span> 를 만나요!<small>반짝이는 칸을 눌러요</small></p>
      <div class="map">${lanes}</div>
@@ -324,6 +341,60 @@ function go(where){
   stage().querySelectorAll('.node').forEach(b=>b.onclick=()=>run(+b.dataset.i));
 }
 function openReport(){ location.href = `/phonics-report.html?sid=${encodeURIComponent(SID)}&back=${encodeURIComponent(location.pathname+location.search)}` }
+
+// ── 0. 복습 소리표 ── 표의 칸에 차례로 불이 켜지고 그 소리를 낸다. 처음부터 끝까지 한 번에 녹음.
+//    🦜 따라 읽기 = 선생님 소리 → 아이가 따라(기본) / 🙋 혼자 읽기 = 불만 켜지고 아이 혼자.
+//    소리 하나는 채점할 수 없어(Azure) 점수 없이 녹음만 남기고, 선생님이 성적표에서 듣는다.
+function review(){
+  const ks = REVIEW;
+  let mode = 'echo', busy = false;
+  h(`<p class="guide">🔁 배운 소리 다 같이 읽어요<small id="rg">🎤 시작을 누르면 녹음이 시작돼요</small></p>
+     <div class="seg2"><button data-m="echo" class="on">🦜 따라 읽기</button><button data-m="solo">🙋 혼자 읽기</button></div>
+     <div class="chart">${ks.map(k=>`<div class="cc" data-k="${k}"><b class="en">${k.toUpperCase()}</b><span>${C.letters[k].ko}</span></div>`).join('')}</div>
+     <div class="row"><button class="btn" id="go">🎤 시작</button></div>
+     <div class="msg" id="msg"></div>
+     <div class="mine hide" id="mine"><button id="me">🙋 내 녹음 듣기</button><button id="again">🔁 다시 하기</button></div>
+     <button class="btn hide" id="nx">다음 ▶</button>`);
+  stage().querySelectorAll('.seg2 button').forEach(b=>b.onclick=()=>{ if(busy) return;
+    mode = b.dataset.m; stage().querySelectorAll('.seg2 button').forEach(x=>x.classList.toggle('on', x===b)) });
+  const cells = [...stage().querySelectorAll('.cc')];
+  const wait = ms => new Promise(r=>setTimeout(r, ms));
+  let mine = null;
+  async function start(){
+    if(busy) return; busy = true;
+    $('#go').classList.add('hide'); $('#mine').classList.add('hide'); $('#msg').textContent = '';
+    let stream;
+    try{ stream = await Rec.ensure() }catch(e){ $('#msg').textContent = '마이크를 켜 주세요 🙏'; busy=false; $('#go').classList.remove('hide'); return }
+    const chunks = []; const mr = new MediaRecorder(stream);
+    mr.ondataavailable = e=>{ if(e.data && e.data.size) chunks.push(e.data) };
+    const stopped = new Promise(r=>{ mr.onstop = r });
+    mr.start(); const t0 = Date.now();
+    $('#rg').textContent = mode==='echo' ? '🦜 선생님 소리 다음에 따라 말해요' : '🙋 불이 켜진 글자 소리를 말해요';
+    cells.forEach(c=>c.classList.remove('done','now'));
+    await wait(600);
+    for(const c of cells){
+      c.classList.add('now'); c.scrollIntoView({block:'nearest', behavior:'smooth'});
+      if(mode==='echo'){ await play('snd-'+c.dataset.k); await wait(1500) }
+      else await wait(1900);
+      c.classList.remove('now'); c.classList.add('done');
+    }
+    await wait(500); mr.stop(); await stopped;
+    const blob = new Blob(chunks, {type: mr.mimeType || 'audio/webm'});
+    mine = new Audio(URL.createObjectURL(blob));
+    $('#rg').textContent = '다 읽었어요! 👏'; $('#msg').textContent = '저장하는 중…';
+    const url = await upload(blob);
+    S.chart = {url, at: nowStr(), n: ks.length, mode, sec: Math.round((Date.now()-t0)/1000)};
+    $('#msg').textContent = EMBED && !url ? '⚠ 녹음 저장이 안 됐어요. 다시 해 볼까요?' : '잘했어요! 선생님이 들어 볼 거예요 👂';
+    busy = false; beep('ok');
+    $('#mine').classList.remove('hide');
+    if($('#nx').classList.contains('hide')){ fruit(2); $('#nx').classList.remove('hide') }
+    save();
+  }
+  $('#go').onclick = start;
+  $('#again').onclick = start;
+  $('#me').onclick = ()=>{ mine && (mine.currentTime=0, mine.play()) };
+  $('#nx').onclick = finish;
+}
 
 // ── 1. 만나기 ── 큰 글자를 누르면 노래처럼: "A. A says /æ/ /æ/ /æ/, apple!"
 function meet(k){

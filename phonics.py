@@ -236,7 +236,8 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
             day_rows.append({"id": a["id"], "day": dno(a) or None, "title": a.get("title"),
                              "letters": a.get("items"), "dueDate": a.get("dueDate"),
                              "done": bool(s.get("completedAt")), "doneAt": s.get("completedAt"),
-                             "quiz": q.get("score"), "steps": len(ph.get("done") or {})})
+                             "quiz": q.get("score"), "steps": len(ph.get("done") or {}),
+                             "chart": ph.get("chart")})   # 복습 소리표 녹음 {url, at, n, mode, sec}
 
         exam_out = None
         if exam:

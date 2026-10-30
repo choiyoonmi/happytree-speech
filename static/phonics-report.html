@@ -115,6 +115,14 @@ document.getElementById('back').onclick = () => {
       Day ${d.day||'-'}<br>${d.done?`✅ 퀴즈 ${d.quiz!=null?d.quiz+'점':'-'}`:(d.steps?`진행 중`:(d.dueDate?esc(d.dueDate.slice(5).replace('-','/'))+' 예정':'예정'))}</div>`).join('')}</div>`
       : '<p class="empty">배정된 파닉스 과제가 없어요.</p>'}</div>
 
+  <div class="sec"><h2>🔁 복습 소리표 녹음</h2>
+    ${(()=>{ const rs = R.days.filter(d=>d.chart && d.chart.url);
+      if(!rs.length) return '<p class="empty">아직 소리표 녹음이 없어요. (2일차부터 앞에서 배운 글자를 매일 녹음해요)</p>';
+      return rs.map(d=>`<div style="margin:8px 0;font-size:14px"><b>Day ${d.day||'-'}</b> · ${d.chart.n}글자 · ${d.chart.mode==='solo'?'혼자 읽기':'따라 읽기'}
+        <span class="mut">${esc(d.chart.at||'')}</span><br><audio controls preload="none" src="${esc(d.chart.url)}" style="width:100%;max-width:420px"></audio></div>`).join('') +
+        '<p class="mut">녹음은 7일 동안만 들을 수 있어요.</p>' })()}
+  </div>
+
   <div class="sec"><h2>🎯 진급시험</h2>
     ${!R.exam ? '<p class="empty">마지막 날을 끝내면 진급시험이 열려요.</p>'
       : !ex || ex.score==null ? '<p class="empty">아직 시험을 보지 않았어요.</p>'
