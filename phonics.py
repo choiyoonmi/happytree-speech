@@ -374,7 +374,7 @@ NORM_TAG = "|peak-2"
 
 
 def _needs_norm(aid):
-    return aid.startswith("snd-") or aid.startswith("lv-")
+    return aid.startswith(("snd-", "lv-", "dg-"))   # dg-(sh·ch·th·ng): th 가 -40dB 로 거의 안 들렸다
 
 
 def _normalize(data: bytes) -> bytes:
@@ -388,7 +388,7 @@ def _normalize(data: bytes) -> bytes:
         m = _re.search(r"max_volume: (-?[0-9.]+) dB", r.stderr or "")
         if not m:
             return data
-        gain = min(24.0, -2.0 - float(m.group(1)))
+        gain = min(40.0, -2.0 - float(m.group(1)))   # th(θ)는 +38dB 가 필요했다
         if gain <= 0.5:
             return data
         dst = src + ".out.mp3"
