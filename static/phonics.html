@@ -110,6 +110,7 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 .trainrow .eng{font-size:54px}
 .car{width:min(20vw,96px);height:min(20vw,96px);border-radius:16px;background:#fff;box-shadow:0 5px 0 #d8ccb0;display:flex;align-items:center;justify-content:center;
   font-size:min(12vw,64px);font-weight:700;color:var(--navy);transition:transform .2s,background .2s}
+.car{flex-direction:column;line-height:1} .car .kl{font-family:'Jua',sans-serif;font-size:min(3.6vw,18px);color:#8a7d60;margin-top:4px;font-weight:400} .car.mute .kl{font-size:min(2.8vw,13px)}
 .car.v{color:var(--gold)} .car.mute{color:#c9c2b2;background:#f4f1ea;font-size:min(9vw,48px)} .car.on{background:#fff3c4;transform:translateY(-6px)} .car.all{background:#fff3c4}
 .house{display:flex;flex-direction:column;align-items:center;margin:10px 0}
 .house .roof{width:0;height:0;border-left:120px solid transparent;border-right:120px solid transparent;border-bottom:60px solid #e57373}
@@ -470,12 +471,14 @@ function train(fi){
     const parts = (w[3] ? w[3].split('|') : [...w[0]]).map(pt=>{
       const silent = pt.endsWith('*'), [txt, tag] = pt.replace('*','').split(':');
       const snd = silent ? null : tag==='L' ? 'lv-'+fam.snd : tag ? 'snd-'+tag : 'snd-'+txt;
-      return {txt, snd, silent, v: tag==='L' || (!w[3] && 'aeiou'.includes(txt))};
+      // 칸 밑 한글 소리(원장 표기): 긴 소리 '에이', 자음 'ㅋ', 매직 e '소리 없음'
+      const ko = silent ? '소리 없음' : tag==='L' ? BK.snd[fam.snd] : (C.letters[tag||txt]||{}).ko || '';
+      return {txt, snd, silent, ko, v: tag==='L' || (!w[3] && 'aeiou'.includes(txt))};
     });
     const letters = parts.map(x=>x.txt);
     h(`<p class="guide">🚂 소리를 하나씩 → 합쳐서 읽어요 <small>${fam.name} · ${wi+1} / ${fam.words.length}</small></p>
        <div class="card" style="padding:4px 26px"><div class="emoji" style="font-size:min(22vw,110px)">${w[2]}</div><div class="ko">${w[1]}</div></div>
-       <div class="trainrow"><span class="eng">🚂</span>${parts.map((x,i)=>`<div class="car en ${x.v?'v':''} ${x.silent?'mute':''}" data-i="${i}">${x.txt}</div>`).join('')}</div>
+       <div class="trainrow"><span class="eng">🚂</span>${parts.map((x,i)=>`<div class="car en ${x.v?'v':''} ${x.silent?'mute':''}" data-i="${i}">${x.txt}<small class="kl">${x.ko}</small></div>`).join('')}</div>
        <div class="row"><button class="btn ghost" id="sl" style="margin-top:0">🐢 하나씩 듣기</button><button class="spk" id="sp">🔊</button><div id="mic"></div></div>
        <div class="stars" id="st"></div><div class="msg" id="msg"></div>
        <button class="btn hide" id="nx">${wi+1<fam.words.length?'다음 단어 ▶':'다 했어요 ▶'}</button>`);
