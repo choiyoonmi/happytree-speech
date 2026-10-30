@@ -251,6 +251,79 @@ for _d in CONS:
     _d["sents"] = [{"id": f"c{_d['day']}{i + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for i, x in enumerate(CONS_SENTS[_d["day"]])]
 CONS_WORDS = [w for d in CONS for f in d["families"] for w in f["words"]]
 
+# ── LV1 5권 이중모음 ── oo·ew / ou·ow·oi / oy·au·aw / ar·or·er / ir·ur·ear, 하루 패턴 3개, 5일.
+#   조각 태그 :V<키> = 이중모음 소리(dv-<키>), 가족 say = 패턴 소리 음원(소리 만나기에서 씀).
+BOOK5 = "LV1 5권"
+BOOK5_NAME = "이중모음"
+DV_SND = {"oo": ("ʊ", "우"), "ow": ("aʊ", "아우"), "oi": ("ɔɪ", "오이"), "aw": ("ɔ", "오-"),
+          "ar": ("ɑɹ", "아ㄹ"), "or": ("ɔɹ", "오ㄹ"), "er": ("ɝ", "얼"), "ear": ("ɪɹ", "이얼")}
+DIPH = [
+    {"day": 1, "kind": "우 소리", "families": [
+        {"name": "oo (긴)", "pat": "oo", "say": "lv-u", "sayko": "우-", "words": [
+            ["moon", "달", "🌙", "m|oo:Lu|n"], ["spoon", "숟가락", "🥄", "s|p|oo:Lu|n"],
+            ["boot", "장화", "👢", "b|oo:Lu|t"], ["pool", "수영장", "🏊", "p|oo:Lu|l"]]},
+        {"name": "oo (짧은)", "pat": "oo", "say": "dv-oo", "sayko": "우", "words": [
+            ["book", "책", "📕", "b|oo:Voo|k"], ["cook", "요리하다", "👨‍🍳", "c|oo:Voo|k"],
+            ["foot", "발", "🦶", "f|oo:Voo|t"], ["hook", "갈고리", "🪝", "h|oo:Voo|k"]]},
+        {"name": "ew", "pat": "ew", "say": "lv-u", "sayko": "우-", "words": [
+            ["new", "새로운", "🆕", "n|ew:Lu"], ["stew", "스튜", "🍲", "s|t|ew:Lu"],
+            ["dew", "이슬", "💧", "d|ew:Lu"], ["screw", "나사", "🔩", "s|c|r|ew:Lu"]]}]},
+    {"day": 2, "kind": "아우 · 오이", "families": [
+        {"name": "ou", "pat": "ou", "say": "dv-ow", "sayko": "아우", "words": [
+            ["house", "집", "🏠", "h|ou:Vow|s|e*"], ["mouse", "생쥐", "🐭", "m|ou:Vow|s|e*"],
+            ["cloud", "구름", "☁️", "c|l|ou:Vow|d"], ["mouth", "입", "👄", "m|ou:Vow|th:th"]]},
+        {"name": "ow", "pat": "ow", "say": "dv-ow", "sayko": "아우", "words": [
+            ["cow", "소", "🐄", "c|ow:Vow"], ["owl", "부엉이", "🦉", "ow:Vow|l"],
+            ["crown", "왕관", "👑", "c|r|ow:Vow|n"], ["clown", "광대", "🤡", "c|l|ow:Vow|n"]]},
+        {"name": "oi", "pat": "oi", "say": "dv-oi", "sayko": "오이", "words": [
+            ["coin", "동전", "🪙", "c|oi:Voi|n"], ["oil", "기름", "🛢️", "oi:Voi|l"],
+            ["boil", "끓이다", "♨️", "b|oi:Voi|l"], ["point", "가리키다", "👉", "p|oi:Voi|n|t"]]}]},
+    {"day": 3, "kind": "오이 · 오-", "families": [
+        {"name": "oy", "pat": "oy", "say": "dv-oi", "sayko": "오이", "words": [
+            ["boy", "소년", "👦", "b|oy:Voi"], ["toy", "장난감", "🧸", "t|oy:Voi"], ["joy", "기쁨", "😄", "j|oy:Voi"]]},
+        {"name": "au", "pat": "au", "say": "dv-aw", "sayko": "오-", "words": [
+            ["sauce", "소스", "🥫", "s|au:Vaw|c:s|e*"], ["launch", "발사하다", "🚀", "l|au:Vaw|n|ch:ch"],
+            ["pause", "멈추다", "⏸️", "p|au:Vaw|s:z|e*"]]},
+        {"name": "aw", "pat": "aw", "say": "dv-aw", "sayko": "오-", "words": [
+            ["saw", "톱", "🪚", "s|aw:Vaw"], ["paw", "발바닥", "🐾", "p|aw:Vaw"],
+            ["draw", "그리다", "✏️", "d|r|aw:Vaw"], ["straw", "빨대", "🥤", "s|t|r|aw:Vaw"]]}]},
+    {"day": 4, "kind": "r 모음", "families": [
+        {"name": "ar", "pat": "ar", "say": "dv-ar", "sayko": "아ㄹ", "words": [
+            ["star", "별", "⭐", "s|t|ar:Var"], ["jar", "병", "🫙", "j|ar:Var"],
+            ["farm", "농장", "🚜", "f|ar:Var|m"], ["shark", "상어", "🦈", "sh:sh|ar:Var|k"]]},
+        {"name": "or", "pat": "or", "say": "dv-or", "sayko": "오ㄹ", "words": [
+            ["corn", "옥수수", "🌽", "c|or:Vor|n"], ["horn", "뿔피리", "📯", "h|or:Vor|n"],
+            ["storm", "폭풍", "⛈️", "s|t|or:Vor|m"], ["fort", "요새", "🏰", "f|or:Vor|t"]]},
+        {"name": "er", "pat": "er", "say": "dv-er", "sayko": "얼", "words": [
+            ["her", "그녀의", "👩", "h|er:Ver"], ["fern", "고사리", "🌿", "f|er:Ver|n"],
+            ["tiger", "호랑이", "🐯", "t|i:Li|g|er:Ver"], ["sister", "언니·누나", "👧", "s|i|s|t|er:Ver"]]}]},
+    {"day": 5, "kind": "r 모음", "families": [
+        {"name": "ir", "pat": "ir", "say": "dv-er", "sayko": "얼", "words": [
+            ["bird", "새", "🐦", "b|ir:Ver|d"], ["girl", "소녀", "👧", "g|ir:Ver|l"],
+            ["shirt", "셔츠", "👕", "sh:sh|ir:Ver|t"], ["first", "첫 번째", "🥇", "f|ir:Ver|s|t"]]},
+        {"name": "ur", "pat": "ur", "say": "dv-er", "sayko": "얼", "words": [
+            ["nurse", "간호사", "👩‍⚕️", "n|ur:Ver|s|e*"], ["purse", "지갑", "👛", "p|ur:Ver|s|e*"],
+            ["surf", "파도 타다", "🏄", "s|ur:Ver|f"], ["burn", "타다", "🔥", "b|ur:Ver|n"]]},
+        {"name": "ear", "pat": "ear", "say": "dv-ear", "sayko": "이얼", "words": [
+            ["ear", "귀", "👂", "ear:Vear"], ["beard", "턱수염", "🧔", "b|ear:Vear|d"], ["year", "해·년", "📅", "y|ear:Vear"]]}]},
+]
+DIPH_SENTS = {
+    1: [["The moon is new.", "달이 새로 떴어요.", "🌙🆕"], ["I look at my book.", "나는 내 책을 봐요.", "🙋📕"],
+        ["My foot is in the pool.", "내 발이 수영장 안에 있어요.", "🦶🏊"], ["I can cook stew.", "나는 스튜를 요리할 수 있어요.", "👨‍🍳🍲"]],
+    2: [["A mouse is in the house.", "생쥐가 집 안에 있어요.", "🐭🏠"], ["The owl is on the cow.", "부엉이가 소 위에 있어요.", "🦉🐄"],
+        ["I have a coin.", "나는 동전이 있어요.", "🪙"], ["The clown has a crown.", "광대가 왕관을 썼어요.", "🤡👑"]],
+    3: [["The boy has a toy.", "소년이 장난감을 가졌어요.", "👦🧸"], ["The cat has a big paw.", "고양이 발바닥이 커요.", "🐱🐾"],
+        ["I like to draw.", "나는 그리는 게 좋아요.", "✏️"], ["The sauce is hot.", "소스가 뜨거워요.", "🥫🔥"]],
+    4: [["I see a star.", "나는 별을 봐요.", "🙋⭐"], ["The shark is big.", "상어가 커요.", "🦈"],
+        ["I like corn.", "나는 옥수수가 좋아요.", "🌽"], ["Her sister is funny.", "그녀의 언니는 웃겨요.", "👧😂"]],
+    5: [["The girl has a bird.", "소녀가 새를 가졌어요.", "👧🐦"], ["My shirt is red.", "내 셔츠는 빨개요.", "👕🔴"],
+        ["The nurse has a purse.", "간호사가 지갑을 가졌어요.", "👩‍⚕️👛"], ["My ear is little.", "내 귀는 작아요.", "👂"]],
+}
+for _d in DIPH:
+    _d["vowel"] = _d["families"][0]["pat"]
+    _d["sents"] = [{"id": f"v{_d['day']}{i + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for i, x in enumerate(DIPH_SENTS[_d["day"]])]
+DIPH_WORDS = [w for d in DIPH for f in d["families"] for w in f["words"]]
+
 # ── LV1 사이트워즈 ── Dolch 초급 92(Pre-primer 40 + Primer 52), 4개씩 23세트. 원장 2026-10-30:
 #   3개월차(장모음과 함께) 시작 → 10개월차 마무리, 주 1세트. 문장은 그 세트·앞 세트 단어 + 파닉스 단어로만.
 BOOKS = "LV1 사이트워즈"
@@ -361,6 +434,13 @@ def _audio_table():
     for d in SIGHT_DAYS:
         for x in d["sents"]:
             t[f"sent-{x['id']}"] = f'<prosody rate="-20%">{x["en"]}</prosody>'
+    for w in DIPH_WORDS:
+        t[f"word-{w[0]}"] = f'<prosody rate="-10%">{w[0]}</prosody>'
+    for d in DIPH:
+        for x in d["sents"]:
+            t[f"sent-{x['id']}"] = f'<prosody rate="-20%">{x["en"]}</prosody>'
+    for k, (ipa, _ko) in DV_SND.items():
+        t[f"dv-{k}"] = f'<prosody rate="-25%">{_ph(ipa, k)}</prosody>'
     for i, ok in enumerate(["Great job!", "Good try!"]):
         t[f"fb-{i}"] = ok
     return t
@@ -421,6 +501,17 @@ def _templates():
                  "type": "exam", "kind": "phonics", "items": [w[0] for w in SIGHT_WORDS], "meanings": [],
                  "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                  "exampleAudio": [], "recordMode": "each", "published": False})
+    for d in DIPH:
+        fam = " / ".join(f["name"] for f in d["families"])
+        rows.append({"id": f"phx-lv1-5-d{d['day']:02d}", "title": f"{BOOK5} {BOOK5_NAME} Day {d['day']} ({fam})",
+                     "book": BOOK5, "type": "phonics", "phonicsDay": d["day"],
+                     "items": [w[0] for f in d["families"] for w in f["words"]],
+                     "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
+                     "exampleAudio": [], "recordMode": "each", "published": False})
+    rows.append({"id": "phx-lv1-5-exam", "title": f"{BOOK5} {BOOK5_NAME} 진급시험", "book": BOOK5,
+                 "type": "exam", "kind": "phonics", "items": [w[0] for w in DIPH_WORDS], "meanings": [],
+                 "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
+                 "exampleAudio": [], "recordMode": "each", "published": False})
     rows.append({"id": "phx-lv1-2-exam", "title": f"{BOOK2} {BOOK2_NAME} 진급시험", "book": BOOK2,
                  "type": "exam", "kind": "phonics", "items": [w[0] for w in SHORT_WORDS], "meanings": [],
                  "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
@@ -447,7 +538,7 @@ NORM_TAG = "|peak-2"
 
 
 def _needs_norm(aid):
-    return aid.startswith(("snd-", "lv-", "dg-"))   # dg-(sh·ch·th·ng): th 가 -40dB 로 거의 안 들렸다
+    return aid.startswith(("snd-", "lv-", "dg-", "dv-"))   # dg-(sh·ch·th·ng): th 가 -40dB 로 거의 안 들렸다
 
 
 def _normalize(data: bytes) -> bytes:
@@ -544,7 +635,11 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                 "cons": {"book": BOOK4, "bookName": BOOK4_NAME, "days": CONS,
                          "snd": {k: v[1] for k, v in LONG_SND.items()},
                          "dg": {k: v[1] for k, v in DIGRAPH_SND.items()}},
-                "sight": {"book": BOOKS, "bookName": "사이트워즈", "days": SIGHT_DAYS}}
+                "sight": {"book": BOOKS, "bookName": "사이트워즈", "days": SIGHT_DAYS},
+                "diph": {"book": BOOK5, "bookName": BOOK5_NAME, "days": DIPH,
+                         "snd": {k: v[1] for k, v in LONG_SND.items()},
+                         "dg": {k: v[1] for k, v in DIGRAPH_SND.items()},
+                         "dv": {k: v[1] for k, v in DV_SND.items()}}}
 
     @r.get("/api/phonics/audio/{aid}.mp3")
     def audio(aid: str):
@@ -582,7 +677,7 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
         student = next((s for s in db.get("students", []) if str(s.get("id")) == sid), None)
         mine = lambda a: (a.get("published") is not False and
                           (not a.get("assignedIds") or sid in [str(x) for x in a["assignedIds"]]))
-        ALLB = (BOOK, BOOK2, BOOK3, BOOK4, BOOKS)
+        ALLB = (BOOK, BOOK2, BOOK3, BOOK4, BOOK5, BOOKS)
         books = sorted({a.get("book") for a in db["assignments"] if a.get("book") in ALLB and mine(a)})
         book = book if book in ALLB else ([b for b in books if b != BOOKS] or books or [BOOK])[-1]
         rows = [a for a in db["assignments"] if a.get("book") == book and mine(a)]
@@ -590,8 +685,8 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
             keys = [w[0] for w in SIGHT_WORDS]
             groups = [{"name": f"세트 {d['day']}", "vowel": "", "keys": [w[0] for w in d["words"]]} for d in SIGHT_DAYS]
             info = {w[0]: {"ko": w[1], "emoji": ""} for w in SIGHT_WORDS}
-        elif book in (BOOK2, BOOK3, BOOK4):
-            DD, WW = {BOOK2: (SHORT, SHORT_WORDS), BOOK3: (LONG, LONG_WORDS), BOOK4: (CONS, CONS_WORDS)}[book]
+        elif book in (BOOK2, BOOK3, BOOK4, BOOK5):
+            DD, WW = {BOOK2: (SHORT, SHORT_WORDS), BOOK3: (LONG, LONG_WORDS), BOOK4: (CONS, CONS_WORDS), BOOK5: (DIPH, DIPH_WORDS)}[book]
             keys = [w[0] for w in WW]
             groups = [{"name": (f"{d['vowel']}  {f['name']}" if book == BOOK2 else f"긴 {d['vowel']}  {f['name']}" if book == BOOK3 else f['name']),
                        "vowel": d["vowel"], "keys": [w[0] for w in f["words"]]}
@@ -656,7 +751,7 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                           "takes": sorted(v["takes"], key=lambda t: t.get("at") or "", reverse=True)[:3]}
         return {"student": {"id": sid, "name": (student or {}).get("name") or sid,
                             "grade": (student or {}).get("grade") or ""},
-                "book": book, "bookName": {BOOK2: BOOK2_NAME, BOOK3: BOOK3_NAME, BOOK4: BOOK4_NAME, BOOKS: "사이트워즈"}.get(book, BOOK_NAME), "books": books,
+                "book": book, "bookName": {BOOK2: BOOK2_NAME, BOOK3: BOOK3_NAME, BOOK4: BOOK4_NAME, BOOK5: BOOK5_NAME, BOOKS: "사이트워즈"}.get(book, BOOK_NAME), "books": books,
                 "days": day_rows, "letters": letters, "groups": groups, "info": info,
                 "areas": areas, "exam": exam_out}
 
