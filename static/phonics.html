@@ -105,6 +105,7 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 @keyframes drop{from{transform:translateY(-40px);opacity:0}}
 .toast{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);font-size:min(30vw,170px);pointer-events:none;animation:yay 1s forwards;z-index:9}
 @keyframes yay{0%{transform:translate(-50%,-50%) scale(.2)}40%{transform:translate(-50%,-50%) scale(1.15)}100%{transform:translate(-50%,-80%) scale(1);opacity:0}}
+.qc{background:#fff;border-radius:22px;min-width:120px;height:110px;font-size:64px;color:var(--navy);font-weight:700;box-shadow:0 5px 0 #e2d6bb;padding:0 18px}
 .note{font-size:15px;color:#9a8f75;text-align:center;margin-top:16px;max-width:560px}
 @media (max-height:620px){ .big{font-size:150px} .emoji{font-size:90px} .mic{width:90px;height:90px;font-size:40px} }
 </style>
@@ -124,8 +125,8 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 // ── 데이터 ─────────────────────────────────────────────────────────
 let C = null;             // /api/phonics/content
 let DAY = 1, STEPS = [], cur = -1;
-const NAMES = {meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기'};
-const ICON  = {meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏'};
+const NAMES = {meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기', quiz:'오늘의 퀴즈'};
+const ICON  = {meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏', quiz:'🏆'};
 const store = {
   get(){ try{ return JSON.parse(localStorage.getItem('ht_phonics')||'{}') }catch(e){ return {} } },
   set(v){ try{ localStorage.setItem('ht_phonics', JSON.stringify(v)) }catch(e){} }
@@ -235,7 +236,7 @@ function build(){
   const d = C.days.find(x=>x.day===DAY);
   STEPS = [];
   d.letters.forEach(k=>['meet','parrot','trace','words'].forEach(t=>STEPS.push({t,k})));
-  ['bubble','fish','memory'].forEach(t=>STEPS.push({t}));
+  ['bubble','fish','memory','quiz'].forEach(t=>STEPS.push({t}));
 }
 function key(i){ const s=STEPS[i]; return DAY+':'+s.t+(s.k?':'+s.k:'') }
 function dots(){
@@ -246,7 +247,7 @@ function finish(){ if(doneLock || cur<0) return; doneLock = true; S.done[key(cur
 function run(i){
   cur = i; doneLock = false; const s = STEPS[i]; dots();
   $('#title').textContent = (s.k ? s.k.toUpperCase()+s.k+' · ' : '섞어 놀기 · ') + NAMES[s.t];
-  ({meet, parrot, trace, words, bubble, fish, memory})[s.t](s.k);
+  ({meet, parrot, trace, words, bubble, fish, memory, quiz})[s.t](s.k);
 }
 function go(where){
   if(playing){ try{playing.pause()}catch(e){} }
@@ -514,6 +515,96 @@ function memory(){
       } else setTimeout(()=>{ beep('no'); [b1,b2].forEach(x=>{x.classList.remove('open');x.textContent='?'}); lock=false }, 900);
     }
   });
+}
+
+// ── 8. 오늘의 퀴즈 ── 글을 못 읽어도 풀 수 있게 전부 '듣고 고르기'+말하기 하나.
+// 첫 번째 고른 답만 점수에 넣는다(틀리면 정답을 보여 주고 넘어감). 결과는 영역별·글자별로 남겨
+// 성적표(글자 숙달표·영역 그래프)로 그대로 보낼 수 있는 모양이다.
+const QAREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기'};
+function quiz(){
+  const ks = C.days.find(x=>x.day===DAY).letters;
+  const pick = a => a[Math.random()*a.length|0];
+  const qs = shuffle([
+    {type:'snd', k:ks[0]}, {type:'snd', k:ks[1]}, {type:'snd', k:ks[2]},
+    {type:'pic', k:pick(ks)}, {type:'case', k:pick(ks)}, {type:'word', k:pick(ks)}
+  ]).concat([{type:'say', k:pick(ks)}]);   // 말하기는 맨 끝
+  qs.forEach(q=>{ q.w = pick(C.letters[q.k].words) });
+  const ans = [], t0 = Date.now();
+  let qi = 0;
+  function next(ok){
+    ans.push({type:qs[qi].type, k:qs[qi].k, ok, score:qs[qi].score});
+    if(ok) beep('ok'); else beep('no');
+    setTimeout(()=>{ qi++; qi<qs.length ? ask() : result() }, ok?700:1400);
+  }
+  function choices(opts, render, isRight, onShow){
+    let picked = false;
+    stage().querySelector('#ch').innerHTML = opts.map((o,i)=>`<button class="qc" data-i="${i}">${render(o)}</button>`).join('');
+    stage().querySelectorAll('.qc').forEach(b=>b.onclick=()=>{
+      if(picked) return; picked = true;
+      const ok = isRight(opts[+b.dataset.i]);
+      b.style.background = ok ? '#c8e6c9' : '#ffcdd2';
+      if(!ok) stage().querySelectorAll('.qc').forEach(x=>{ if(isRight(opts[+x.dataset.i])) x.style.background='#c8e6c9' });
+      next(ok);
+    });
+  }
+  function ask(){
+    const q = qs[qi], L = C.letters[q.k];
+    const head = `<p class="guide">🏆 오늘의 퀴즈 <small>${qi+1} / ${qs.length}</small></p>`;
+    const bar = `<div class="meter" style="margin:0 0 14px"><i style="width:${qi/qs.length*100}%"></i></div>`;
+    if(q.type==='snd'){
+      h(head+bar+`<p class="guide">🔊 이 소리는 어떤 글자일까?</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
+      $('#sp').onclick = e=>play('snd-'+q.k, e.currentTarget);
+      choices(shuffle(ks), x=>`<span class="en">${x}</span>`, x=>x===q.k);
+      setTimeout(()=>play('snd-'+q.k, $('#sp')), 300);
+    } else if(q.type==='pic'){
+      h(head+bar+`<p class="guide">어떤 소리로 시작할까?</p><div class="card" style="padding:6px 26px"><div class="emoji">${q.w[2]}</div></div><div class="sea" id="ch"></div>`);
+      choices(shuffle(ks), x=>`<span class="en">${x}</span>`, x=>x===q.k);
+    } else if(q.type==='case'){
+      h(head+bar+`<p class="guide">짝꿍 작은 글자를 찾아요</p><div class="big en" style="font-size:150px">${q.k.toUpperCase()}</div><div class="sea" id="ch"></div>`);
+      choices(shuffle(ks), x=>`<span class="en">${x}</span>`, x=>x===q.k);
+    } else if(q.type==='word'){
+      const opts = shuffle([q.w].concat(shuffle(ks.filter(x=>x!==q.k)).slice(0,2).map(x=>pick(C.letters[x].words))));
+      h(head+bar+`<p class="guide">🔊 잘 듣고 그림을 골라요</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
+      $('#sp').onclick = e=>play('word-'+q.w[0], e.currentTarget);
+      choices(opts, x=>`<span style="font-size:64px">${x[2]}</span>`, x=>x[0]===q.w[0]);
+      setTimeout(()=>play('word-'+q.w[0], $('#sp')), 300);
+    } else {
+      h(head+bar+`<p class="guide">🎤 그림 이름을 말해 봐요!</p>
+        <div class="card"><div class="emoji">${q.w[2]}</div><div class="word en">${hi(q.w[0],q.k)}</div></div>
+        <div class="row" style="margin-top:14px"><div id="mic"></div></div><div class="msg" id="msg"></div>`);
+      recButton($('#mic'), {maxMs:3500, async onDone(r){
+        if(r.error){ $('#msg').textContent=r.error; return }   // 안 들린 건 다시 기회
+        $('#msg').textContent='듣고 있어요… 👂';
+        let res=null; try{ res = await assess(q.w[0], r.blob) }catch(e){}
+        // 채점이 안 되면 점수 없이 '말하기 함'으로만 남기고 정답 처리하지 않는다(성적이 거짓말을 하면 안 됨)
+        q.score = res && res.ok ? res.score : null;
+        $('#msg').textContent = q.score==null ? '잘 들었어요!' : q.score>=55 ? '좋아요! 👍' : '괜찮아요, 다음엔 더 크게!';
+        next(q.score!=null && q.score>=55);
+      }});
+    }
+  }
+  function result(){
+    const n = ans.filter(a=>a.ok).length, score = Math.round(n/ans.length*100);
+    const by = {}, lt = {};
+    ans.forEach(a=>{ (by[a.type]=by[a.type]||{ok:0,n:0}); by[a.type].n++; if(a.ok) by[a.type].ok++;
+                     (lt[a.k]=lt[a.k]||{ok:0,n:0}); lt[a.k].n++; if(a.ok) lt[a.k].ok++ });
+    const rec = {day:DAY, at:new Date().toISOString(), score, sec:Math.round((Date.now()-t0)/1000), byType:by, letters:lt, answers:ans};
+    S.quiz = S.quiz || {}; S.quiz[DAY] = rec; S.fruits += n; save();
+    const weak = Object.entries(lt).filter(([k,v])=>v.ok<v.n).map(([k])=>k.toUpperCase());
+    h(`<p class="guide">🏆 퀴즈 끝!</p>
+       <div class="card" style="min-width:min(90vw,460px)">
+         <div style="font-size:64px;color:var(--navy)">${score}<span style="font-size:28px">점</span></div>
+         <div class="stars">${'⭐'.repeat(n)}${'☆'.repeat(ans.length-n)}</div>
+         <div style="text-align:left;font-size:19px;line-height:1.9;margin-top:6px">
+           ${Object.entries(by).map(([t,v])=>`<div>${v.ok===v.n?'🟢':v.ok?'🟡':'🔴'} ${QAREA[t]} <b>${v.ok}/${v.n}</b></div>`).join('')}
+         </div>
+         <div class="msg">${weak.length ? `조금 더 연습할 글자: <b class="en" style="color:var(--gold)">${weak.join(' · ')}</b>` : '세 글자 모두 완벽해요! 🎉'}</div>
+       </div>
+       <button class="btn" id="nx">🌳 내 나무 보기</button>`);
+    if(n===ans.length) play('fb-0');
+    $('#nx').onclick = finish;
+  }
+  ask();
 }
 
 // ── 끝: 열매 나무 ──
