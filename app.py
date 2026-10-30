@@ -4093,6 +4093,12 @@ def student_report(student_id: str, start: str = "", end: str = ""):
     for a in assigned:
         sub = student_subs.get(a["id"]) or {}
         status = sub.get("status", "none")
+        exam_rec = None
+        if a.get("type") == "exam" and a.get("kind") == "phonics":
+            # 파닉스 진급시험은 제출(subs)이 아니라 시험 기록(/api/exam)에 쌓인다 → 봤으면 '완료'
+            exam_rec = (load_exam(student_id) or {}).get(a["id"]) or {}
+            if exam_rec.get("best") is not None:
+                status = "submitted"
         if status in ("submitted", "reviewed"):
             submitted_count += 1
 
@@ -4139,6 +4145,19 @@ def student_report(student_id: str, start: str = "", end: str = ""):
                             weak_words[word] = acc
 
         avg = round(sum(item_scores) / len(item_scores)) if item_scores else None
+        ph = None
+        if a.get("type") == "phonics" or a.get("kind") == "phonics":
+            # 파닉스: 녹음 칸이 없어 점수가 비므로 '오늘의 퀴즈' 결과를 따로 싣는다.
+            #   발음 평균(all_scores·weekly)에는 넣지 않는다 — 퀴즈 점수는 발음 점수가 아니다.
+            q = ((sub.get("phonics") or {}).get("quiz") or {})
+            if exam_rec and exam_rec.get("best") is not None:
+                q = {"score": exam_rec["best"], "letters": (exam_rec.get("bestByType") or {}).get("_letters") or {}}
+            lt = q.get("letters") or {}
+            ph = {"quiz": q.get("score"),
+                  "letters": [str(k).upper() for k in (a.get("items") or [])],
+                  "weak": [k.upper() for k, v in lt.items() if (v or {}).get("ok", 0) < (v or {}).get("n", 0)],
+                  "exam": a.get("type") == "exam"}
+            avg = None
         if avg is not None:
             all_scores.append(avg)
             due = a.get("dueDate")
@@ -4158,6 +4177,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             "average": avg,
             "recorded": recorded,
             "totalSlots": total_slots,
+            **({"kind": "phonics", "phonics": ph} if ph else {}),
         })
 
     rows.sort(key=lambda r: (r["dueDate"] or ""))
