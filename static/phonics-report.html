@@ -56,8 +56,9 @@ body{margin:0;background:var(--cream);color:var(--ink);font-family:'Malgun Gothi
 <div class="wrap" id="root"><p class="mut">불러오는 중…</p></div>
 <script>
 'use strict';
-const QS = new URLSearchParams(location.search), SID = QS.get('sid')||'', BACK = QS.get('back')||'';
-const AREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기'};
+const QS = new URLSearchParams(location.search), SID = QS.get('sid')||'', BACK = QS.get('back')||'', BOOK = QS.get('book')||'';
+const AREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기',
+              read:'단어 읽고 그림', vowel:'가운데 소리', first:'첫 글자'};
 const LV = {green:'잘 알아요', yellow:'연습 중', red:'다시 배워요', none:'아직 안 배움'};
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 if(!BACK && window.parent!==window) document.getElementById('back').style.display='none';   // 관리자 화면 안에 펼쳤을 땐 ✕ 가 닫는다
@@ -70,10 +71,11 @@ document.getElementById('back').onclick = () => {
   const root = document.getElementById('root');
   if(!SID){ root.innerHTML = '<p class="empty">학생 아이디(?sid=)가 없어요.</p>'; return }
   let R;
-  try{ const r = await fetch('/api/phonics/report/'+encodeURIComponent(SID)); if(!r.ok) throw 0; R = await r.json() }
+  try{ const r = await fetch('/api/phonics/report/'+encodeURIComponent(SID)+(BOOK?'?book='+encodeURIComponent(BOOK):'')); if(!r.ok) throw 0; R = await r.json() }
   catch(e){ root.innerHTML = '<p class="empty">성적표를 불러오지 못했어요.</p>'; return }
 
-  const L = R.letters, ks = Object.keys(L);
+  const L = R.letters, ks = Object.keys(L), WORDS = !!R.groups;   // 단모음 = 단어 칸
+  const unit = WORDS ? '단어' : '글자', up = k => WORDS ? k : k.toUpperCase();
   const cnt = lv => ks.filter(k=>L[k].level===lv).length;
   const learned = ks.length - cnt('none');
   const ex = R.exam && R.exam.report;
@@ -86,32 +88,45 @@ document.getElementById('back').onclick = () => {
   const sayAvg = says.length ? Math.round(says.reduce((a,b)=>a+b,0)/says.length) : null;
 
   // 한 줄 요약(학부모용) — 숫자만 보고 지어낸 말이 아니라 기록에서 그대로 뽑는다
-  const greens = ks.filter(k=>L[k].level==='green').map(k=>k.toUpperCase());
-  const weak = ks.filter(k=>L[k].level==='red'||L[k].level==='yellow').map(k=>k.toUpperCase());
+  const greens = ks.filter(k=>L[k].level==='green').map(up);
+  const weak = ks.filter(k=>L[k].level==='red'||L[k].level==='yellow').map(up);
   const summary = !learned ? '아직 파닉스 기록이 없어요.'
+    : WORDS ? `단모음 ${ks.length}단어 중 ${learned}단어를 배웠고, ${greens.length}단어는 정확히 읽어요.` +
+      (weak.length ? ` ${weak.slice(0,8).join(', ')} 는 조금 더 연습하면 좋아요.` : '') + (sayAvg!=null ? ` 단어 읽기 평균 ${sayAvg}점.` : '')
     : `26글자 중 ${learned}글자를 배웠고, ${greens.length}글자는 소리까지 확실히 알아요.` +
       (weak.length ? ` ${weak.join('·')} 는 조금 더 연습하면 좋아요.` : '') +
       (sayAvg!=null ? ` 단어 말하기 평균 ${sayAvg}점.` : '');
 
-  root.innerHTML = `
+  const tile = k => WORDS
+    ? `<button class="lt ${L[k].level}" data-k="${k}" style="padding:4px 2px"><div style="font-size:24px">${(R.info[k]||{}).emoji||''}</div>
+        <div class="en" style="font-size:17px;font-weight:700">${k}</div><div class="s">${L[k].say!=null?'🎤'+L[k].say:LV[L[k].level]}</div></button>`
+    : `<button class="lt ${L[k].level}" data-k="${k}"><div class="c en">${k.toUpperCase()}${k}</div>
+        <div class="s">${L[k].say!=null?'🎤'+L[k].say:LV[L[k].level]}</div></button>`;
+  const grid = WORDS
+    ? R.groups.map(g=>`<div style="display:flex;align-items:center;gap:8px;margin:6px 0"><b class="en" style="width:86px;flex:none;color:var(--navy)">${esc(g.name)}</b>
+        <div class="grid" style="flex:1;grid-template-columns:repeat(4,minmax(0,1fr))">${g.keys.map(tile).join('')}</div></div>`).join('')
+    : `<div class="grid">${ks.map(tile).join('')}</div>`;
+  const tabs = (R.books||[]).length > 1 ? `<div class="noprint" style="display:flex;gap:6px;margin-bottom:10px">${R.books.map(b=>
+      `<a href="?sid=${encodeURIComponent(SID)}&book=${encodeURIComponent(b)}${BACK?'&back='+encodeURIComponent(BACK):''}"
+        style="padding:7px 14px;border-radius:999px;text-decoration:none;font-size:14px;${b===R.book?'background:var(--navy);color:#fff':'background:#fff;color:var(--navy)'}">${esc(b)}</a>`).join('')}</div>` : '';
+  root.innerHTML = tabs + `
   <div class="sec who"><div><div class="mut">${esc(R.book)} · ${esc(R.bookName)}</div><b>${esc(R.student.name)}</b>
     ${R.student.grade?`<span class="mut"> · ${esc(R.student.grade)}</span>`:''}</div>
     <div class="mut">${new Date().toLocaleDateString('ko-KR')}</div></div>
 
   <div class="sec"><h2>💬 한눈에 보기</h2><div style="font-size:15px;line-height:1.6">${esc(summary)}</div></div>
 
-  <div class="sec"><h2>🔤 글자 숙달표 <span class="mut">(글자를 누르면 녹음·점수)</span></h2>
-    <div class="grid">${ks.map(k=>`<button class="lt ${L[k].level}" data-k="${k}"><div class="c en">${k.toUpperCase()}${k}</div>
-      <div class="s">${L[k].say!=null?'🎤'+L[k].say:LV[L[k].level]}</div></button>`).join('')}</div>
+  <div class="sec"><h2>🔤 ${unit} 숙달표 <span class="mut">(${unit}를 누르면 녹음·점수)</span></h2>
+    ${grid}
     <div class="legend">${['green','yellow','red','none'].map(lv=>`<span><i style="background:var(--${lv[0]})"></i>${LV[lv]} ${cnt(lv)}</span>`).join('')}</div>
-    <div class="detail noprint" id="det">글자를 눌러 보세요.</div></div>
+    <div class="detail noprint" id="det">${unit}를 눌러 보세요.</div></div>
 
   <div class="sec"><h2>📈 영역별</h2>
     ${areas.length ? areas.map(([t,v])=>bar(AREA[t], v.ok, v.n)).join('') : '<p class="empty">아직 퀴즈 기록이 없어요.</p>'}
     ${sayAvg!=null ? bar('단어 발음(평균)', sayAvg, 100) : ''}</div>
 
   <div class="sec"><h2>📅 하루 학습 (${R.days.filter(d=>d.done).length}/${R.days.length})</h2>
-    ${R.days.length ? `<div class="days">${R.days.map(d=>`<div class="day ${d.done?'done':''}"><b class="en">${(d.letters||[]).map(x=>String(x).toUpperCase()).join(' ')}</b>
+    ${R.days.length ? `<div class="days">${R.days.map(d=>`<div class="day ${d.done?'done':''}"><b class="en">${WORDS ? '짧은 '+([...String((d.letters||[''])[0])].find(c=>'aeiou'.includes(c))||'') : (d.letters||[]).map(x=>String(x).toUpperCase()).join(' ')}</b>
       Day ${d.day||'-'}<br>${d.done?`✅ 퀴즈 ${d.quiz!=null?d.quiz+'점':'-'}`:(d.steps?`진행 중`:(d.dueDate?esc(d.dueDate.slice(5).replace('-','/'))+' 예정':'예정'))}</div>`).join('')}</div>`
       : '<p class="empty">배정된 파닉스 과제가 없어요.</p>'}</div>
 
@@ -143,7 +158,7 @@ document.getElementById('back').onclick = () => {
     const k = b.dataset.k, v = L[k];
     const takes = (v.takes||[]).map(t=>`<div style="margin:6px 0"><b class="en">${esc(t.word)}</b> ${t.score}점 <span class="mut">${esc(t.at||'')}</span>
       ${t.url?`<audio controls preload="none" src="${esc(t.url)}"></audio>`:''}</div>`).join('');
-    det.innerHTML = `<b class="en" style="font-size:22px">${k.toUpperCase()}${k}</b> · ${LV[v.level]}
+    det.innerHTML = `<b class="en" style="font-size:22px">${WORDS ? ((R.info[k]||{}).emoji||'')+' '+k+' <span class="mut">'+esc((R.info[k]||{}).ko||'')+'</span>' : k.toUpperCase()+k}</b> · ${LV[v.level]}
       <div class="mut" style="margin:4px 0">퀴즈 ${v.quiz[1]?v.quiz[0]+'/'+v.quiz[1]:'-'} · 진급시험 ${v.exam[1]?v.exam[0]+'/'+v.exam[1]:'-'}</div>
       ${takes || '<div class="mut">녹음 기록이 없어요.</div>'}
       <div class="mut" style="margin-top:6px">녹음은 7일 동안만 들을 수 있어요(점수는 계속 남아요).</div>`;

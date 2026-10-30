@@ -66,6 +66,36 @@ _ORDER = list("abcdefghijklmnopqrstuvwxyz")
 DAYS = [{"day": i + 1, "letters": _ORDER[i * 3:i * 3 + 3]} for i in range(9)]
 
 
+# ── LV1 2권 단모음 ── 하루 = 모음 하나의 단어가족 3개(원장 2026-10-30 '가족별 3개씩 묶기'), 5일.
+#   인쇄본(단어급수교재/phonics_builder.py SHORT)의 가족 그대로, 그림 못 그리는 단어(led·not·win…)만 바꿈.
+BOOK2 = "LV1 2권"
+BOOK2_NAME = "단모음"
+VOWEL_KEY = {"a": "apple", "e": "egg", "i": "insect", "o": "octopus", "u": "umbrella"}
+SHORT = [
+    {"day": 1, "vowel": "a", "families": [
+        {"name": "-at", "words": [["cat", "고양이", "🐱"], ["hat", "모자", "🎩"], ["bat", "박쥐", "🦇"], ["rat", "쥐", "🐀"]]},
+        {"name": "-an", "words": [["man", "남자", "👨"], ["pan", "프라이팬", "🍳"], ["van", "승합차", "🚐"], ["fan", "부채", "🪭"]]},
+        {"name": "-ap · -ag", "words": [["cap", "모자", "🧢"], ["map", "지도", "🗺️"], ["bag", "가방", "👜"], ["tag", "꼬리표", "🏷️"]]}]},
+    {"day": 2, "vowel": "e", "families": [
+        {"name": "-en", "words": [["hen", "암탉", "🐔"], ["pen", "펜", "🖊️"], ["ten", "열", "🔟"], ["men", "남자들", "👬"]]},
+        {"name": "-et", "words": [["net", "그물", "🥅"], ["vet", "수의사", "🩺"], ["jet", "제트기", "✈️"], ["wet", "젖은", "💦"]]},
+        {"name": "-ed · -eg", "words": [["bed", "침대", "🛏️"], ["red", "빨강", "🔴"], ["leg", "다리", "🦵"], ["beg", "조르다", "🙏"]]}]},
+    {"day": 3, "vowel": "i", "families": [
+        {"name": "-ig", "words": [["pig", "돼지", "🐷"], ["big", "큰", "🐘"], ["dig", "파다", "⛏️"], ["wig", "가발", "👩‍🦰"]]},
+        {"name": "-in", "words": [["pin", "핀", "📍"], ["fin", "지느러미", "🦈"], ["bin", "쓰레기통", "🗑️"], ["win", "이기다", "🏆"]]},
+        {"name": "-it · -ix", "words": [["sit", "앉다", "🪑"], ["hit", "치다", "⚾"], ["six", "여섯", "6️⃣"], ["fix", "고치다", "🔧"]]}]},
+    {"day": 4, "vowel": "o", "families": [
+        {"name": "-og", "words": [["dog", "개", "🐶"], ["log", "통나무", "🪵"], ["fog", "안개", "🌫️"], ["jog", "조깅하다", "🏃"]]},
+        {"name": "-ot", "words": [["hot", "뜨거운", "🔥"], ["pot", "냄비", "🍲"], ["dot", "점", "🔵"], ["cot", "아기 침대", "🛏️"]]},
+        {"name": "-op · -ox", "words": [["top", "팽이", "🪀"], ["mop", "대걸레", "🧹"], ["box", "상자", "📦"], ["fox", "여우", "🦊"]]}]},
+    {"day": 5, "vowel": "u", "families": [
+        {"name": "-un", "words": [["sun", "해", "☀️"], ["run", "달리다", "🏃‍♂️"], ["bun", "빵", "🍞"], ["fun", "재미있는", "🎉"]]},
+        {"name": "-ug", "words": [["bug", "벌레", "🐛"], ["hug", "안아 주다", "🤗"], ["mug", "머그컵", "☕"], ["jug", "주전자", "🫖"]]},
+        {"name": "-ut · -up", "words": [["nut", "견과", "🥜"], ["cut", "자르다", "✂️"], ["cup", "컵", "🥤"], ["pup", "강아지", "🐕"]]}]},
+]
+SHORT_WORDS = [w for d in SHORT for f in d["families"] for w in f["words"]]
+
+
 def _ph(ipa, letter):
     return f'<phoneme alphabet="ipa" ph="{ipa}">{letter}</phoneme>'
 
@@ -86,6 +116,8 @@ def _audio_table():
                            slow(s) + '<break time="700ms"/>' + slow(f'{L["key"]}!'))
         for w in L["words"]:
             t[f"word-{w[0]}"] = f'<prosody rate="-10%">{w[0]}</prosody>'
+    for w in SHORT_WORDS:
+        t[f"word-{w[0]}"] = f'<prosody rate="-10%">{w[0]}</prosody>'
     for i, ok in enumerate(["Great job!", "Good try!"]):
         t[f"fb-{i}"] = ok
     return t
@@ -107,6 +139,17 @@ def _templates():
                  "type": "exam", "kind": "phonics", "items": _ORDER, "meanings": [], "passScore": 70,
                  "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [], "exampleAudio": [],
                  "recordMode": "each", "published": False})
+    for d in SHORT:
+        fam = " / ".join(f["name"] for f in d["families"])   # 가족 이름 안에 ' · ' 가 있어 '/' 로 나눈다
+        rows.append({"id": f"phx-lv1-2-d{d['day']:02d}", "title": f"{BOOK2} {BOOK2_NAME} Day {d['day']} ({d['vowel']}: {fam})",
+                     "book": BOOK2, "type": "phonics", "phonicsDay": d["day"],
+                     "items": [w[0] for f in d["families"] for w in f["words"]],
+                     "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
+                     "exampleAudio": [], "recordMode": "each", "published": False})
+    rows.append({"id": "phx-lv1-2-exam", "title": f"{BOOK2} {BOOK2_NAME} 진급시험", "book": BOOK2,
+                 "type": "exam", "kind": "phonics", "items": [w[0] for w in SHORT_WORDS], "meanings": [],
+                 "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
+                 "exampleAudio": [], "recordMode": "each", "published": False})
     return rows
 
 
@@ -137,7 +180,7 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
             if new:
                 db["assignments"].extend(new)
                 save_db(db)
-                print(f"[phonics] 보관함에 {BOOK} 원본 {len(new)}개 넣음")
+                print(f"[phonics] 보관함에 파닉스 원본 {len(new)}개 넣음")
     except Exception as e:
         print("[phonics] 보관함 원본 넣기 실패:", e)
 
@@ -172,7 +215,8 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
         # audioVer: 대본이 바뀌면 같이 바뀐다 → 화면이 음원 주소에 ?v= 로 붙여 기기 캐시(하루)에 묻힌 옛 소리를 끊는다
         #   (원장 2026-10-30: 쉼을 고쳤는데도 "또 붙여서 말해" — 태블릿이 어제 받은 노래를 틀고 있었다)
         ver = hashlib.sha1((VOICE + json.dumps(AUDIO, sort_keys=True)).encode("utf-8")).hexdigest()[:8]
-        return {"letters": LETTERS, "days": DAYS, "book": BOOK, "bookName": BOOK_NAME, "audioVer": ver}
+        return {"letters": LETTERS, "days": DAYS, "book": BOOK, "bookName": BOOK_NAME, "audioVer": ver,
+                "short": {"book": BOOK2, "bookName": BOOK2_NAME, "days": SHORT, "vowelKey": VOWEL_KEY}}
 
     @r.get("/api/phonics/audio/{aid}.mp3")
     def audio(aid: str):
@@ -201,21 +245,31 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
         return {"ok": True, "score": round(score), "words": out.get("words") or []}
 
     @r.get("/api/phonics/report/{sid}")
-    def report(sid: str):
-        """파닉스 성적표: 글자 숙달표(26칸)·영역별·Day 진행·진급시험(백분위는 exam-report 그대로)."""
+    def report(sid: str, book: str = ""):
+        """파닉스 성적표: 숙달표(알파벳=글자 26칸, 단모음=단어 60칸·가족별)·영역별·Day 진행·진급시험.
+        book 을 안 주면 그 학생이 받은 파닉스 책 중 마지막 권."""
         sid = str(sid)
         db = load_db_ro()
         student = next((s for s in db.get("students", []) if str(s.get("id")) == sid), None)
         mine = lambda a: (a.get("published") is not False and
                           (not a.get("assignedIds") or sid in [str(x) for x in a["assignedIds"]]))
-        rows = [a for a in db["assignments"] if a.get("book") == BOOK and mine(a)]
+        books = sorted({a.get("book") for a in db["assignments"] if a.get("book") in (BOOK, BOOK2) and mine(a)})
+        book = book if book in (BOOK, BOOK2) else (books[-1] if books else BOOK)
+        rows = [a for a in db["assignments"] if a.get("book") == book and mine(a)]
+        if book == BOOK2:
+            keys = [w[0] for w in SHORT_WORDS]
+            groups = [{"name": f"{d['vowel']}  {f['name']}", "vowel": d["vowel"], "keys": [w[0] for w in f["words"]]}
+                      for d in SHORT for f in d["families"]]
+            info = {w[0]: {"ko": w[1], "emoji": w[2]} for w in SHORT_WORDS}
+        else:
+            keys, groups, info = _ORDER, None, {}
         # 선생님이 보관함에서 배정하면 복사본이라 phonicsDay 가 없다 → 제목의 'Day N' 으로
         dno = lambda a: a.get("phonicsDay") or int((re.search(r"Day\s*0*(\d+)", a.get("title") or "") or [0, 0])[1])
         days = sorted([a for a in rows if a.get("type") == "phonics"], key=dno)
         exam = next((a for a in rows if a.get("type") == "exam" and a.get("kind") == "phonics"), None)
         subs = load_student_subs(sid) or {}
 
-        L = {k: {"qok": 0, "qn": 0, "eok": 0, "en": 0, "say": [], "takes": []} for k in _ORDER}
+        L = {k: {"qok": 0, "qn": 0, "eok": 0, "en": 0, "say": [], "takes": []} for k in keys}
         areas = {}
         day_rows = []
         for a in days:
@@ -265,7 +319,8 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                           "takes": sorted(v["takes"], key=lambda t: t.get("at") or "", reverse=True)[:3]}
         return {"student": {"id": sid, "name": (student or {}).get("name") or sid,
                             "grade": (student or {}).get("grade") or ""},
-                "book": BOOK, "bookName": BOOK_NAME, "days": day_rows, "letters": letters,
+                "book": book, "bookName": BOOK2_NAME if book == BOOK2 else BOOK_NAME, "books": books,
+                "days": day_rows, "letters": letters, "groups": groups, "info": info,
                 "areas": areas, "exam": exam_out}
 
     return r

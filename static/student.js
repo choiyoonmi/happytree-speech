@@ -244,9 +244,9 @@ function PushBell({ studentId }) {
 /* ---------- 파닉스 Lv1 (static/phonics.html) ----------
    하루치(type=phonics)와 권말 진급시험(type=exam, kind=phonics). 학생 로그인이 이 화면의 상태에만 있으므로
    다른 페이지로 넘기지 않고 같은 출처 iframe 으로 띄운다(마이크 허용 포함). */
-const PHONICS_BOOK = "LV1 1권";
+const PHONICS_BOOK = /^LV1 \d권$/;   // LV1 = 파닉스(1권 알파벳, 2권 단모음 …)
 function isPhonics(a) {
-  return a.type === "phonics" || a.kind === "phonics" || (a.type === "exam" && a.book === PHONICS_BOOK);
+  return a.type === "phonics" || a.kind === "phonics" || (a.type === "exam" && PHONICS_BOOK.test(a.book || ""));
 }
 function PhonicsFrame({ a, student, onClose }) {
   useEffect(() => {
@@ -707,7 +707,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
         <div style={{ minWidth:0 }}>
           <div className="row" style={{ marginBottom:5 }}>
             <Badge tone="b-gold">{exam ? "파닉스 진급시험" : "파닉스"}</Badge>
-            <span className="muted">{exam ? "듣기·말하기 30문항" : `${(a.items||[]).map(x=>String(x).toUpperCase()).join(" · ")}`}</span>
+            <span className="muted">{exam ? "듣기·읽기·말하기 30문항" : (a.items||[]).length > 3 ? `단어 ${(a.items||[]).length}개` : `${(a.items||[]).map(x=>String(x).toUpperCase()).join(" · ")}`}</span>
           </div>
           <div style={{ fontWeight:700, fontSize:15 }}>{exam ? "🎯 " : "🔤 "}{a.title}</div>
         </div>

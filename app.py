@@ -4153,9 +4153,12 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             if exam_rec and exam_rec.get("best") is not None:
                 q = {"score": exam_rec["best"], "letters": (exam_rec.get("bestByType") or {}).get("_letters") or {}}
             lt = q.get("letters") or {}
+            _its = [str(k) for k in (a.get("items") or [])]
+            _v = next((c for c in (_its[0] if _its else "") if c in "aeiou"), "")
             ph = {"quiz": q.get("score"),
-                  "letters": [str(k).upper() for k in (a.get("items") or [])],
-                  "weak": [k.upper() for k, v in lt.items() if (v or {}).get("ok", 0) < (v or {}).get("n", 0)],
+                  # 알파벳은 그날 글자(A·B·C), 단모음은 단어 12개라 '단모음 a' 로 줄인다
+                  "letters": [k.upper() for k in _its] if len(_its) <= 3 else [f"단모음 {_v}"],
+                  "weak": [(k.upper() if len(k) == 1 else k) for k, v in lt.items() if (v or {}).get("ok", 0) < (v or {}).get("n", 0)],
                   "exam": a.get("type") == "exam"}
             avg = None
         if avg is not None:
