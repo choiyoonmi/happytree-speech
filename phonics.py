@@ -251,6 +251,64 @@ for _d in CONS:
     _d["sents"] = [{"id": f"c{_d['day']}{i + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for i, x in enumerate(CONS_SENTS[_d["day"]])]
 CONS_WORDS = [w for d in CONS for f in d["families"] for w in f["words"]]
 
+# ── LV1 사이트워즈 ── Dolch 초급 92(Pre-primer 40 + Primer 52), 4개씩 23세트. 원장 2026-10-30:
+#   3개월차(장모음과 함께) 시작 → 10개월차 마무리, 주 1세트. 문장은 그 세트·앞 세트 단어 + 파닉스 단어로만.
+BOOKS = "LV1 사이트워즈"
+SIGHT = [
+    (["I", "나"], ["see", "보다"], ["a", "하나의"], ["the", "그"]),
+    (["can", "~할 수 있다"], ["go", "가다"], ["up", "위로"], ["down", "아래로"]),
+    (["and", "그리고"], ["big", "큰"], ["little", "작은"], ["my", "나의"]),
+    (["is", "~이다"], ["it", "그것"], ["in", "~ 안에"], ["to", "~로"]),
+    (["red", "빨간"], ["blue", "파란"], ["yellow", "노란"], ["here", "여기"]),
+    (["come", "오다"], ["look", "보다"], ["play", "놀다"], ["run", "달리다"]),
+    (["me", "나를"], ["help", "돕다"], ["find", "찾다"], ["where", "어디"]),
+    (["one", "하나"], ["two", "둘"], ["three", "셋"], ["jump", "뛰다"]),
+    (["we", "우리"], ["you", "너"], ["not", "아니다"], ["said", "말했다"]),
+    (["make", "만들다"], ["funny", "웃긴"], ["away", "멀리"], ["for", "~를 위해"]),
+    (["he", "그(남자)"], ["she", "그녀"], ["they", "그들"], ["was", "~였다"]),
+    (["am", "~이다"], ["are", "~이다"], ["at", "~에"], ["be", "~이 되다"]),
+    (["all", "모두"], ["ate", "먹었다"], ["eat", "먹다"], ["good", "좋은"]),
+    (["have", "가지다"], ["like", "좋아하다"], ["want", "원하다"], ["do", "하다"]),
+    (["did", "했다"], ["get", "얻다"], ["saw", "보았다"], ["went", "갔다"]),
+    (["black", "검은"], ["brown", "갈색의"], ["white", "흰"], ["pretty", "예쁜"]),
+    (["this", "이것"], ["that", "저것"], ["there", "저기"], ["what", "무엇"]),
+    (["no", "아니요"], ["yes", "네"], ["please", "부탁해요"], ["so", "아주"]),
+    (["new", "새로운"], ["our", "우리의"], ["out", "밖으로"], ["now", "지금"]),
+    (["on", "~ 위에"], ["under", "~ 아래에"], ["into", "~ 안으로"], ["with", "~와 함께"]),
+    (["ran", "달렸다"], ["ride", "타다"], ["came", "왔다"], ["soon", "곧"]),
+    (["four", "넷"], ["too", "~도"], ["must", "~해야 한다"], ["but", "그러나"]),
+    (["well", "잘"], ["will", "~할 것이다"], ["who", "누구"], ["say", "말하다"]),
+]
+SIGHT_SENTS = [
+    [["I see a cat.", "나는 고양이를 봐요.", "🙋🐱"], ["I see the sun.", "나는 해를 봐요.", "🙋☀️"]],
+    [["I can go up.", "나는 위로 갈 수 있어요.", "🙋⬆️"], ["The cat can go down.", "고양이가 아래로 갈 수 있어요.", "🐱⬇️"]],
+    [["A big dog and a little cat.", "큰 개와 작은 고양이.", "🐶🐱"], ["I see my big dog.", "나는 내 큰 개를 봐요.", "🙋🐶"]],
+    [["It is in the box.", "그것은 상자 안에 있어요.", "📦"], ["I go to bed.", "나는 자러 가요.", "🛏️"]],
+    [["Here is a red hat.", "여기 빨간 모자가 있어요.", "🎩🔴"], ["I see blue and yellow.", "나는 파랑과 노랑을 봐요.", "🔵🟡"]],
+    [["Come and play.", "와서 같이 놀자.", "⚽"], ["Look, I can run.", "봐, 나 달릴 수 있어.", "🏃"]],
+    [["Help me find my cap.", "내 모자 찾는 것 좀 도와줘.", "🧢🔍"], ["Where is my dog?", "내 개는 어디 있어요?", "🐶❓"]],
+    [["I can jump one, two, three.", "하나, 둘, 셋 뛸 수 있어요.", "🦘"], ["I see two cats.", "나는 고양이 두 마리를 봐요.", "🐱🐱"]],
+    [["We can play.", "우리는 놀 수 있어요.", "🧒🧒"], ["It is not red.", "그것은 빨갛지 않아요.", "❌🔴"]],
+    [["Make a funny hat.", "웃긴 모자를 만들어요.", "🎩😂"], ["It is for you.", "이건 너를 위한 거야.", "🎁"]],
+    [["He and she can run.", "그와 그녀는 달릴 수 있어요.", "🏃‍♂️🏃‍♀️"], ["The cat was in the box.", "고양이가 상자 안에 있었어요.", "🐱📦"]],
+    [["I am big.", "나는 커요.", "💪"], ["We are at home.", "우리는 집에 있어요.", "🏠"]],
+    [["We all eat cake.", "우리 모두 케이크를 먹어요.", "🎂"], ["The dog ate it.", "개가 그걸 먹었어요.", "🐶"]],
+    [["I like my cat.", "나는 내 고양이가 좋아요.", "🐱❤️"], ["I want to have a dog.", "나는 개를 갖고 싶어요.", "🐶"]],
+    [["I saw a fox.", "나는 여우를 봤어요.", "🦊"], ["We went to the sea.", "우리는 바다에 갔어요.", "🌊"]],
+    [["I see a black cat.", "나는 검은 고양이를 봐요.", "🐈‍⬛"], ["The white rose is pretty.", "흰 장미가 예뻐요.", "🌹"]],
+    [["What is this?", "이건 뭐예요?", "❓"], ["That is my bike.", "저건 내 자전거예요.", "🚲"]],
+    [["Yes, please.", "네, 주세요.", "🙋"], ["No, it is so hot.", "아니요, 너무 뜨거워요.", "🔥"]],
+    [["This is our new home.", "여기가 우리 새 집이에요.", "🏠✨"], ["Come out now.", "지금 밖으로 나와요.", "🚪"]],
+    [["The cat is under the bed.", "고양이가 침대 아래에 있어요.", "🐱🛏️"], ["Jump into the box with me.", "나랑 같이 상자 안으로 뛰어요.", "📦"]],
+    [["I ride my bike.", "나는 자전거를 타요.", "🚲"], ["The dog ran to me.", "개가 나에게 달려왔어요.", "🐶"]],
+    [["I have four pens.", "나는 펜이 네 개 있어요.", "🖊️"], ["I must go too.", "나도 가야 해요.", "🏃"]],
+    [["Who will play?", "누가 놀 거예요?", "⚽❓"], ["I can say it well.", "나는 그걸 잘 말할 수 있어요.", "🗣️"]],
+]
+SIGHT_DAYS = [{"day": i + 1, "words": [list(w) for w in ws],
+               "sents": [{"id": f"w{i + 1}{j + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for j, x in enumerate(SIGHT_SENTS[i])]}
+              for i, ws in enumerate(SIGHT)]
+SIGHT_WORDS = [w for d in SIGHT_DAYS for w in d["words"]]
+
 
 def _ph(ipa, letter):
     return f'<phoneme alphabet="ipa" ph="{ipa}">{letter}</phoneme>'
@@ -298,6 +356,11 @@ def _audio_table():
             t[f"sent-{x['id']}"] = f'<prosody rate="-20%">{x["en"]}</prosody>'
     for k, (ipa, _ko) in DIGRAPH_SND.items():
         t[f"dg-{k}"] = f'<prosody rate="-25%">{_ph(ipa, k)}</prosody>'
+    for w in SIGHT_WORDS:
+        t[f"word-{w[0]}"] = f'<prosody rate="-10%">{w[0]}</prosody>'
+    for d in SIGHT_DAYS:
+        for x in d["sents"]:
+            t[f"sent-{x['id']}"] = f'<prosody rate="-20%">{x["en"]}</prosody>'
     for i, ok in enumerate(["Great job!", "Good try!"]):
         t[f"fb-{i}"] = ok
     return t
@@ -346,6 +409,16 @@ def _templates():
                      "exampleAudio": [], "recordMode": "each", "published": False})
     rows.append({"id": "phx-lv1-4-exam", "title": f"{BOOK4} {BOOK4_NAME} 진급시험", "book": BOOK4,
                  "type": "exam", "kind": "phonics", "items": [w[0] for w in CONS_WORDS], "meanings": [],
+                 "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
+                 "exampleAudio": [], "recordMode": "each", "published": False})
+    for d in SIGHT_DAYS:
+        rows.append({"id": f"phx-lv1-s-d{d['day']:02d}", "book": BOOKS, "type": "phonics", "phonicsDay": d["day"],
+                     "title": f"{BOOKS} Day {d['day']} ({' · '.join(w[0] for w in d['words'])})",
+                     "items": [w[0] for w in d["words"]],
+                     "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
+                     "exampleAudio": [], "recordMode": "each", "published": False})
+    rows.append({"id": "phx-lv1-s-exam", "title": f"{BOOKS} 마무리 시험", "book": BOOKS,
+                 "type": "exam", "kind": "phonics", "items": [w[0] for w in SIGHT_WORDS], "meanings": [],
                  "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                  "exampleAudio": [], "recordMode": "each", "published": False})
     rows.append({"id": "phx-lv1-2-exam", "title": f"{BOOK2} {BOOK2_NAME} 진급시험", "book": BOOK2,
@@ -470,7 +543,8 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                          "snd": {k: v[1] for k, v in LONG_SND.items()}},
                 "cons": {"book": BOOK4, "bookName": BOOK4_NAME, "days": CONS,
                          "snd": {k: v[1] for k, v in LONG_SND.items()},
-                         "dg": {k: v[1] for k, v in DIGRAPH_SND.items()}}}
+                         "dg": {k: v[1] for k, v in DIGRAPH_SND.items()}},
+                "sight": {"book": BOOKS, "bookName": "사이트워즈", "days": SIGHT_DAYS}}
 
     @r.get("/api/phonics/audio/{aid}.mp3")
     def audio(aid: str):
@@ -508,10 +582,15 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
         student = next((s for s in db.get("students", []) if str(s.get("id")) == sid), None)
         mine = lambda a: (a.get("published") is not False and
                           (not a.get("assignedIds") or sid in [str(x) for x in a["assignedIds"]]))
-        books = sorted({a.get("book") for a in db["assignments"] if a.get("book") in (BOOK, BOOK2, BOOK3, BOOK4) and mine(a)})
-        book = book if book in (BOOK, BOOK2, BOOK3, BOOK4) else (books[-1] if books else BOOK)
+        ALLB = (BOOK, BOOK2, BOOK3, BOOK4, BOOKS)
+        books = sorted({a.get("book") for a in db["assignments"] if a.get("book") in ALLB and mine(a)})
+        book = book if book in ALLB else ([b for b in books if b != BOOKS] or books or [BOOK])[-1]
         rows = [a for a in db["assignments"] if a.get("book") == book and mine(a)]
-        if book in (BOOK2, BOOK3, BOOK4):
+        if book == BOOKS:
+            keys = [w[0] for w in SIGHT_WORDS]
+            groups = [{"name": f"세트 {d['day']}", "vowel": "", "keys": [w[0] for w in d["words"]]} for d in SIGHT_DAYS]
+            info = {w[0]: {"ko": w[1], "emoji": ""} for w in SIGHT_WORDS}
+        elif book in (BOOK2, BOOK3, BOOK4):
             DD, WW = {BOOK2: (SHORT, SHORT_WORDS), BOOK3: (LONG, LONG_WORDS), BOOK4: (CONS, CONS_WORDS)}[book]
             keys = [w[0] for w in WW]
             groups = [{"name": (f"{d['vowel']}  {f['name']}" if book == BOOK2 else f"긴 {d['vowel']}  {f['name']}" if book == BOOK3 else f['name']),
@@ -577,7 +656,7 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                           "takes": sorted(v["takes"], key=lambda t: t.get("at") or "", reverse=True)[:3]}
         return {"student": {"id": sid, "name": (student or {}).get("name") or sid,
                             "grade": (student or {}).get("grade") or ""},
-                "book": book, "bookName": {BOOK2: BOOK2_NAME, BOOK3: BOOK3_NAME, BOOK4: BOOK4_NAME}.get(book, BOOK_NAME), "books": books,
+                "book": book, "bookName": {BOOK2: BOOK2_NAME, BOOK3: BOOK3_NAME, BOOK4: BOOK4_NAME, BOOKS: "사이트워즈"}.get(book, BOOK_NAME), "books": books,
                 "days": day_rows, "letters": letters, "groups": groups, "info": info,
                 "areas": areas, "exam": exam_out}
 

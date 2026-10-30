@@ -3173,7 +3173,7 @@ def _rounds_done(items, item_count, rounds_total):
 # 나눠 낸 Day('(1/2)','(2/2)')는 조각이 다 끝나야 한다. 날짜와 상관없이 끝낸 순간 연다.
 # 보관함의 시험(published=false, 배정 없음)을 원본으로 두고 그 학생만 배정한 사본을 만든다.
 # ★원본을 공개하면 안 된다 — assignedIds 가 비어 있으면 학원 학생 전부에게 뜬다.
-_LV_BOOK = re.compile(r"^LV\d+ \d+권$")
+_LV_BOOK = re.compile(r"^LV\d+ (\d+권|사이트워즈)$")   # LV1 사이트워즈도 마지막 세트를 끝내면 마무리 시험이 열린다
 _DAY_NO = re.compile(r"Day\s*0*(\d+)")
 
 
@@ -4158,7 +4158,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             ph = {"quiz": q.get("score"),
                   # 알파벳은 그날 글자(A·B·C), 단모음은 단어 12개라 '단모음 a' 로 줄인다
                   "letters": [k.upper() for k in _its] if len(_its) <= 3 else
-                             [{"LV1 3권": f"장모음 {_v}", "LV1 4권": "이중자음"}.get(a.get("book"), f"단모음 {_v}")],
+                             [{"LV1 3권": f"장모음 {_v}", "LV1 4권": "이중자음", "LV1 사이트워즈": "사이트워즈"}.get(a.get("book"), f"단모음 {_v}")],
                   "weak": [(k.upper() if len(k) == 1 else k) for k, v in lt.items() if (v or {}).get("ok", 0) < (v or {}).get("n", 0)],
                   "exam": a.get("type") == "exam"}
             avg = None

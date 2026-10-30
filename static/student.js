@@ -244,7 +244,7 @@ function PushBell({ studentId }) {
 /* ---------- 파닉스 Lv1 (static/phonics.html) ----------
    하루치(type=phonics)와 권말 진급시험(type=exam, kind=phonics). 학생 로그인이 이 화면의 상태에만 있으므로
    다른 페이지로 넘기지 않고 같은 출처 iframe 으로 띄운다(마이크 허용 포함). */
-const PHONICS_BOOK = /^LV1 \d권$/;   // LV1 = 파닉스(1권 알파벳, 2권 단모음 …)
+const PHONICS_BOOK = /^LV1 (\d권|사이트워즈)$/;   // LV1 = 파닉스(1권 알파벳, 2권 단모음 …)
 function isPhonics(a) {
   return a.type === "phonics" || a.kind === "phonics" || (a.type === "exam" && PHONICS_BOOK.test(a.book || ""));
 }
