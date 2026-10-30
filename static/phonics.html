@@ -192,7 +192,8 @@ function leave(){
 
 // ── 소리 ───────────────────────────────────────────────────────────
 const cache = {};
-function aud(id){ if(!cache[id]){ cache[id]=new Audio('/api/phonics/audio/'+id+'.mp3'); cache[id].preload='auto' } return cache[id] }
+const audUrl = id => '/api/phonics/audio/'+id+'.mp3?v='+((C&&C.audioVer)||'0');   // 대본이 바뀌면 주소도 바뀌어 옛 소리 캐시를 안 탄다
+function aud(id){ if(!cache[id]){ cache[id]=new Audio(audUrl(id)); cache[id].preload='auto' } return cache[id] }
 let playing = null;
 function play(id, btn){
   return new Promise(res=>{
@@ -803,7 +804,7 @@ function examRun(){
   const ids = [];
   LET.forEach(k=>{ ids.push('chant-'+k,'snd-'+k,'name-'+k); C.letters[k].words.forEach(w=>ids.push('word-'+w[0])) });
   ids.push('fb-0');
-  for(const id of ids){ try{ await fetch('/api/phonics/audio/'+id+'.mp3') }catch(e){} }
+  for(const id of ids){ try{ await fetch(audUrl(id)) }catch(e){} }
 })();
 </script>
 </body>

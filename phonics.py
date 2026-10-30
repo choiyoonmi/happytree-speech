@@ -17,6 +17,7 @@
 max(종합, 정확도) 를 쓰고, 소리(음소)별 점수를 같이 돌려 '첫소리 신호등'에 쓴다.
 """
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -168,7 +169,10 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
 
     @r.get("/api/phonics/content")
     def content():
-        return {"letters": LETTERS, "days": DAYS, "book": BOOK, "bookName": BOOK_NAME}
+        # audioVer: 대본이 바뀌면 같이 바뀐다 → 화면이 음원 주소에 ?v= 로 붙여 기기 캐시(하루)에 묻힌 옛 소리를 끊는다
+        #   (원장 2026-10-30: 쉼을 고쳤는데도 "또 붙여서 말해" — 태블릿이 어제 받은 노래를 틀고 있었다)
+        ver = hashlib.sha1((VOICE + json.dumps(AUDIO, sort_keys=True)).encode("utf-8")).hexdigest()[:8]
+        return {"letters": LETTERS, "days": DAYS, "book": BOOK, "bookName": BOOK_NAME, "audioVer": ver}
 
     @r.get("/api/phonics/audio/{aid}.mp3")
     def audio(aid: str):
