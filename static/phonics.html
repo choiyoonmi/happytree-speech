@@ -113,7 +113,7 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 <body>
 <div id="app">
   <header>
-    <button class="home" onclick="go('map')" aria-label="처음으로">🏠</button>
+    <button class="home" onclick="homeBtn()" aria-label="처음으로">🏠</button>
     <div class="title" id="title">해피트리 파닉스</div>
     <div class="fruit">🍎 <span id="fruits">0</span></div>
   </header>
@@ -122,22 +122,64 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 </div>
 <script>
 'use strict';
-// ── 데이터 ─────────────────────────────────────────────────────────
+// ── 어디서 열렸나 ─────────────────────────────────────────────────
+// 트리톡 학생 화면이 iframe 으로 열면 ?aid=과제&sid=학생 → 서버에 기록(제출·녹음·시험).
+// 주소만 열면 시연(기기에만 기록, ?day=N 으로 날 고르기).
+const QS = new URLSearchParams(location.search);
+const AID = QS.get('aid') || '', SID = QS.get('sid') || '', SNAME = QS.get('name') || '';
+const EMBED = !!(AID && SID);
 let C = null;             // /api/phonics/content
-let DAY = 1, STEPS = [], cur = -1;
+let A = null;             // 이 과제(트리톡)
+let LET = [], DAY = 1, STEPS = [], cur = -1;
 const NAMES = {meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기', quiz:'오늘의 퀴즈'};
 const ICON  = {meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏', quiz:'🏆'};
+const QAREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기'};
 const store = {
   get(){ try{ return JSON.parse(localStorage.getItem('ht_phonics')||'{}') }catch(e){ return {} } },
   set(v){ try{ localStorage.setItem('ht_phonics', JSON.stringify(v)) }catch(e){} }
 };
-let S = Object.assign({fruits:0, done:{}}, store.get());
-function save(){ store.set(S); $('#fruits').textContent = S.fruits }
+// S = 이 기기의 시연 기록, 또는 서버 제출의 phonics 칸(EMBED)
+let S = {fruits:0, done:{}, takes:{}, parrot:{}, quiz:null};
 const $ = q => document.querySelector(q);
 const stage = () => $('#stage');
 function h(html){ stage().innerHTML = html; return stage() }
 function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]} return a }
-function hi(w, k){ return w[0].toLowerCase()===k ? `<b>${w[0]}</b>${w.slice(1)}` : w }
+const pick = a => a[Math.random()*a.length|0];
+function nowStr(){ const d=new Date(); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` }
+// 초점 글자 금색: 보통 첫 글자, x 처럼 끝소리 글자는 마지막 그 글자
+function hi(w, k){
+  if(w[0].toLowerCase()===k) return `<b>${w[0]}</b>${w.slice(1)}`;
+  const i = w.toLowerCase().lastIndexOf(k);
+  return i<0 ? w : `${w.slice(0,i)}<b>${w[i]}</b>${w.slice(i+1)}`;
+}
+const startsWith = k => !(C.letters[k].pos==='end');   // 첫소리 문제에 쓸 수 있는 글자
+
+// ── 서버 기록 ──────────────────────────────────────────────────────
+let saveT = null, saveErr = '';
+function save(extra){
+  $('#fruits').textContent = S.fruits;
+  if(!EMBED){ store.set({fruits:S.fruits, done:S.done, quiz:S.quizByDay||{}}); return Promise.resolve() }
+  clearTimeout(saveT);
+  const send = () => fetch(`/api/submission/${encodeURIComponent(AID)}/${encodeURIComponent(SID)}`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(Object.assign({phonics:S}, extra||{}))})
+    .then(async r=>{ if(!r.ok){ let m=''; try{ m=(await r.json()).detail }catch(e){} throw new Error(m||('저장 실패 '+r.status)) } saveErr='' })
+    .catch(e=>{ saveErr = e.message || '저장 실패'; console.warn(e) });
+  if(extra) return send();                 // 제출은 바로
+  return new Promise(res=>{ saveT = setTimeout(()=>send().then(res), 600) });
+}
+async function upload(blob){
+  if(!EMBED) return null;
+  try{
+    const fd = new FormData(); fd.append('audio', blob, 'rec.webm');
+    const r = await fetch('/api/audio',{method:'POST',body:fd});
+    return r.ok ? (await r.json()).url : null;
+  }catch(e){ return null }
+}
+function leave(){
+  if(playing){ try{playing.pause()}catch(e){} }
+  if(EMBED && window.parent!==window) window.parent.postMessage('phonics-close', location.origin);
+  else go('map');
+}
 
 // ── 소리 ───────────────────────────────────────────────────────────
 const cache = {};
@@ -233,9 +275,8 @@ async function assess(text, blob){
 
 // ── 흐름 ───────────────────────────────────────────────────────────
 function build(){
-  const d = C.days.find(x=>x.day===DAY);
   STEPS = [];
-  d.letters.forEach(k=>['meet','parrot','trace','words'].forEach(t=>STEPS.push({t,k})));
+  LET.forEach(k=>['meet','parrot','trace','words'].forEach(t=>STEPS.push({t,k})));
   ['bubble','fish','memory','quiz'].forEach(t=>STEPS.push({t}));
 }
 function key(i){ const s=STEPS[i]; return DAY+':'+s.t+(s.k?':'+s.k:'') }
@@ -249,26 +290,30 @@ function run(i){
   $('#title').textContent = (s.k ? s.k.toUpperCase()+s.k+' · ' : '섞어 놀기 · ') + NAMES[s.t];
   ({meet, parrot, trace, words, bubble, fish, memory, quiz})[s.t](s.k);
 }
+function homeBtn(){ cur<0 ? leave() : go('map') }
 function go(where){
   if(playing){ try{playing.pause()}catch(e){} }
   cur = -1; dots();
   if(where==='end') return end();
-  $('#title').textContent = '해피트리 파닉스 · '+DAY+'일차';
-  const d = C.days.find(x=>x.day===DAY);
+  $('#title').textContent = (A ? A.title : '해피트리 파닉스 · '+DAY+'일차');
   const nextI = STEPS.findIndex((s,i)=>!S.done[key(i)]);
   const node = i => `<button class="node ${S.done[key(i)]?'done':i===nextI?'next':''}" data-i="${i}">${ICON[STEPS[i].t]}<span>${NAMES[STEPS[i].t]}</span></button>`;
-  let lanes = d.letters.map(k=>{
+  let lanes = LET.map(k=>{
     const ids = STEPS.map((s,i)=>s.k===k?i:-1).filter(i=>i>=0);
     return `<div class="lane"><div class="lt en">${k.toUpperCase()}${k}</div>${ids.map(node).join('')}</div>`;
   }).join('');
   const mix = STEPS.map((s,i)=>s.k?-1:i).filter(i=>i>=0);
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">섞어<br>놀기</div>${mix.map(node).join('')}</div>`;
-  h(`<p class="guide">오늘은 <span class="en" style="font-size:32px">${d.letters.map(k=>k.toUpperCase()).join(' · ')}</span> 를 만나요!<small>반짝이는 칸을 눌러요</small></p>
+  h(`<p class="guide">${SNAME?SNAME+', ':''}오늘은 <span class="en" style="font-size:32px">${LET.map(k=>k.toUpperCase()).join(' · ')}</span> 를 만나요!<small>반짝이는 칸을 눌러요</small></p>
      <div class="map">${lanes}</div>
-     ${nextI<0?'<button class="btn" onclick="go(\'end\')">🌳 내 나무 보기</button>':''}
-     <button class="btn ghost" style="font-size:16px;padding:8px 18px" onclick="if(confirm(\'처음부터 다시 할까요? (열매도 0개로)\')){S={fruits:0,done:{}};save();go(\'map\')}">처음부터 다시</button>`);
+     <div class="row">
+       ${nextI<0?'<button class="btn" onclick="go(\'end\')">🌳 내 나무 보기</button>':''}
+       ${EMBED?'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button><button class="btn ghost" onclick="leave()">↩ 나가기</button>'
+              :'<button class="btn ghost" style="font-size:16px;padding:8px 18px" onclick="if(confirm(\'처음부터 다시 할까요? (열매도 0개로)\')){S={fruits:0,done:{},takes:{},parrot:{},quiz:null};save();go(\'map\')}">처음부터 다시</button>'}
+     </div>`);
   stage().querySelectorAll('.node').forEach(b=>b.onclick=()=>run(+b.dataset.i));
 }
+function openReport(){ location.href = `/phonics-report.html?sid=${encodeURIComponent(SID)}&back=${encodeURIComponent(location.pathname+location.search)}` }
 
 // ── 1. 만나기 ── 큰 글자를 누르면 노래처럼: "A. A says /æ/ /æ/ /æ/, apple!"
 function meet(k){
@@ -309,6 +354,8 @@ function parrot(k){
     $('#msg').textContent = got>=2 ? '멋져요! 선생님이랑 비교해 들어 봐요 👂' : '좋아요! 한 번 더 해 볼까요?';
     $('#mine').classList.remove('hide'); $('#st').textContent='⭐'.repeat(Math.min(got,2));
     beep('ok');
+    // 선생님이 성적표에서 들어 볼 수 있게 마지막 녹음을 남긴다
+    upload(r.blob).then(url=>{ if(url){ S.parrot[k] = {url, at:nowStr()}; save() } });
     if(got===2){ fruit(); $('#nx').classList.remove('hide') }
   }});
   $('#tch').onclick = ()=>play('snd-'+k);
@@ -333,6 +380,7 @@ function trace(k){
   let mask=null, total=0, ink=[], drawing=false, last=null, passed=false;
   const fs = Math.min(H*0.9, W*0.95);
   const pen = Math.max(18, fs*0.09);
+  const baseY = () => H*0.87 - (fi===1 && 'gjpqy'.includes(k) ? H*0.25 : 0);   // 아래로 내려가는 소문자는 올려 쓴다
   function guide(){
     ctx.clearRect(0,0,W,H);
     // 4선 노트 줄
@@ -340,12 +388,12 @@ function trace(k){
     [0.12,0.37,0.62,0.87].forEach((y,i)=>{ ctx.setLineDash(i===1?[8,8]:[]); ctx.beginPath(); ctx.moveTo(10,H*y); ctx.lineTo(W-10,H*y); ctx.stroke() });
     ctx.setLineDash([]);
     ctx.font = `700 ${fs}px Andika, Arial, sans-serif`; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
-    ctx.fillStyle='#e9e3d3'; ctx.fillText(forms[fi], W/2, H*0.87 - (fi===1 && 'gjpqy'.includes(k) ? H*0.25 : 0));
+    ctx.fillStyle='#e9e3d3'; ctx.fillText(forms[fi], W/2, baseY());
   }
   function buildMask(){
     const o = document.createElement('canvas'); o.width=W; o.height=H; const c=o.getContext('2d');
     c.font = `700 ${fs}px Andika, Arial, sans-serif`; c.textAlign='center'; c.textBaseline='alphabetic'; c.fillStyle='#000';
-    c.fillText(forms[fi], W/2, H*0.87 - (fi===1 && 'gjpqy'.includes(k) ? H*0.25 : 0));
+    c.fillText(forms[fi], W/2, baseY());
     const d = c.getImageData(0,0,W,H).data; mask = new Uint8Array(W*H); total=0;
     for(let i=0;i<W*H;i+=1){ if(d[i*4+3]>100){ mask[i]=1; total++ } }
   }
@@ -355,8 +403,7 @@ function trace(k){
     ink.forEach(s=>{ c.beginPath(); s.forEach((p,j)=>j?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1])); if(s.length===1) c.lineTo(s[0][0]+.1,s[0][1]); c.stroke() });
     const d=c.getImageData(0,0,W,H).data; let hit=0, out=0, inkN=0;
     for(let i=0;i<W*H;i++){ const on=d[i*4+3]>100; if(on){ inkN++; if(!mask[i]) out++ } if(on&&mask[i]) hit++ }
-    const cover = total? hit/total : 0, stray = inkN? out/inkN : 0;
-    return {cover, stray};
+    return {cover: total? hit/total : 0, stray: inkN? out/inkN : 0};
   }
   function redraw(){
     guide(); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.lineWidth=pen; ctx.strokeStyle='#1f3a5f';
@@ -384,6 +431,15 @@ function trace(k){
 }
 
 // ── 4. 단어 말하기 ── 3단어. 녹음 → 서버 채점(소리별). 별 1~3 + 첫소리 신호등.
+function firstLight(res, k, w){
+  // 초점 글자의 소리 점수 — 보통 첫 음소, x 처럼 끝소리 글자는 마지막 음소
+  const phs = ((res.words||[])[0]||{}).phonemes||[];
+  const ph = C.letters[k].pos==='end' ? phs[phs.length-1] : phs[0];
+  if(!ph) return '';
+  const a = ph.acc, col = a>=70?'var(--green)':a>=45?'var(--yellow)':'var(--red)';
+  const say = a>=70?'아주 좋아요!':a>=45?'조금만 더 또렷하게':`'${C.letters[k].ko}' 를 더 크게!`;
+  return `<span class="light"><i style="background:${col}"></i>${C.letters[k].pos==='end'?'끝소리':'첫소리'} <b class="en">${k}</b> ${say}</span>`;
+}
 function words(k){
   const L = C.letters[k]; let wi = 0;
   function one(){
@@ -400,23 +456,20 @@ function words(k){
       if(r.error){ $('#msg').textContent=r.error; beep('no'); return }
       mine = new Audio(r.url); $('#mine').classList.remove('hide');
       $('#msg').textContent = '듣고 있어요… 👂'; $('#st').textContent='';
+      const up = upload(r.blob);
       let res=null;
       try{ res = await assess(w[0], r.blob) }catch(e){}
       if(!res || !res.ok){
-        // 채점이 안 돼도 해낸 건 해낸 것 — 별 하나는 준다
+        // 채점이 안 돼도 해낸 건 해낸 것 — 별 하나는 준다(성적표엔 점수 없이)
         $('#st').textContent='⭐'; $('#msg').innerHTML = (res&&res.note) || '잘 들었어요! (채점은 잠시 쉬는 중)';
       } else {
         const sc = res.score, n = sc>=80?3:sc>=55?2:1;
         $('#st').textContent = '⭐'.repeat(n) + '☆'.repeat(3-n);
-        const ph = (((res.words||[])[0]||{}).phonemes||[])[0];
-        let light = '';
-        if(ph){
-          const a = ph.acc, col = a>=70?'var(--green)':a>=45?'var(--yellow)':'var(--red)';
-          const say = a>=70?'아주 좋아요!':a>=45?'조금만 더 또렷하게':`'${L.ko}' 를 더 크게!`;
-          light = `<span class="light"><i style="background:${col}"></i>첫소리 <b class="en">${k}</b> ${say}</span>`;
-        }
-        $('#msg').innerHTML = light || (n===3?'완벽해요!':'잘했어요!');
+        $('#msg').innerHTML = firstLight(res, k, w) || (n===3?'완벽해요!':'잘했어요!');
         if(n===3) play('fb-0');
+        // 같은 단어를 여러 번 하면 가장 잘한 것을 남긴다
+        const prev = S.takes[w[0]];
+        up.then(url=>{ if(!prev || prev.score==null || sc>=prev.score){ S.takes[w[0]] = {k, score:sc, url, at:nowStr()}; save() } });
       }
       beep('ok');
       if($('#nx').classList.contains('hide')){ fruit(); $('#nx').classList.remove('hide') }
@@ -431,8 +484,8 @@ function words(k){
 
 // ── 5. 소리 버블 ── 소리를 듣고 그 글자 방울을 톡! 6번.
 function bubble(){
-  const ks = C.days.find(x=>x.day===DAY).letters;
-  const targets = shuffle(ks.concat(ks)).slice(0,6);
+  const ks = LET;
+  const targets = shuffle(ks.concat(ks, ks)).slice(0,6);
   let r = 0, raf = 0, bubs = [];
   h(`<p class="guide">🫧 소리를 듣고 그 글자 방울을 톡!<small id="cnt">1 / 6</small></p>
      <div class="pond" id="pond"></div>
@@ -471,13 +524,15 @@ function bubble(){
 }
 
 // ── 6. 첫소리 낚시 ── 그림 + 단어 소리 → 첫 글자 물고기를 낚아요. 6번.
+//    끝소리 글자(x)는 '어떤 소리가 들어 있을까?' 로 묻는다.
 function fish(){
-  const ks = C.days.find(x=>x.day===DAY).letters;
+  const ks = LET;
   const pool = shuffle(ks.flatMap(k=>C.letters[k].words.map(w=>({k,w})))).slice(0,6);
   let r = 0;
   function round(){
     const {k,w} = pool[r]; let solved = false;
-    h(`<p class="guide">🎣 무슨 소리로 시작할까?<small>${r+1} / ${pool.length}</small></p>
+    const end = !startsWith(k);
+    h(`<p class="guide">🎣 ${end?'어떤 소리가 들어 있을까?':'무슨 소리로 시작할까?'}<small>${r+1} / ${pool.length}</small></p>
        <div class="card" style="padding:8px 30px"><div class="emoji">${w[2]}</div><div class="ko">${w[1]}</div></div>
        <div class="row" style="margin-top:10px"><button class="spk" id="sp">🔊</button></div>
        <div class="sea">${shuffle(ks).map(x=>`<button class="fish en" data-k="${x}">${x}</button>`).join('')}</div>`);
@@ -498,7 +553,7 @@ function fish(){
 
 // ── 7. 짝 찾기 ── 대문자·소문자 카드 짝 맞추기
 function memory(){
-  const ks = C.days.find(x=>x.day===DAY).letters;
+  const ks = LET;
   const cards = shuffle(ks.flatMap(k=>[{k,lb:k.toUpperCase()},{k,lb:k}]));
   h(`<p class="guide">🃏 큰 글자와 작은 글자 짝을 찾아요</p><div class="grid">${cards.map((c,i)=>`<button class="mem en" data-i="${i}">?</button>`).join('')}</div>`);
   let open = [], got = 0, lock = false;
@@ -517,26 +572,26 @@ function memory(){
   });
 }
 
-// ── 8. 오늘의 퀴즈 ── 글을 못 읽어도 풀 수 있게 전부 '듣고 고르기'+말하기 하나.
-// 첫 번째 고른 답만 점수에 넣는다(틀리면 정답을 보여 주고 넘어감). 결과는 영역별·글자별로 남겨
-// 성적표(글자 숙달표·영역 그래프)로 그대로 보낼 수 있는 모양이다.
-const QAREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기'};
-function quiz(){
-  const ks = C.days.find(x=>x.day===DAY).letters;
-  const pick = a => a[Math.random()*a.length|0];
-  const qs = shuffle([
-    {type:'snd', k:ks[0]}, {type:'snd', k:ks[1]}, {type:'snd', k:ks[2]},
-    {type:'pic', k:pick(ks)}, {type:'case', k:pick(ks)}, {type:'word', k:pick(ks)}
-  ]).concat([{type:'say', k:pick(ks)}]);   // 말하기는 맨 끝
-  qs.forEach(q=>{ q.w = pick(C.letters[q.k].words) });
+// ── 문제 풀이 엔진 (오늘의 퀴즈·진급시험 공용) ──
+// 글을 못 읽어도 풀 수 있게 전부 '듣고 고르기' + 말하기. 첫 번째 고른 답만 점수에 넣는다
+// (틀리면 정답을 보여 주고 넘어감). 결과는 영역별(byType)·글자별(letters)로 남는다.
+function makeQ(type, k, pool){
+  const others = n => shuffle(pool.filter(x=>x!==k)).slice(0,n);
+  const q = {type, k, w: pick(C.letters[k].words)};
+  if(type==='snd' || type==='pic') q.opts = shuffle([k].concat(others(2)));
+  if(type==='case') q.opts = shuffle([k].concat(others(Math.min(3, pool.length-1))));
+  if(type==='word') q.opts = shuffle([q.w].concat(others(2).map(x=>pick(C.letters[x].words))));
+  return q;
+}
+function runQuestions(qs, title, onDone){
   const ans = [], t0 = Date.now();
   let qi = 0;
   function next(ok){
     ans.push({type:qs[qi].type, k:qs[qi].k, ok, score:qs[qi].score});
-    if(ok) beep('ok'); else beep('no');
-    setTimeout(()=>{ qi++; qi<qs.length ? ask() : result() }, ok?700:1400);
+    beep(ok?'ok':'no');
+    setTimeout(()=>{ qi++; qi<qs.length ? ask() : onDone(ans, Math.round((Date.now()-t0)/1000)) }, ok?700:1400);
   }
-  function choices(opts, render, isRight, onShow){
+  function choices(opts, render, isRight){
     let picked = false;
     stage().querySelector('#ch').innerHTML = opts.map((o,i)=>`<button class="qc" data-i="${i}">${render(o)}</button>`).join('');
     stage().querySelectorAll('.qc').forEach(b=>b.onclick=()=>{
@@ -548,32 +603,36 @@ function quiz(){
     });
   }
   function ask(){
-    const q = qs[qi], L = C.letters[q.k];
-    const head = `<p class="guide">🏆 오늘의 퀴즈 <small>${qi+1} / ${qs.length}</small></p>`;
-    const bar = `<div class="meter" style="margin:0 0 14px"><i style="width:${qi/qs.length*100}%"></i></div>`;
+    const q = qs[qi];
+    const head = `<p class="guide">${title} <small>${qi+1} / ${qs.length}</small></p>
+      <div class="meter" style="margin:0 0 14px"><i style="width:${qi/qs.length*100}%"></i></div>`;
+    const L = x => `<span class="en">${x}</span>`;
     if(q.type==='snd'){
-      h(head+bar+`<p class="guide">🔊 이 소리는 어떤 글자일까?</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
+      h(head+`<p class="guide">🔊 이 소리는 어떤 글자일까?</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
       $('#sp').onclick = e=>play('snd-'+q.k, e.currentTarget);
-      choices(shuffle(ks), x=>`<span class="en">${x}</span>`, x=>x===q.k);
+      choices(q.opts, L, x=>x===q.k);
       setTimeout(()=>play('snd-'+q.k, $('#sp')), 300);
     } else if(q.type==='pic'){
-      h(head+bar+`<p class="guide">어떤 소리로 시작할까?</p><div class="card" style="padding:6px 26px"><div class="emoji">${q.w[2]}</div></div><div class="sea" id="ch"></div>`);
-      choices(shuffle(ks), x=>`<span class="en">${x}</span>`, x=>x===q.k);
-    } else if(q.type==='case'){
-      h(head+bar+`<p class="guide">짝꿍 작은 글자를 찾아요</p><div class="big en" style="font-size:150px">${q.k.toUpperCase()}</div><div class="sea" id="ch"></div>`);
-      choices(shuffle(ks), x=>`<span class="en">${x}</span>`, x=>x===q.k);
-    } else if(q.type==='word'){
-      const opts = shuffle([q.w].concat(shuffle(ks.filter(x=>x!==q.k)).slice(0,2).map(x=>pick(C.letters[x].words))));
-      h(head+bar+`<p class="guide">🔊 잘 듣고 그림을 골라요</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
+      h(head+`<p class="guide">어떤 소리로 시작할까?</p><div class="card" style="padding:6px 26px"><div class="emoji">${q.w[2]}</div></div>
+        <button class="spk" id="sp" style="width:64px;height:64px;font-size:28px;margin-top:8px">🔊</button><div class="sea" id="ch"></div>`);
       $('#sp').onclick = e=>play('word-'+q.w[0], e.currentTarget);
-      choices(opts, x=>`<span style="font-size:64px">${x[2]}</span>`, x=>x[0]===q.w[0]);
+      choices(q.opts, L, x=>x===q.k);
+    } else if(q.type==='case'){
+      h(head+`<p class="guide">짝꿍 작은 글자를 찾아요</p><div class="big en" style="font-size:150px">${q.k.toUpperCase()}</div><div class="sea" id="ch"></div>`);
+      choices(q.opts, L, x=>x===q.k);
+    } else if(q.type==='word'){
+      h(head+`<p class="guide">🔊 잘 듣고 그림을 골라요</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
+      $('#sp').onclick = e=>play('word-'+q.w[0], e.currentTarget);
+      choices(q.opts, x=>`<span style="font-size:64px">${x[2]}</span>`, x=>x[0]===q.w[0]);
       setTimeout(()=>play('word-'+q.w[0], $('#sp')), 300);
     } else {
-      h(head+bar+`<p class="guide">🎤 그림 이름을 말해 봐요!</p>
+      h(head+`<p class="guide">🎤 그림 이름을 말해 봐요!</p>
         <div class="card"><div class="emoji">${q.w[2]}</div><div class="word en">${hi(q.w[0],q.k)}</div></div>
         <div class="row" style="margin-top:14px"><div id="mic"></div></div><div class="msg" id="msg"></div>`);
+      let sent = false;
       recButton($('#mic'), {maxMs:3500, async onDone(r){
         if(r.error){ $('#msg').textContent=r.error; return }   // 안 들린 건 다시 기회
+        if(sent) return; sent = true;
         $('#msg').textContent='듣고 있어요… 👂';
         let res=null; try{ res = await assess(q.w[0], r.blob) }catch(e){}
         // 채점이 안 되면 점수 없이 '말하기 함'으로만 남기고 정답 처리하지 않는다(성적이 거짓말을 하면 안 됨)
@@ -583,28 +642,51 @@ function quiz(){
       }});
     }
   }
-  function result(){
-    const n = ans.filter(a=>a.ok).length, score = Math.round(n/ans.length*100);
-    const by = {}, lt = {};
-    ans.forEach(a=>{ (by[a.type]=by[a.type]||{ok:0,n:0}); by[a.type].n++; if(a.ok) by[a.type].ok++;
-                     (lt[a.k]=lt[a.k]||{ok:0,n:0}); lt[a.k].n++; if(a.ok) lt[a.k].ok++ });
-    const rec = {day:DAY, at:new Date().toISOString(), score, sec:Math.round((Date.now()-t0)/1000), byType:by, letters:lt, answers:ans};
-    S.quiz = S.quiz || {}; S.quiz[DAY] = rec; S.fruits += n; save();
+  ask();
+}
+function tally(ans){
+  const by = {}, lt = {};
+  ans.forEach(a=>{ (by[a.type]=by[a.type]||{ok:0,n:0}); by[a.type].n++; if(a.ok) by[a.type].ok++;
+                   (lt[a.k]=lt[a.k]||{ok:0,n:0}); lt[a.k].n++; if(a.ok) lt[a.k].ok++ });
+  return {by, lt, n: ans.filter(a=>a.ok).length};
+}
+function areaList(by){
+  return Object.entries(by).map(([t,v])=>`<div>${v.ok===v.n?'🟢':v.ok/v.n>=0.5?'🟡':'🔴'} ${QAREA[t]||t} <b>${v.ok}/${v.n}</b></div>`).join('');
+}
+
+// ── 8. 오늘의 퀴즈 ── 7문항(소리→글자 3, 그림→첫소리, 대→소문자, 단어→그림, 말하기)
+function quiz(){
+  const ks = LET, firsts = ks.filter(startsWith);
+  const snd = shuffle(ks.concat(ks)).slice(0,3);
+  const qs = shuffle([
+    ...snd.map(k=>makeQ('snd', k, ks)),
+    makeQ('pic', pick(firsts.length?firsts:ks), ks),
+    makeQ('case', pick(ks), ks),
+    makeQ('word', pick(ks), ks),
+  ]).concat([makeQ('say', pick(ks), ks)]);   // 말하기는 맨 끝
+  runQuestions(qs, '🏆 오늘의 퀴즈', async (ans, sec)=>{
+    const {by, lt, n} = tally(ans), score = Math.round(n/ans.length*100);
+    S.quiz = {at:nowStr(), score, sec, byType:by, letters:lt, answers:ans};
+    S.fruits += n;
+    S.done[key(cur)] = 1;
+    // 오늘 할 일이 다 끝났으면 제출(랭킹·알림·진급시험 열림이 여기서 시작된다)
+    const all = STEPS.every((s,i)=>S.done[key(i)]);
+    h(`<p class="guide">🏆 퀴즈 끝!</p><p class="guide" style="font-size:18px">저장하는 중…</p>`);
+    await save(all ? {status:'submitted', submittedAt:nowStr(), phonicsScore:score} : {});
     const weak = Object.entries(lt).filter(([k,v])=>v.ok<v.n).map(([k])=>k.toUpperCase());
     h(`<p class="guide">🏆 퀴즈 끝!</p>
        <div class="card" style="min-width:min(90vw,460px)">
          <div style="font-size:64px;color:var(--navy)">${score}<span style="font-size:28px">점</span></div>
          <div class="stars">${'⭐'.repeat(n)}${'☆'.repeat(ans.length-n)}</div>
-         <div style="text-align:left;font-size:19px;line-height:1.9;margin-top:6px">
-           ${Object.entries(by).map(([t,v])=>`<div>${v.ok===v.n?'🟢':v.ok?'🟡':'🔴'} ${QAREA[t]} <b>${v.ok}/${v.n}</b></div>`).join('')}
-         </div>
-         <div class="msg">${weak.length ? `조금 더 연습할 글자: <b class="en" style="color:var(--gold)">${weak.join(' · ')}</b>` : '세 글자 모두 완벽해요! 🎉'}</div>
+         <div style="text-align:left;font-size:19px;line-height:1.9;margin-top:6px">${areaList(by)}</div>
+         <div class="msg">${weak.length ? `조금 더 연습할 글자: <b class="en" style="color:var(--gold)">${weak.join(' · ')}</b>` : '모두 완벽해요! 🎉'}</div>
+         ${saveErr ? `<div class="msg" style="color:var(--red);font-size:17px">⚠ 저장이 안 됐어요: ${saveErr}</div>` : ''}
+         ${EMBED && !all ? `<div class="msg" style="font-size:17px">아직 안 한 칸이 있어요 — 다 하면 '완료'가 돼요</div>` : ''}
        </div>
        <button class="btn" id="nx">🌳 내 나무 보기</button>`);
     if(n===ans.length) play('fb-0');
-    $('#nx').onclick = finish;
-  }
-  ask();
+    $('#nx').onclick = ()=>{ doneLock = true; go('end') };
+  });
 }
 
 // ── 끝: 열매 나무 ──
@@ -615,20 +697,91 @@ function end(){
   for(let i=0;i<n;i++){ const a=i*2.4, rr=0.18+0.22*((i*37)%10)/10; ap += `<span class="ap" style="left:${46+Math.cos(a)*rr*100}%;top:${34+Math.sin(a)*rr*80}%;animation-delay:${i*0.05}s">🍎</span>` }
   h(`<p class="guide">🌳 내 나무에 열매가 <b style="color:var(--gold)">${S.fruits}개</b>!</p>
      <div class="tree"><div class="trunk"></div><div class="crown"></div>${ap}</div>
-     <button class="btn" onclick="go('map')">🏠 처음 화면</button>
-     <p class="note">시제품이에요 — 기록은 이 기기에만 남고 선생님 화면으로는 아직 안 가요.</p>`);
+     <div class="row">${EMBED ? '<button class="btn" onclick="leave()">↩ 트리톡으로</button><button class="btn ghost" onclick="openReport()">📊 내 성적표</button>'
+                              : '<button class="btn" onclick="go(\'map\')">🏠 처음 화면</button>'}</div>
+     ${EMBED ? '' : '<p class="note">시연 화면이에요 — 기록은 이 기기에만 남아요.</p>'}`);
   play('fb-0');
+}
+
+// ── 진급시험 ── 알파벳 26자 30문항: 소리→글자 10 · 그림→첫소리 6 · 대→소문자 6 · 단어→그림 4 · 말하기 4.
+//    점수는 /api/exam 에 쌓여 단어급수 진급시험과 같은 성적표(전체·동학년 상위%·9등급·70점 진급)가 나온다.
+function examIntro(){
+  $('#title').textContent = A.title; $('#dots').innerHTML='';
+  h(`<p class="guide">🎯 알파벳 진급시험</p>
+     <div class="card" style="font-size:20px;line-height:1.8;text-align:left">
+       🔊 소리를 듣고 고르는 문제 26개<br>🎤 그림 이름을 말하는 문제 4개<br>
+       <span style="color:#8a7d60">70점을 넘으면 다음 책으로 올라가요!</span></div>
+     <button class="btn" id="go">시작하기 ▶</button>
+     <button class="btn ghost" onclick="leave()">↩ 나가기</button>`);
+  $('#go').onclick = examRun;
+}
+function examRun(){
+  const all = C.days.flatMap(d=>d.letters), firsts = all.filter(startsWith);
+  const qs = shuffle([
+    ...shuffle(all).slice(0,10).map(k=>makeQ('snd', k, all)),
+    ...shuffle(firsts).slice(0,6).map(k=>makeQ('pic', k, all)),
+    ...shuffle(all).slice(0,6).map(k=>makeQ('case', k, all)),
+    ...shuffle(all).slice(0,4).map(k=>makeQ('word', k, all)),
+  ]).concat(shuffle(firsts).slice(0,4).map(k=>makeQ('say', k, all)));
+  runQuestions(qs, '🎯 진급시험', async (ans, sec)=>{
+    const {by, lt, n} = tally(ans);
+    h(`<p class="guide">🎯 채점하는 중…</p>`);
+    let rep = null, err = '';
+    if(EMBED){
+      try{
+        const r = await fetch(`/api/exam/${encodeURIComponent(AID)}/${encodeURIComponent(SID)}`, {method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({correct:n, total:ans.length, seconds:sec, byType:Object.assign({}, by, {_letters:lt})})});
+        if(!r.ok) throw new Error('저장 실패 '+r.status);
+        rep = await (await fetch(`/api/exam-report/${encodeURIComponent(AID)}/${encodeURIComponent(SID)}`)).json();
+      }catch(e){ err = e.message }
+    }
+    const score = Math.round(n/ans.length*100), pass = score >= ((rep&&rep.passScore)||70);
+    h(`<p class="guide">${pass?'🎉 진급 성공!':'💪 조금만 더!'}</p>
+       <div class="card" style="min-width:min(90vw,480px)">
+         <div style="font-size:64px;color:var(--navy)">${score}<span style="font-size:28px">점</span></div>
+         ${rep && rep.score!==score ? `<div class="msg" style="font-size:16px">지금까지 최고 ${rep.score}점</div>` : ''}
+         <div style="text-align:left;font-size:19px;line-height:1.9;margin-top:6px">${areaList(by)}</div>
+         ${rep && rep.score_all && rep.score_all.n>=3 ? `<div class="msg">함께 본 친구 ${rep.score_all.n}명 중 <b>상위 ${rep.score_all.top}%</b>${rep.band?` · ${rep.band}등급`:''}</div>` : ''}
+         ${err ? `<div class="msg" style="color:var(--red);font-size:17px">⚠ ${err}</div>` : ''}
+       </div>
+       <div class="row">${EMBED ? '<button class="btn" onclick="openReport()">📊 성적표 보기</button><button class="btn ghost" onclick="leave()">↩ 나가기</button>'
+                                : '<button class="btn" onclick="examIntro()">다시 보기</button>'}</div>`);
+    if(pass) play('fb-0');
+  });
 }
 
 // ── 시작 ──
 (async function(){
   try{
     C = await (await fetch('/api/phonics/content')).json();
-  }catch(e){ h('<p class="guide">불러오지 못했어요. 새로고침 해 주세요 🙏</p>'); return }
-  build(); save(); go('map');
+    if(AID){
+      const r = await fetch('/api/assignment/'+encodeURIComponent(AID));
+      if(!r.ok) throw new Error('과제를 찾지 못했어요');
+      A = await r.json();
+    }
+  }catch(e){ h(`<p class="guide">불러오지 못했어요. 새로고침 해 주세요 🙏<small>${e.message||''}</small></p>`); return }
+
+  if(A && A.type==='exam'){ return examIntro() }
+
+  // 오늘 글자: 과제의 items(복사돼도 남는다) → 없으면 ?day=
+  const want = A ? (A.items||[]).map(x=>String(x).toLowerCase()) : null;
+  const d = want ? C.days.find(x=>x.letters.join()===want.join()) : C.days.find(x=>x.day===(+QS.get('day')||1));
+  DAY = d ? d.day : 1; LET = d ? d.letters : (want || C.days[0].letters);
+  build();
+  if(EMBED){
+    try{
+      const sub = await (await fetch(`/api/submission/${encodeURIComponent(AID)}/${encodeURIComponent(SID)}`)).json();
+      S = Object.assign(S, (sub && sub.phonics) || {});
+    }catch(e){}
+  } else {
+    const st = store.get(); S.fruits = st.fruits||0; S.done = st.done||{};
+  }
+  $('#fruits').textContent = S.fruits;
+  go('map');
   // 첫 재생이 느리지 않게 오늘 소리를 미리 만들어 둔다(서버는 한 번 만든 건 다시 안 만듦)
   const ids = [];
-  C.days.find(x=>x.day===DAY).letters.forEach(k=>{ ids.push('chant-'+k,'snd-'+k,'name-'+k); C.letters[k].words.forEach(w=>ids.push('word-'+w[0])) });
+  LET.forEach(k=>{ ids.push('chant-'+k,'snd-'+k,'name-'+k); C.letters[k].words.forEach(w=>ids.push('word-'+w[0])) });
   ids.push('fb-0');
   for(const id of ids){ try{ await fetch('/api/phonics/audio/'+id+'.mp3') }catch(e){} }
 })();

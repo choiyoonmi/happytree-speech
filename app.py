@@ -1215,6 +1215,8 @@ def add_assignments_bulk(request: Request, payload: dict = Body(...)):
                 "recordMode": ("whole" if p.get("recordMode") == "whole" else "each"),
                 "published": bool(p.get("published", True)),
             }
+            if p.get("kind"):                    # 파닉스 진급시험(kind=phonics) — 복사해도 따라가야 시험 화면이 맞게 열린다
+                a["kind"] = str(p.get("kind"))
             db["assignments"].insert(0, a)
             created.append(a)
         save_db(db)
@@ -2539,7 +2541,7 @@ def student_submissions(student_id: str):
         out[aid] = {
             "status": sub.get("status", "none"),
             "submittedAt": sub.get("submittedAt"),
-            "average": round(sum(scores) / len(scores)) if scores else None,
+            "average": round(sum(scores) / len(scores)) if scores else sub.get("phonicsScore"),   # 파닉스=퀴즈 점수
         }
     return out
 
@@ -2583,6 +2585,8 @@ def _avg_score_from_sub(sub):
     for t in ((sub or {}).get("whole") or []):
         if t and t.get("score") is not None:
             scores.append(t["score"])
+    if not scores and (sub or {}).get("phonicsScore") is not None:
+        return (sub or {}).get("phonicsScore")   # 파닉스 하루치 = 오늘의 퀴즈 점수(랭킹·알림이 이걸 씀)
     return round(sum(scores) / len(scores)) if scores else None
 
 
@@ -5401,7 +5405,9 @@ app.include_router(_lt_router(data_dir=DATA_DIR, azure_key=AZURE_KEY, azure_regi
 # ---------- 파닉스 Lv1 — phonics.py 별채, 화면은 static/phonics.html ----------
 from phonics import make_router as _ph_router
 app.include_router(_ph_router(data_dir=DATA_DIR, azure_key=AZURE_KEY, azure_region=AZURE_REGION,
-                              run_assessment=_run_assessment))
+                              run_assessment=_run_assessment, lock=_lock, load_db=load_db, save_db=save_db,
+                              load_db_ro=load_db_ro, load_student_subs=load_student_subs,
+                              load_exam=load_exam, exam_report=exam_report))
 
 
 # ---------- static frontend (must be last) ----------

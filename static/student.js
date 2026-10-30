@@ -241,6 +241,25 @@ function PushBell({ studentId }) {
   );
 }
 
+/* ---------- 파닉스 Lv1 (static/phonics.html) ----------
+   하루치(type=phonics)와 권말 진급시험(type=exam, kind=phonics). 학생 로그인이 이 화면의 상태에만 있으므로
+   다른 페이지로 넘기지 않고 같은 출처 iframe 으로 띄운다(마이크 허용 포함). */
+const PHONICS_BOOK = "LV1 1권";
+function isPhonics(a) {
+  return a.type === "phonics" || a.kind === "phonics" || (a.type === "exam" && a.book === PHONICS_BOOK);
+}
+function PhonicsFrame({ a, student, onClose }) {
+  useEffect(() => {
+    const on = (e) => { if (e.origin === location.origin && e.data === "phonics-close") onClose(); };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, []);
+  const src = `/phonics.html?aid=${encodeURIComponent(a.id)}&sid=${encodeURIComponent(student.id)}` +
+    `&name=${encodeURIComponent(student.name || "")}`;
+  return <iframe src={src} allow="microphone; autoplay" title="파닉스"
+    style={{ position:"fixed", inset:0, width:"100%", height:"100%", border:0, zIndex:50, background:"#fff8e7" }} />;
+}
+
 function StudentView({ student, onLogout }) {
   const voice = useVoice();
   const [assignments, setAssignments] = useState([]);
@@ -255,6 +274,7 @@ function StudentView({ student, onLogout }) {
   const [openVocab, setOpenVocab] = useState(null);
   const [openSentence, setOpenSentence] = useState(null);
   const [openExam, setOpenExam] = useState(null);
+  const [openPhonics, setOpenPhonics] = useState(null);   // 파닉스 Lv1 — 트리톡 안에 전체 화면으로 띄운다(로그인 유지)
   const [vocabProgress, setVocabProgress] = useState({});
   const [closedDays, setClosedDays] = useState([]);   // 학원 휴무일+공휴일(달력 '휴무' 표시용)
   const [closedNames, setClosedNames] = useState({}); // 날짜→명절이름(추석·설날…)
@@ -519,6 +539,18 @@ function StudentView({ student, onLogout }) {
     );
   }
 
+  if (openPhonics) {
+    // phonics.html 이 끝나면 postMessage('phonics-close') 를 보낸다 → 닫고 제출 상태를 다시 받는다
+    return <PhonicsFrame a={openPhonics} student={student}
+      onClose={async () => {
+        setOpenPhonics(null);
+        try {
+          const subs = await apiGet(`/student-submissions/${student.id}`);
+          setStatusMap(m => { const n = { ...m }; assignments.forEach(a => { const x = subs[a.id]; n[a.id] = (x && x.status) || "none"; }); return n; });
+        } catch (e) {}
+      }} />;
+  }
+
   if (openExam) {
     return (
       <div className="wrap">
@@ -557,7 +589,8 @@ function StudentView({ student, onLogout }) {
         </a>
         <div style={{ marginBottom:12 }}><PushBell studentId={student.id} /></div>
         <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress} closedDays={closedDays} closedNames={closedNames}
-          onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} onOpenExam={setOpenExam} />
+          onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} onOpenExam={setOpenExam}
+          onOpenPhonics={setOpenPhonics} />
       </div>
     </div>
   );
@@ -565,7 +598,7 @@ function StudentView({ student, onLogout }) {
 
 // ---------- 학생 홈: 달력 + [녹음 / 단어익힘 / 문장익힘] 탭 (같은 달력 공유) ----------
 
-function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam }) {
+function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam, onOpenPhonics }) {
   const today = new Date();
   const closedSet = new Set(closedDays || []);          // 학원 휴무일+공휴일
   const isClosed = (k) => closedSet.has(k);
@@ -580,10 +613,10 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
   const isStudy = isVocab || isSentence;
   const studyLabel = isSentence ? "문장익힘" : "단어익힘";   // 원장 2026-09-23: '자습' → '익힘'
   const source = isVocab
-    ? mine.filter(a => a.type === "exam" ? (a.poolSize || (a.items||[]).length) : ((a.type || "word") === "word" && (a.items || []).length))
+    ? mine.filter(a => a.type === "exam" ? (!isPhonics(a) && (a.poolSize || (a.items||[]).length)) : ((a.type || "word") === "word" && (a.items || []).length))
     : isSentence
       ? mine.filter(a => a.type === "sentence" && (a.items || []).length)
-      : mine.filter(a => a.type !== "exam");
+      : mine.filter(a => a.type !== "exam" || isPhonics(a));   // 파닉스는 하루치·진급시험 모두 녹음 탭에
 
   const byDate = {};
   const noDate = [];
@@ -664,7 +697,27 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
 
   const pickedList = byDate[picked] || [];
 
+  const phonicsCard = (a) => {
+    const st = statusMap[a.id] || "none";
+    const exam = a.type === "exam";
+    return (
+      <button key={a.id} onClick={()=>onOpenPhonics(a)} className="card"
+        style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10,
+          border: exam ? "1.5px solid var(--gold)" : undefined, background: exam ? "var(--cream-deep, #fbf6ea)" : undefined }}>
+        <div style={{ minWidth:0 }}>
+          <div className="row" style={{ marginBottom:5 }}>
+            <Badge tone="b-gold">{exam ? "파닉스 진급시험" : "파닉스"}</Badge>
+            <span className="muted">{exam ? "듣기·말하기 30문항" : `${(a.items||[]).map(x=>String(x).toUpperCase()).join(" · ")}`}</span>
+          </div>
+          <div style={{ fontWeight:700, fontSize:15 }}>{exam ? "🎯 " : "🔤 "}{a.title}</div>
+        </div>
+        {exam ? <span style={{ color:"var(--navy)", fontSize:20 }}>›</span>
+          : <Badge tone={st==="none"?"b-gray":"b-navy"}>{st==="none"?"시작":"완료"}</Badge>}
+      </button>
+    );
+  };
   const recordCard = (a) => {
+    if (isPhonics(a)) return phonicsCard(a);
     const st = statusMap[a.id] || "none";
     return (
       <button key={a.id} onClick={()=>onOpenRecord(a)} className="card"

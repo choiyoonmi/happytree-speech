@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>파닉스 성적표</title>
+<link rel="icon" href="favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* 파닉스 Lv1 성적표 — 학생(트리톡 안)·선생님(관리자)·학부모가 같이 본다. A4 세로로 인쇄된다. */
+:root{ --navy:#1f3a5f; --gold:#f2a900; --cream:#fff8e7; --ink:#263238; --mut:#7a6f57; --line:#eadfc6;
+  --g:#43a047; --y:#f9a825; --r:#e53935; --n:#d9d2c2; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--cream);color:var(--ink);font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif}
+.en{font-family:'Andika',Arial,sans-serif}
+.top{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}
+.top h1{font-size:19px;margin:0;flex:1}
+.top button{background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:10px;padding:8px 12px;font-size:15px;cursor:pointer}
+.wrap{max-width:860px;margin:0 auto;padding:16px}
+.sec{background:#fff;border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 3px 0 var(--line)}
+.sec h2{font-size:17px;color:var(--navy);margin:0 0 12px}
+.who{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px}
+.who b{font-size:24px;color:var(--navy)}
+.mut{color:var(--mut);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+.lt{border-radius:14px;padding:6px 0 4px;text-align:center;cursor:pointer;border:0;font:inherit;color:#fff}
+.lt .c{font-size:30px;font-weight:700;line-height:1.1}
+.lt .s{font-size:11px;opacity:.95}
+.lt.green{background:var(--g)} .lt.yellow{background:var(--y)} .lt.red{background:var(--r)} .lt.none{background:var(--n);color:#8b836f}
+.lt.sel{outline:3px solid var(--navy);outline-offset:2px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;margin-top:10px;color:var(--mut)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:4px;margin-right:4px;vertical-align:-1px}
+.detail{margin-top:12px;background:#faf6ec;border-radius:12px;padding:12px;font-size:14px}
+.detail audio{height:32px;vertical-align:middle}
+.bar{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:14px}
+.bar .nm{width:130px;flex:none}
+.bar .tr{flex:1;height:14px;background:#efe8d6;border-radius:7px;overflow:hidden}
+.bar .tr i{display:block;height:100%;border-radius:7px}
+.bar .v{width:64px;text-align:right;flex:none;font-weight:700}
+.days{display:flex;gap:8px;flex-wrap:wrap}
+.day{border:1.5px solid var(--line);border-radius:12px;padding:6px 10px;font-size:13px;min-width:88px;text-align:center}
+.day.done{border-color:var(--gold);background:#fff6d8}
+.day b{display:block;font-size:15px;color:var(--navy)}
+.exam{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{background:#faf6ec;border-radius:12px;padding:10px;text-align:center}
+.kpi .k{font-size:12px;color:var(--mut)} .kpi .v{font-size:24px;font-weight:800;color:var(--navy)}
+.pass{color:var(--g)} .fail{color:var(--r)}
+.empty{color:var(--mut);font-size:14px;padding:6px 0}
+@media print{ body{background:#fff} .top button,.noprint{display:none!important} .sec{box-shadow:none;border:1px solid var(--line);break-inside:avoid}
+  .lt{-webkit-print-color-adjust:exact;print-color-adjust:exact} .bar .tr i,.day.done{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4;margin:12mm} }
+</style>
+</head>
+<body>
+<div class="top"><button id="back" class="noprint">‹</button><h1>📊 파닉스 성적표</h1><button onclick="print()" class="noprint">🖨 인쇄</button></div>
+<div class="wrap" id="root"><p class="mut">불러오는 중…</p></div>
+<script>
+'use strict';
+const QS = new URLSearchParams(location.search), SID = QS.get('sid')||'', BACK = QS.get('back')||'';
+const AREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기'};
+const LV = {green:'잘 알아요', yellow:'연습 중', red:'다시 배워요', none:'아직 안 배움'};
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+if(!BACK && window.parent!==window) document.getElementById('back').style.display='none';   // 관리자 화면 안에 펼쳤을 땐 ✕ 가 닫는다
+document.getElementById('back').onclick = () => {
+  if(BACK && BACK.startsWith('/')) location.href = BACK;
+  else if(window.parent!==window) window.parent.postMessage('phonics-close', location.origin);
+  else history.back();
+};
+(async function(){
+  const root = document.getElementById('root');
+  if(!SID){ root.innerHTML = '<p class="empty">학생 아이디(?sid=)가 없어요.</p>'; return }
+  let R;
+  try{ const r = await fetch('/api/phonics/report/'+encodeURIComponent(SID)); if(!r.ok) throw 0; R = await r.json() }
+  catch(e){ root.innerHTML = '<p class="empty">성적표를 불러오지 못했어요.</p>'; return }
+
+  const L = R.letters, ks = Object.keys(L);
+  const cnt = lv => ks.filter(k=>L[k].level===lv).length;
+  const learned = ks.length - cnt('none');
+  const ex = R.exam && R.exam.report;
+
+  // 영역별: 퀴즈+시험 합계
+  const areas = Object.entries(R.areas||{}).filter(([t])=>AREA[t]);
+  const bar = (nm, ok, n) => { const p = n? Math.round(ok/n*100) : 0, col = p>=80?'var(--g)':p>=50?'var(--y)':'var(--r)';
+    return `<div class="bar"><span class="nm">${nm}</span><span class="tr"><i style="width:${p}%;background:${col}"></i></span><span class="v">${n?p+'%':'-'}</span></div>` };
+  const says = ks.map(k=>L[k].say).filter(v=>v!=null);
+  const sayAvg = says.length ? Math.round(says.reduce((a,b)=>a+b,0)/says.length) : null;
+
+  // 한 줄 요약(학부모용) — 숫자만 보고 지어낸 말이 아니라 기록에서 그대로 뽑는다
+  const greens = ks.filter(k=>L[k].level==='green').map(k=>k.toUpperCase());
+  const weak = ks.filter(k=>L[k].level==='red'||L[k].level==='yellow').map(k=>k.toUpperCase());
+  const summary = !learned ? '아직 파닉스 기록이 없어요.'
+    : `26글자 중 ${learned}글자를 배웠고, ${greens.length}글자는 소리까지 확실히 알아요.` +
+      (weak.length ? ` ${weak.join('·')} 는 조금 더 연습하면 좋아요.` : '') +
+      (sayAvg!=null ? ` 단어 말하기 평균 ${sayAvg}점.` : '');
+
+  root.innerHTML = `
+  <div class="sec who"><div><div class="mut">${esc(R.book)} · ${esc(R.bookName)}</div><b>${esc(R.student.name)}</b>
+    ${R.student.grade?`<span class="mut"> · ${esc(R.student.grade)}</span>`:''}</div>
+    <div class="mut">${new Date().toLocaleDateString('ko-KR')}</div></div>
+
+  <div class="sec"><h2>💬 한눈에 보기</h2><div style="font-size:15px;line-height:1.6">${esc(summary)}</div></div>
+
+  <div class="sec"><h2>🔤 글자 숙달표 <span class="mut">(글자를 누르면 녹음·점수)</span></h2>
+    <div class="grid">${ks.map(k=>`<button class="lt ${L[k].level}" data-k="${k}"><div class="c en">${k.toUpperCase()}${k}</div>
+      <div class="s">${L[k].say!=null?'🎤'+L[k].say:LV[L[k].level]}</div></button>`).join('')}</div>
+    <div class="legend">${['green','yellow','red','none'].map(lv=>`<span><i style="background:var(--${lv[0]})"></i>${LV[lv]} ${cnt(lv)}</span>`).join('')}</div>
+    <div class="detail noprint" id="det">글자를 눌러 보세요.</div></div>
+
+  <div class="sec"><h2>📈 영역별</h2>
+    ${areas.length ? areas.map(([t,v])=>bar(AREA[t], v.ok, v.n)).join('') : '<p class="empty">아직 퀴즈 기록이 없어요.</p>'}
+    ${sayAvg!=null ? bar('단어 발음(평균)', sayAvg, 100) : ''}</div>
+
+  <div class="sec"><h2>📅 하루 학습 (${R.days.filter(d=>d.done).length}/${R.days.length})</h2>
+    ${R.days.length ? `<div class="days">${R.days.map(d=>`<div class="day ${d.done?'done':''}"><b class="en">${(d.letters||[]).map(x=>String(x).toUpperCase()).join(' ')}</b>
+      Day ${d.day||'-'}<br>${d.done?`✅ 퀴즈 ${d.quiz!=null?d.quiz+'점':'-'}`:(d.steps?`진행 중`:(d.dueDate?esc(d.dueDate.slice(5).replace('-','/'))+' 예정':'예정'))}</div>`).join('')}</div>`
+      : '<p class="empty">배정된 파닉스 과제가 없어요.</p>'}</div>
+
+  <div class="sec"><h2>🎯 진급시험</h2>
+    ${!R.exam ? '<p class="empty">마지막 날을 끝내면 진급시험이 열려요.</p>'
+      : !ex || ex.score==null ? '<p class="empty">아직 시험을 보지 않았어요.</p>'
+      : `<div class="exam">
+          <div class="kpi"><div class="k">점수</div><div class="v">${ex.score}점</div></div>
+          <div class="kpi"><div class="k">판정 (${ex.passScore||70}점 이상 진급)</div><div class="v ${ex.pass?'pass':'fail'}">${ex.pass?'진급':'재도전'}</div></div>
+          ${ex.score_all&&ex.score_all.top?`<div class="kpi"><div class="k">전체 ${ex.score_all.n}명 중</div><div class="v">상위 ${ex.score_all.top}%</div></div>`:''}
+          ${ex.score_grade&&ex.score_grade.top?`<div class="kpi"><div class="k">같은 학년 ${ex.score_grade.n}명 중</div><div class="v">상위 ${ex.score_grade.top}%</div></div>`:''}
+          ${ex.band?`<div class="kpi"><div class="k">등급</div><div class="v">${ex.band}등급</div></div>`:''}
+          ${ex.secondsText?`<div class="kpi"><div class="k">걸린 시간</div><div class="v" style="font-size:20px">${esc(ex.secondsText)}</div></div>`:''}
+        </div>
+        ${ex.score_all&&ex.score_all.n<10?'<p class="mut">함께 본 학생이 적어 상위 %는 참고만 해 주세요.</p>':''}`}
+  </div>`;
+
+  const det = document.getElementById('det');
+  root.querySelectorAll('.lt').forEach(b=>b.onclick=()=>{
+    root.querySelectorAll('.lt').forEach(x=>x.classList.remove('sel')); b.classList.add('sel');
+    const k = b.dataset.k, v = L[k];
+    const takes = (v.takes||[]).map(t=>`<div style="margin:6px 0"><b class="en">${esc(t.word)}</b> ${t.score}점 <span class="mut">${esc(t.at||'')}</span>
+      ${t.url?`<audio controls preload="none" src="${esc(t.url)}"></audio>`:''}</div>`).join('');
+    det.innerHTML = `<b class="en" style="font-size:22px">${k.toUpperCase()}${k}</b> · ${LV[v.level]}
+      <div class="mut" style="margin:4px 0">퀴즈 ${v.quiz[1]?v.quiz[0]+'/'+v.quiz[1]:'-'} · 진급시험 ${v.exam[1]?v.exam[0]+'/'+v.exam[1]:'-'}</div>
+      ${takes || '<div class="mut">녹음 기록이 없어요.</div>'}
+      <div class="mut" style="margin-top:6px">녹음은 7일 동안만 들을 수 있어요(점수는 계속 남아요).</div>`;
+  });
+})();
+</script>
+</body>
+</html>

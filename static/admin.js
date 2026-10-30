@@ -2927,7 +2927,8 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
     const from = Math.max(0, Math.min(assignFromIdx, list.length - 1));
     const to = (assignToIdx == null) ? list.length - 1 : Math.max(0, Math.min(assignToIdx, list.length - 1));
     if (from > to) return setErr("시작 Day가 끝 Day보다 뒤예요. 범위를 다시 골라주세요.");
-    const chosen = list.slice(from, to + 1);
+    // 진급시험 원본은 같이 내지 않는다 — 마지막 Day 를 끝내면 그 학생에게만 저절로 열린다(_maybe_open_exam)
+    const chosen = list.slice(from, to + 1).filter(a => a.type !== "exam");
     if (!chosen.length) return setErr("배정할 Day를 골라주세요.");
     let assignedIds = [], assignedClasses = [];
     if (assignMode === "class") {
@@ -2984,7 +2985,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
           book: a.book || book, type: a.type || "word",
           items: a.items || [], meanings: a.meanings || [], exampleAudio: a.exampleAudio || [],
           recordMode: a.recordMode === "whole" ? "whole" : "each",
-          rounds: a.rounds || 3,
+          rounds: a.rounds || 3, kind: a.kind || undefined,
           dueDate: assignDue ? (dues[slot] || null) : null,
           assignedIds, assignedClasses, published: true,
         });
@@ -4023,6 +4024,22 @@ function UndoBar({ reload, stamp }) {
   );
 }
 
+function PhonicsReportInline({ sid }) {
+  const [open, setOpen] = useState(false);
+  if (!open) return (
+    <button className="btn ghost" style={{ marginBottom:12 }} onClick={()=>setOpen(true)}>📊 파닉스 성적표 (글자 숙달표·진급시험)</button>
+  );
+  return (
+    <div className="card" style={{ padding:0, marginBottom:12, overflow:"hidden" }}>
+      <div style={{ display:"flex", justifyContent:"flex-end", padding:"6px 8px" }}>
+        <button onClick={()=>setOpen(false)} style={{ background:"none", fontSize:20, color:"var(--navy)" }}>✕</button>
+      </div>
+      <iframe src={`/phonics-report.html?sid=${encodeURIComponent(sid)}`} title="파닉스 성적표"
+        style={{ width:"100%", height:900, border:0, display:"block" }} />
+    </div>
+  );
+}
+
 function StudentReview({ student, assignments, reload, onBack }) {
   const [tab, setTab] = useState("word");
   const [subs, setSubs] = useState({});
@@ -4185,6 +4202,11 @@ function StudentReview({ student, assignments, reload, onBack }) {
       {student.className && <div className="muted" style={{ marginBottom:12 }}>{student.className}</div>}
 
       <UndoBar reload={reload} stamp={stamp} />
+
+      {/* ---- 파닉스 성적표(LV1 1권) — 받는 학생만. 같은 화면에 펼치고 ✕ 로 닫는다 ---- */}
+      {mine.some(a => a.book === "LV1 1권") && (
+        <PhonicsReportInline sid={student.id} />
+      )}
 
       {/* ---- 이 학생만 미루기 (원장 2026-09-29: 여행·재시험 때 한 명만 밀기가 너무 불편) ---- */}
       <div className="card" style={{ padding:"10px 12px", marginBottom:12 }}>
