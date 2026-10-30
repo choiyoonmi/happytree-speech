@@ -271,6 +271,47 @@ def _mastery(quiz_ok, quiz_n, exam_ok, exam_n, say):
     return lv
 
 
+# 소리 하나(snd-·lv-)는 크기를 맞춘다(원장 2026-10-30 "day 에서 ㄷ 소리가 너무 작아").
+#   실측: 모음 '에이' 최대 -6dB 인데 ㄷ -21·ㅂ -26·ㄱ -26·ㅋ -25dB — 떼어 낸 자음은 4~8배 작게 나온다.
+#   모양은 그대로 두고 가장 큰 소리를 -2dB 로 끌어올린다(+24dB 까지). NORM_TAG 를 바꾸면 다시 만들어진다.
+NORM_TAG = "|peak-2"
+
+
+def _needs_norm(aid):
+    return aid.startswith("snd-") or aid.startswith("lv-")
+
+
+def _normalize(data: bytes) -> bytes:
+    import re as _re, subprocess, tempfile, os as _os
+    src = dst = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+            f.write(data); src = f.name
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", src, "-af", "volumedetect", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=30)
+        m = _re.search(r"max_volume: (-?[0-9.]+) dB", r.stderr or "")
+        if not m:
+            return data
+        gain = min(24.0, -2.0 - float(m.group(1)))
+        if gain <= 0.5:
+            return data
+        dst = src + ".out.mp3"
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-y", "-i", src, "-af", f"volume={gain:.1f}dB",
+                            "-codec:a", "libmp3lame", "-b:a", "64k", dst], capture_output=True, timeout=30)
+        if r.returncode != 0:
+            return data
+        with open(dst, "rb") as f:
+            return f.read()
+    except Exception as e:
+        print("[phonics] 음량 맞추기 실패(원본 사용):", e)
+        return data
+    finally:
+        for x in (src, dst):
+            if x:
+                try: _os.unlink(x)
+                except Exception: pass
+
+
 def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                 lock, load_db, save_db, load_db_ro, load_student_subs, load_exam, exam_report):
     r = APIRouter()
@@ -298,7 +339,7 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
 
     def _path(aid):
         # 대본을 고치면 이름이 바뀌어 새로 만든다
-        h = hashlib.sha1((VOICE + AUDIO[aid]).encode("utf-8")).hexdigest()[:10]
+        h = hashlib.sha1((VOICE + AUDIO[aid] + (NORM_TAG if _needs_norm(aid) else "")).encode("utf-8")).hexdigest()[:10]
         return audio_dir / f"{aid}-{h}.mp3"
 
     def _synth(aid):
@@ -326,7 +367,7 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
     def content():
         # audioVer: 대본이 바뀌면 같이 바뀐다 → 화면이 음원 주소에 ?v= 로 붙여 기기 캐시(하루)에 묻힌 옛 소리를 끊는다
         #   (원장 2026-10-30: 쉼을 고쳤는데도 "또 붙여서 말해" — 태블릿이 어제 받은 노래를 틀고 있었다)
-        ver = hashlib.sha1((VOICE + json.dumps(AUDIO, sort_keys=True)).encode("utf-8")).hexdigest()[:8]
+        ver = hashlib.sha1((VOICE + NORM_TAG + json.dumps(AUDIO, sort_keys=True)).encode("utf-8")).hexdigest()[:8]
         return {"letters": LETTERS, "days": DAYS, "book": BOOK, "bookName": BOOK_NAME, "audioVer": ver,
                 "short": {"book": BOOK2, "bookName": BOOK2_NAME, "days": SHORT, "vowelKey": VOWEL_KEY},
                 "long": {"book": BOOK3, "bookName": BOOK3_NAME, "days": LONG,
@@ -339,7 +380,8 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
         p = _path(aid)
         if not p.exists():
             tmp = p.with_suffix(".part")
-            tmp.write_bytes(_synth(aid))
+            data = _synth(aid)
+            tmp.write_bytes(_normalize(data) if _needs_norm(aid) else data)
             tmp.replace(p)
         return FileResponse(p, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=86400"})
 
