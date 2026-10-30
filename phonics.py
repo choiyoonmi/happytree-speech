@@ -74,11 +74,14 @@ def _audio_table():
     t = {}
     for k, L in LETTERS.items():
         s = _ph(L["ipa"], k)
-        t[f"snd-{k}"] = f'<prosody rate="-10%">{s}</prosody>'
+        t[f"snd-{k}"] = f'<prosody rate="-25%">{s}</prosody>'
         t[f"name-{k}"] = f"{k.upper()}."
-        t[f"chant-{k}"] = (f'<prosody rate="-15%">{k.upper()}. <break time="300ms"/>'
-                           f'{k.upper()} says {s}. <break time="200ms"/>{s}. <break time="200ms"/>'
-                           f'{s}, {L["key"]}!</prosody>')
+        # 유치부가 따라오게 숨 쉴 틈을 둔다 — 붙여 읽으면 랩처럼 들린다(원장 2026-10-30)
+        slow = lambda x: f'<prosody rate="-30%">{x}</prosody>'
+        t[f"chant-{k}"] = (slow(f"{k.upper()}.") + '<break time="900ms"/>' +
+                           slow(f"{k.upper()} says") + '<break time="500ms"/>' +
+                           slow(s) + '<break time="800ms"/>' + slow(s) + '<break time="800ms"/>' +
+                           slow(s) + '<break time="900ms"/>' + slow(f'{L["key"]}!'))
         for w in L["words"]:
             t[f"word-{w[0]}"] = f'<prosody rate="-10%">{w[0]}</prosody>'
     for i, ok in enumerate(["Great job!", "Good try!"]):
