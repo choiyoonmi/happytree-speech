@@ -111,6 +111,11 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 .car{width:min(20vw,96px);height:min(20vw,96px);border-radius:16px;background:#fff;box-shadow:0 5px 0 #d8ccb0;display:flex;align-items:center;justify-content:center;
   font-size:min(12vw,64px);font-weight:700;color:var(--navy);transition:transform .2s,background .2s}
 .car{flex-direction:column;line-height:1} .car .kl{font-family:'Jua',sans-serif;font-size:min(3.6vw,18px);color:#8a7d60;margin-top:4px;font-weight:400} .car.mute .kl{font-size:min(2.8vw,13px)}
+.pmeet{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:100%;max-width:760px}
+.pm{background:#fff;border-radius:20px;padding:10px;box-shadow:0 5px 0 #e7dcc2;display:flex;flex-direction:column;gap:8px;align-items:stretch}
+.pbig{background:#fff3c4;border-radius:16px;font-size:min(10vw,56px);font-weight:700;color:var(--gold);padding:6px 0}
+.pbig.play{animation:pulse .6s infinite alternate} .pko{font-size:15px;color:#8a7d60;text-align:center}
+@media (max-width:560px){ .pmeet{grid-template-columns:1fr} }
 .car.v{color:var(--gold)} .car.mute{color:#c9c2b2;background:#f4f1ea;font-size:min(9vw,48px)} .car.on{background:#fff3c4;transform:translateY(-6px)} .car.all{background:#fff3c4}
 .house{display:flex;flex-direction:column;align-items:center;margin:10px 0}
 .house .roof{width:0;height:0;border-left:120px solid transparent;border-right:120px solid transparent;border-bottom:60px solid #e57373}
@@ -175,8 +180,8 @@ const EMBED = !!(AID && SID);
 let C = null;             // /api/phonics/content
 let A = null;             // 이 과제(트리톡)
 let LET = [], DAY = 1, STEPS = [], cur = -1;
-const NAMES = {lmeet:'긴 소리 만나기', review:'복습 소리표', match:'그림 연결', unscr:'글자 섞기', sbuild:'문장 만들기', sread:'문장 읽기', wreview:'지난 단어', train:'블렌딩 기차', house:'집짓기', listen:'듣고 고르기', spell:'받아쓰기', meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기', quiz:'오늘의 퀴즈'};
-const ICON  = {lmeet:'👋', review:'🔁', match:'🔗', unscr:'🔀', sbuild:'🧩', sread:'🎙', wreview:'📖', train:'🚂', house:'🏠', listen:'🎧', spell:'🔡', meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏', quiz:'🏆'};
+const NAMES = {cmeet:'소리 만나기', lmeet:'긴 소리 만나기', review:'복습 소리표', match:'그림 연결', unscr:'글자 섞기', sbuild:'문장 만들기', sread:'문장 읽기', wreview:'지난 단어', train:'블렌딩 기차', house:'집짓기', listen:'듣고 고르기', spell:'받아쓰기', meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기', quiz:'오늘의 퀴즈'};
+const ICON  = {cmeet:'👋', lmeet:'👋', review:'🔁', match:'🔗', unscr:'🔀', sbuild:'🧩', sread:'🎙', wreview:'📖', train:'🚂', house:'🏠', listen:'🎧', spell:'🔡', meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏', quiz:'🏆'};
 const QAREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기',
                read:'단어 읽고 그림', vowel:'가운데 소리', pat:'철자 고르기', first:'첫 글자', sent:'문장 읽고 그림', hsent:'문장 듣고 고르기'};
 const store = {
@@ -330,7 +335,7 @@ function build(){
     REVIEW = C.days.flatMap(d=>d.letters); NAMES.review = '소리표 26자';
     STEPS.push({t:'review'});
     if(DAY > 1) STEPS.push({t:'wreview'});
-    STEPS.push({t: LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});
+    STEPS.push({t: CONSMODE ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});
     SD.families.forEach((f,fi)=>{ ['train','house','match'].forEach(t=>STEPS.push({t, f:fi})) });
     ['unscr','listen','spell','sbuild','sread','quiz'].forEach(t=>STEPS.push({t}));
     return;
@@ -348,8 +353,8 @@ let doneLock = false;   // '다음' 을 두 번 눌러 한 칸 건너뛰지 않�
 function finish(){ if(doneLock || cur<0) return; doneLock = true; S.done[key(cur)] = 1; save(); cur+1 < STEPS.length ? run(cur+1) : go('end') }
 function run(i){
   cur = i; doneLock = false; const s = STEPS[i]; dots();
-  $('#title').textContent = (s.f!=null ? SD.families[s.f].name+' · ' : s.k ? s.k.toUpperCase()+s.k+' · ' : ['review','wreview'].includes(s.t) ? '' : ['sbuild','sread'].includes(s.t) ? '문장 · ' : '섞어 놀기 · ') + NAMES[s.t];
-  ({review, wreview, lmeet, meet, parrot, trace, words, bubble, fish, memory, quiz, train, house, listen, spell, match, unscr, sbuild, sread})[s.t](s.f!=null ? s.f : s.k);
+  $('#title').textContent = (s.f!=null ? SD.families[s.f].name+' · ' : s.t==='cmeet' ? SD.families.map(f=>f.pat).join(' · ')+' · ' : s.k ? s.k.toUpperCase()+s.k+' · ' : ['review','wreview'].includes(s.t) ? '' : ['sbuild','sread'].includes(s.t) ? '문장 · ' : '섞어 놀기 · ') + NAMES[s.t];
+  ({review, wreview, cmeet, lmeet, meet, parrot, trace, words, bubble, fish, memory, quiz, train, house, listen, spell, match, unscr, sbuild, sread})[s.t](s.f!=null ? s.f : s.k);
 }
 function homeBtn(){ cur<0 ? leave() : go('map') }
 function go(where){
@@ -383,14 +388,14 @@ function openReport(){ location.href = `/phonics-report.html?sid=${encodeURIComp
 // ══════════ LV1 2권 단모음 ══════════
 // 하루 = 모음 하나의 단어가족 3개(12단어). 매일 26자 소리표 녹음 + 2일차부터 지난 단어 다시 읽기.
 // 가족마다 🚂 블렌딩 기차(소리 하나씩 → 합쳐 읽기 → 녹음, 글자 칸마다 신호등)와 🏠 집짓기(첫 글자 끼우기).
-let SHORTMODE = false, LONGMODE = false, SD = null, BK = null;   // BK = 지금 책(C.short=2권 단모음, C.long=3권 장모음)
+let SHORTMODE = false, LONGMODE = false, CONSMODE = false, SD = null, BK = null;   // BK = 지금 책(C.short=2권 단모음, C.long=3권 장모음)
 const WD = {};   // 단어 → {w, f, d}
 function shortInit(){ BK.days.forEach(d=>d.families.forEach(f=>f.words.forEach(w=>{ WD[w[0]] = {w, f, d} }))) }
 const dayWords = () => SD.families.flatMap(f=>f.words);
 const vowelOf = word => [...word].find(ch=>'aeiou'.includes(ch)) || '';
 function hiV(word){
   // 장모음: 그 단어 가족의 철자를 금색으로 — 팀(ai·igh)은 통째로, 매직 e(a_e)는 모음과 끝 e
-  const f = LONGMODE && WD[word] && WD[word].f;
+  const f = WD[word] && WD[word].f.pat && WD[word].f;
   if(f){
     if(f.pat.includes('_')){ const v = f.pat[0], i = word.indexOf(v), j = word.length-1;
       return `${word.slice(0,i)}<b>${v}</b>${word.slice(i+1,j)}<b>e</b>` }
@@ -470,15 +475,19 @@ function train(fi){
     // 조각: 'c|a:L|k|e*' — :L 긴 소리, :x 그 글자 소리, * 소리 안 나는 e. 단모음은 글자 하나씩.
     const parts = (w[3] ? w[3].split('|') : [...w[0]]).map(pt=>{
       const silent = pt.endsWith('*'), [txt, tag] = pt.replace('*','').split(':');
-      const snd = silent ? null : tag==='L' ? 'lv-'+fam.snd : tag ? 'snd-'+tag : 'snd-'+txt;
+      const dg = BK.dg && tag && BK.dg[tag];
+      const snd = silent ? null : tag==='L' ? 'lv-'+fam.snd : (tag && tag[0]==='L') ? 'lv-'+tag.slice(1)
+                : dg ? 'dg-'+tag : tag ? 'snd-'+tag : 'snd-'+txt;
       // 칸 밑 한글 소리(원장 표기): 긴 소리 '에이', 자음 'ㅋ', 매직 e '소리 없음'
-      const ko = silent ? '소리 없음' : tag==='L' ? BK.snd[fam.snd] : (C.letters[tag||txt]||{}).ko || '';
-      return {txt, snd, silent, ko, v: tag==='L' || (!w[3] && 'aeiou'.includes(txt))};
+      const ko = silent ? '소리 없음' : tag==='L' ? BK.snd[fam.snd] : (tag && tag[0]==='L') ? BK.snd[tag.slice(1)]
+               : dg ? BK.dg[tag] : (C.letters[tag||txt]||{}).ko || '';
+      const isV = tag==='L' || (tag && tag[0]==='L') || (!tag && 'aeiou'.includes(txt));
+      return {txt, snd, silent, ko, v: isV && !CONSMODE, p: CONSMODE && fam.pat.includes(txt)};
     });
     const letters = parts.map(x=>x.txt);
     h(`<p class="guide">🚂 소리를 하나씩 → 합쳐서 읽어요 <small>${fam.name} · ${wi+1} / ${fam.words.length}</small></p>
        <div class="card" style="padding:4px 26px"><div class="emoji" style="font-size:min(22vw,110px)">${w[2]}</div><div class="ko">${w[1]}</div></div>
-       <div class="trainrow"><span class="eng">🚂</span>${parts.map((x,i)=>`<div class="car en ${x.v?'v':''} ${x.silent?'mute':''}" data-i="${i}">${x.txt}<small class="kl">${x.ko}</small></div>`).join('')}</div>
+       <div class="trainrow"><span class="eng">🚂</span>${parts.map((x,i)=>`<div class="car en ${x.v?'v':''} ${x.p?'v':''} ${x.silent?'mute':''}" data-i="${i}">${x.txt}<small class="kl">${x.ko}</small></div>`).join('')}</div>
        <div class="row"><button class="btn ghost" id="sl" style="margin-top:0">🐢 하나씩 듣기</button><button class="spk" id="sp">🔊</button><div id="mic"></div></div>
        <div class="stars" id="st"></div><div class="msg" id="msg"></div>
        <button class="btn hide" id="nx">${wi+1<fam.words.length?'다음 단어 ▶':'다 했어요 ▶'}</button>`);
@@ -518,6 +527,7 @@ function train(fi){
 
 // ── 🏠 단어가족 집짓기 ── 그림을 보고 '_at' 집에 첫 글자를 끼워 단어를 만든다
 function house(fi){
+  if(CONSMODE) return houseP(fi);
   const fam = SD.families[fi], order = shuffle(fam.words); let r = 0;
   const onsets = [...new Set(fam.words.map(w=>w[0][0]))];
   function round(){
@@ -543,6 +553,53 @@ function house(fi){
     });
   }
   round();
+}
+
+// 이중자음 집짓기 — 단어에서 패턴 자리를 비우고(_ock, fi_) 오늘 패턴 중에서 골라 끼운다
+function houseP(fi){
+  const fam = SD.families[fi], order = shuffle(fam.words); let r = 0;
+  const pats = SD.families.map(f=>f.pat);
+  function round(){
+    const w = order[r], at = w[0].indexOf(fam.pat); let solved = false;
+    const other = BK.days.flatMap(d=>d.families.map(f=>f.pat)).filter(x=>!pats.includes(x));
+    const tiles = shuffle(pats.concat([pick(other)]));
+    h(`<p class="guide">🏠 그림에 맞는 소리 조각을 끼워요 <small>${fam.name} · ${r+1} / ${order.length}</small></p>
+       <div class="card" style="padding:4px 26px"><div class="emoji" style="font-size:min(22vw,110px)">${w[2]}</div><div class="ko">${w[1]}</div></div>
+       <div class="house"><div class="roof"></div><div class="hw en">${w[0].slice(0,at)}<span class="slot" id="slot">?</span>${w[0].slice(at+fam.pat.length)}</div></div>
+       <div class="sea">${tiles.map(t=>`<button class="qc en" data-t="${t}">${t}</button>`).join('')}</div>`);
+    stage().querySelectorAll('.qc').forEach(b=>b.onclick=async ()=>{
+      if(solved) return;
+      const t = b.dataset.t; $('#slot').textContent = t;
+      if(t === fam.pat){
+        solved = true; $('#slot').classList.add('ok'); beep('ok');
+        await play('word-'+w[0]); await wait(400);
+        r++; r<order.length ? round() : (fruit(2), finish());
+      } else { beep('no'); b.classList.add('shake'); setTimeout(()=>b.classList.remove('shake'),350) }
+    });
+  }
+  round();
+}
+
+// ── 👋 소리 만나기(이중자음) ── 오늘 패턴마다: 패턴 카드(소리 차례로) + 단어 카드 2장
+function patSounds(pat){ return BK.dg[pat] ? ['dg-'+pat] : pat==='wh' ? ['snd-w'] : pat==='ck' ? ['snd-k'] : [...pat].map(c=>'snd-'+c) }
+function cmeet(){
+  const items = SD.families.map(f=>({f, ws:f.words.slice(0,2)}));
+  const total = items.length * 3;
+  h(`<p class="guide">👋 오늘 만날 소리 조각이에요<small id="how"></small></p>
+     <div class="pmeet">${items.map((it,i)=>`<div class="pm"><button class="pbig en" data-i="${i}">${it.f.pat}</button>
+       <div class="pko">${BK.dg[it.f.pat] ? `'${BK.dg[it.f.pat]}' 한 소리` : it.f.pat==='wh' ? `'우워' 한 소리` : it.f.pat==='ck' ? `'ㅋ' 한 소리` : [...it.f.pat].map(c=>C.letters[c].ko).join(' + ')}</div>
+       ${it.ws.map((w,j)=>`<button class="c5" data-i="${i}" data-j="${j}"><span class="e">${w[2]}</span><span class="w en">${hiV(w[0])}</span></button>`).join('')}</div>`).join('')}</div>
+     <button class="btn hide" id="nx">다음 ▶</button>`);
+  const heard = new Set();
+  const check = ()=>{ $('#how').textContent = `${heard.size} / ${total} 들었어요`;
+    if(heard.size===total && $('#nx').classList.contains('hide')){ fruit(); $('#nx').classList.remove('hide') } };
+  stage().querySelectorAll('.pbig').forEach(b=>b.onclick=async ()=>{
+    const it = items[+b.dataset.i]; b.classList.add('play');
+    for(const id of patSounds(it.f.pat)){ await play(id); await wait(300) }
+    await play('word-'+it.ws[0][0]); b.classList.remove('play'); heard.add('p'+b.dataset.i); check() });
+  stage().querySelectorAll('.c5').forEach(b=>b.onclick=async ()=>{
+    const w = items[+b.dataset.i].ws[+b.dataset.j]; await play('word-'+w[0], b); heard.add(b.dataset.i+'-'+b.dataset.j); b.classList.add('heard'); check() });
+  $('#nx').onclick = finish; check();
 }
 
 // ── 🎧 듣고 고르기 ── 운이 같은 단어(cat·hat·bat) 셋 중 들은 그림
@@ -599,7 +656,7 @@ function sq(type, w){
   const fam = WD[w[0]].f.words, q = {type, k:w[0], w, hk:vowelOf(w[0])};
   const others = n => shuffle(fam.filter(x=>x[0]!==w[0])).slice(0,n);
   if(type==='word' || type==='read') q.opts = shuffle([w].concat(others(2)));
-  if(type==='vowel' && LONGMODE){   // 장모음: 그 소리를 쓰는 철자 고르기(rain → ai · ay · a_e)
+  if(type==='vowel' && WD[w[0]].f.pat){   // 장모음: 그 소리를 쓰는 철자 고르기(rain → ai · ay · a_e)
     const day = WD[w[0]].d, pats = day.families.map(f=>f.pat);
     q.type = 'pat'; q.ans = WD[w[0]].f.pat; q.opts = shuffle(pats).slice(0,3);
     if(!q.opts.includes(q.ans)) q.opts[0] = q.ans; q.opts = shuffle(q.opts);
@@ -752,8 +809,8 @@ function goShort(nextI, node){
   const idx = f => STEPS.map((s,i)=>f(s)?i:-1).filter(i=>i>=0);
   let lanes = `<div class="lane"><div class="lt" style="font-size:24px">매일</div>${idx(s=>['review','wreview'].includes(s.t)).map(node).join('')}
     <span style="font-size:16px;color:#8a7d60">26자 소리 녹음${DAY>1?' · 지난 단어':''}</span></div>`;
-  lanes += `<div class="lane"><div class="lt en">${SD.vowel.toUpperCase()}${SD.vowel}</div>${idx(s=>s.t==='meet'||s.t==='lmeet').map(node).join('')}
-    <span style="font-size:16px;color:#8a7d60">${LONGMODE ? `긴 소리 '${BK.snd[SD.snd]}'` : `짧은 소리 '${C.letters[SD.vowel].ko}'`}</span></div>`;
+  lanes += `<div class="lane"><div class="lt en" ${CONSMODE?'style="font-size:22px;width:auto;min-width:64px"':''}>${CONSMODE ? SD.families.map(f=>f.pat).join(' ') : SD.vowel.toUpperCase()+SD.vowel}</div>${idx(s=>['meet','lmeet','cmeet'].includes(s.t)).map(node).join('')}
+    <span style="font-size:16px;color:#8a7d60">${CONSMODE ? SD.kind : LONGMODE ? `긴 소리 '${BK.snd[SD.snd]}'` : `짧은 소리 '${C.letters[SD.vowel].ko}'`}</span></div>`;
   SD.families.forEach((f,fi)=>{
     lanes += `<div class="lane"><div class="lt en" style="font-size:22px;width:auto;min-width:64px">${f.name}</div>${idx(s=>s.f===fi).map(node).join('')}
       <span class="en" style="font-size:18px;color:#8a7d60">${f.words.map(w=>w[0]).join(' · ')}</span></div>`;
@@ -761,7 +818,8 @@ function goShort(nextI, node){
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">섞어<br>놀기</div>${idx(s=>['unscr','listen','spell'].includes(s.t)).map(node).join('')}</div>`;
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">문장</div>${idx(s=>['sbuild','sread','quiz'].includes(s.t)).map(node).join('')}
     <span class="en" style="font-size:16px;color:#8a7d60">${SD.sents.map(x=>x.en).join('  ')}</span></div>`;
-  h(`<p class="guide">${SNAME?SNAME+', ':''}오늘은 ${LONGMODE?'긴':'짧은'} <span class="en" style="font-size:32px">${SD.vowel}</span> 소리 단어를 읽어요!<small>반짝이는 칸을 눌러요</small></p>
+  h(`<p class="guide">${SNAME?SNAME+', ':''}${CONSMODE ? `오늘은 <span class="en" style="font-size:32px">${SD.families.map(f=>f.pat).join(' · ')}</span> 소리를 읽어요!`
+       : `오늘은 ${LONGMODE?'긴':'짧은'} <span class="en" style="font-size:32px">${SD.vowel}</span> 소리 단어를 읽어요!`}<small>반짝이는 칸을 눌러요</small></p>
      <div class="map">${lanes}</div>
      <div class="row">
        ${nextI<0?'<button class="btn" onclick="go(\'end\')">🌳 내 나무 보기</button>':''}
@@ -1258,7 +1316,7 @@ function end(){
 //    점수는 /api/exam 에 쌓여 단어급수 진급시험과 같은 성적표(전체·동학년 상위%·9등급·70점 진급)가 나온다.
 function examIntro(){
   $('#title').textContent = A.title; $('#dots').innerHTML='';
-  h(`<p class="guide">🎯 ${LONGMODE?'장모음':SHORTMODE?'단모음':'알파벳'} 진급시험</p>
+  h(`<p class="guide">🎯 ${CONSMODE?'이중자음':LONGMODE?'장모음':SHORTMODE?'단모음':'알파벳'} 진급시험</p>
      <div class="card" style="font-size:20px;line-height:1.8;text-align:left">
        ${SHORTMODE ? '🔊 듣고·📖 읽고 고르는 문제 26개(문장 4개 포함)' : '🔊 소리를 듣고 고르는 문제 26개'}<br>🎤 그림 이름을 말하는 문제 4개<br>
        <span style="color:#8a7d60">70점을 넘으면 다음 책으로 올라가요!</span></div>
@@ -1321,8 +1379,9 @@ function examRun(){
   }catch(e){ h(`<p class="guide">불러오지 못했어요. 새로고침 해 주세요 🙏<small>${e.message||''}</small></p>`); return }
 
   // LV1 2권(단모음)인가 — 과제의 책 이름, 시연은 ?book=2
-  const bkNo = A ? (A.book === C.long.book ? 3 : A.book === C.short.book ? 2 : 1) : (+QS.get('book') || 1);
-  LONGMODE = bkNo === 3; SHORTMODE = bkNo >= 2; BK = LONGMODE ? C.long : SHORTMODE ? C.short : null;
+  const bkNo = A ? (A.book === C.cons.book ? 4 : A.book === C.long.book ? 3 : A.book === C.short.book ? 2 : 1) : (+QS.get('book') || 1);
+  CONSMODE = bkNo === 4; LONGMODE = bkNo === 3; SHORTMODE = bkNo >= 2;
+  BK = CONSMODE ? C.cons : LONGMODE ? C.long : SHORTMODE ? C.short : null;
   if(SHORTMODE) shortInit();
   if(A && A.type==='exam'){ return examIntro() }
 
@@ -1353,6 +1412,7 @@ function examRun(){
   // 첫 재생이 느리지 않게 오늘 소리를 미리 만들어 둔다(서버는 한 번 만든 건 다시 안 만듦)
   const ids = [];
   LET.forEach(k=>{ ids.push('chant-'+k,'snd-'+k,'name-'+k); C.letters[k].words.forEach(w=>ids.push('word-'+w[0])) });
+  if(CONSMODE){ Object.keys(BK.dg).forEach(k=>ids.push('dg-'+k)); ['a','i','o','u','yu','e'].forEach(k=>ids.push('lv-'+k)) }
   if(LONGMODE){ ids.push('lchant-'+SD.vowel); [...new Set(SD.families.map(f=>f.snd))].forEach(k=>ids.push('lv-'+k)) }
   if(SHORTMODE){ dayWords().forEach(w=>ids.push('word-'+w[0])); SD.sents.forEach(x=>ids.push('sent-'+x.id)); 'abcdefghijklmnopqrstuvwxyz'.split('').forEach(k=>ids.push('snd-'+k)) }
   ids.push('fb-0');
