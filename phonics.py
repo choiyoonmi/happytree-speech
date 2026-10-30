@@ -324,6 +324,41 @@ for _d in DIPH:
     _d["sents"] = [{"id": f"v{_d['day']}{i + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for i, x in enumerate(DIPH_SENTS[_d["day"]])]
 DIPH_WORDS = [w for d in DIPH for f in d["families"] for w in f["words"]]
 
+# ── LV1 6권 총복습 ── 1~5권 가족을 섞어 다시 돈다(9~10개월). 새 단어 없음 → 소리·문장 음원 그대로.
+#   (책, Day, 가족 번호). 문장은 가족이 나온 날의 문장을 하나씩 + 하나 더.
+BOOK6 = "LV1 6권"
+BOOK6_NAME = "총복습"
+_SRC = {"s": SHORT, "l": LONG, "c": CONS, "d": DIPH}
+REV_PLAN = [
+    ("단모음 ①", [("s", 1, 0), ("s", 2, 1), ("s", 3, 0)]),
+    ("단모음 ②", [("s", 4, 0), ("s", 5, 1), ("s", 1, 1)]),
+    ("장모음 ①", [("l", 1, 0), ("l", 1, 1), ("l", 2, 0)]),
+    ("장모음 ②", [("l", 3, 2), ("l", 4, 0), ("l", 5, 0)]),
+    ("블렌드", [("c", 1, 0), ("c", 3, 1), ("c", 5, 0)]),
+    ("이중자", [("c", 6, 0), ("c", 6, 1), ("c", 7, 2)]),
+    ("이중모음 ①", [("d", 1, 0), ("d", 2, 0), ("d", 2, 2)]),
+    ("이중모음 ②", [("d", 3, 2), ("d", 4, 0), ("d", 5, 0)]),
+]
+REV = []
+for _i, (_kind, _parts) in enumerate(REV_PLAN):
+    _fams, _sents, _seen = [], [], set()
+    for _b, _day, _fi in _parts:
+        _d = next(x for x in _SRC[_b] if x["day"] == _day)
+        _f = dict(_d["families"][_fi])
+        _f["words"] = _f["words"][:4]
+        if _b == "s":
+            _f["name"] = f"{_d['vowel']} {_f['name']}"
+        _fams.append(_f)
+        if _day not in _seen:            # 같은 날 문장은 한 번만
+            _seen.add((_b, _day))
+            _sents += [x for x in _d["sents"] if any(w[0] in x["en"].lower().split() or w[0] + "." in x["en"].lower() for w in _f["words"])][:2]
+    _uniq = []
+    for x in _sents:
+        if x["id"] not in [y["id"] for y in _uniq]:
+            _uniq.append(x)
+    REV.append({"day": _i + 1, "vowel": "", "kind": _kind, "families": _fams, "sents": _uniq[:4]})
+REV_WORDS = [w for d in REV for f in d["families"] for w in f["words"]]
+
 # ── LV1 사이트워즈 ── Dolch 초급 92(Pre-primer 40 + Primer 52), 4개씩 23세트. 원장 2026-10-30:
 #   3개월차(장모음과 함께) 시작 → 10개월차 마무리, 주 1세트. 문장은 그 세트·앞 세트 단어 + 파닉스 단어로만.
 BOOKS = "LV1 사이트워즈"
@@ -512,6 +547,17 @@ def _templates():
                  "type": "exam", "kind": "phonics", "items": [w[0] for w in DIPH_WORDS], "meanings": [],
                  "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                  "exampleAudio": [], "recordMode": "each", "published": False})
+    for d in REV:
+        fam = " / ".join(f["name"] for f in d["families"])
+        rows.append({"id": f"phx-lv1-6-d{d['day']:02d}", "title": f"{BOOK6} {BOOK6_NAME} Day {d['day']} ({d['kind']}: {fam})",
+                     "book": BOOK6, "type": "phonics", "phonicsDay": d["day"],
+                     "items": [w[0] for f in d["families"] for w in f["words"]],
+                     "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
+                     "exampleAudio": [], "recordMode": "each", "published": False})
+    rows.append({"id": "phx-lv1-6-exam", "title": f"LV1 파닉스 졸업 시험", "book": BOOK6,
+                 "type": "exam", "kind": "phonics", "items": [w[0] for w in REV_WORDS], "meanings": [],
+                 "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
+                 "exampleAudio": [], "recordMode": "each", "published": False})
     rows.append({"id": "phx-lv1-2-exam", "title": f"{BOOK2} {BOOK2_NAME} 진급시험", "book": BOOK2,
                  "type": "exam", "kind": "phonics", "items": [w[0] for w in SHORT_WORDS], "meanings": [],
                  "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
@@ -636,6 +682,10 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                          "snd": {k: v[1] for k, v in LONG_SND.items()},
                          "dg": {k: v[1] for k, v in DIGRAPH_SND.items()}},
                 "sight": {"book": BOOKS, "bookName": "사이트워즈", "days": SIGHT_DAYS},
+                "rev": {"book": BOOK6, "bookName": BOOK6_NAME, "days": REV,
+                        "snd": {k: v[1] for k, v in LONG_SND.items()},
+                        "dg": {k: v[1] for k, v in DIGRAPH_SND.items()},
+                        "dv": {k: v[1] for k, v in DV_SND.items()}},
                 "diph": {"book": BOOK5, "bookName": BOOK5_NAME, "days": DIPH,
                          "snd": {k: v[1] for k, v in LONG_SND.items()},
                          "dg": {k: v[1] for k, v in DIGRAPH_SND.items()},
@@ -677,7 +727,7 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
         student = next((s for s in db.get("students", []) if str(s.get("id")) == sid), None)
         mine = lambda a: (a.get("published") is not False and
                           (not a.get("assignedIds") or sid in [str(x) for x in a["assignedIds"]]))
-        ALLB = (BOOK, BOOK2, BOOK3, BOOK4, BOOK5, BOOKS)
+        ALLB = (BOOK, BOOK2, BOOK3, BOOK4, BOOK5, BOOK6, BOOKS)
         books = sorted({a.get("book") for a in db["assignments"] if a.get("book") in ALLB and mine(a)})
         book = book if book in ALLB else ([b for b in books if b != BOOKS] or books or [BOOK])[-1]
         rows = [a for a in db["assignments"] if a.get("book") == book and mine(a)]
@@ -685,8 +735,9 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
             keys = [w[0] for w in SIGHT_WORDS]
             groups = [{"name": f"세트 {d['day']}", "vowel": "", "keys": [w[0] for w in d["words"]]} for d in SIGHT_DAYS]
             info = {w[0]: {"ko": w[1], "emoji": ""} for w in SIGHT_WORDS}
-        elif book in (BOOK2, BOOK3, BOOK4, BOOK5):
-            DD, WW = {BOOK2: (SHORT, SHORT_WORDS), BOOK3: (LONG, LONG_WORDS), BOOK4: (CONS, CONS_WORDS), BOOK5: (DIPH, DIPH_WORDS)}[book]
+        elif book in (BOOK2, BOOK3, BOOK4, BOOK5, BOOK6):
+            DD, WW = {BOOK2: (SHORT, SHORT_WORDS), BOOK3: (LONG, LONG_WORDS), BOOK4: (CONS, CONS_WORDS),
+                      BOOK5: (DIPH, DIPH_WORDS), BOOK6: (REV, REV_WORDS)}[book]
             keys = [w[0] for w in WW]
             groups = [{"name": (f"{d['vowel']}  {f['name']}" if book == BOOK2 else f"긴 {d['vowel']}  {f['name']}" if book == BOOK3 else f['name']),
                        "vowel": d["vowel"], "keys": [w[0] for w in f["words"]]}
@@ -751,7 +802,7 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                           "takes": sorted(v["takes"], key=lambda t: t.get("at") or "", reverse=True)[:3]}
         return {"student": {"id": sid, "name": (student or {}).get("name") or sid,
                             "grade": (student or {}).get("grade") or ""},
-                "book": book, "bookName": {BOOK2: BOOK2_NAME, BOOK3: BOOK3_NAME, BOOK4: BOOK4_NAME, BOOK5: BOOK5_NAME, BOOKS: "사이트워즈"}.get(book, BOOK_NAME), "books": books,
+                "book": book, "bookName": {BOOK2: BOOK2_NAME, BOOK3: BOOK3_NAME, BOOK4: BOOK4_NAME, BOOK5: BOOK5_NAME, BOOK6: BOOK6_NAME, BOOKS: "사이트워즈"}.get(book, BOOK_NAME), "books": books,
                 "days": day_rows, "letters": letters, "groups": groups, "info": info,
                 "areas": areas, "exam": exam_out}
 

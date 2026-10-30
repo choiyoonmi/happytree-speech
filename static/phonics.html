@@ -340,7 +340,7 @@ function build(){
     REVIEW = C.days.flatMap(d=>d.letters); NAMES.review = '소리표 26자';
     STEPS.push({t:'review'});
     if(DAY > 1) STEPS.push({t:'wreview'});
-    STEPS.push({t: CONSMODE ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});
+    if(!REVMODE) STEPS.push({t: CONSMODE ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});
     SD.families.forEach((f,fi)=>{ ['train','house','match'].forEach(t=>STEPS.push({t, f:fi})) });
     ['unscr','listen','spell','sbuild','sread','quiz'].forEach(t=>STEPS.push({t}));
     return;
@@ -394,7 +394,7 @@ function openReport(){ location.href = `/phonics-report.html?sid=${encodeURIComp
 // ══════════ LV1 2권 단모음 ══════════
 // 하루 = 모음 하나의 단어가족 3개(12단어). 매일 26자 소리표 녹음 + 2일차부터 지난 단어 다시 읽기.
 // 가족마다 🚂 블렌딩 기차(소리 하나씩 → 합쳐 읽기 → 녹음, 글자 칸마다 신호등)와 🏠 집짓기(첫 글자 끼우기).
-let SHORTMODE = false, LONGMODE = false, CONSMODE = false, SD = null, BK = null;   // BK = 지금 책(C.short=2권 단모음, C.long=3권 장모음)
+let SHORTMODE = false, LONGMODE = false, CONSMODE = false, REVMODE = false, SD = null, BK = null;   // BK = 지금 책(C.short=2권 단모음, C.long=3권 장모음)
 const WD = {};   // 단어 → {w, f, d}
 function shortInit(){ BK.days.forEach(d=>d.families.forEach(f=>f.words.forEach(w=>{ WD[w[0]] = {w, f, d} }))) }
 const dayWords = () => SD.families.flatMap(f=>f.words);
@@ -534,7 +534,8 @@ function train(fi){
 
 // ── 🏠 단어가족 집짓기 ── 그림을 보고 '_at' 집에 첫 글자를 끼워 단어를 만든다
 function house(fi){
-  if(CONSMODE) return houseP(fi);
+  const pf = SD.families[fi].pat;
+  if(CONSMODE || (REVMODE && pf && !pf.includes('_'))) return houseP(fi);
   const fam = SD.families[fi], order = shuffle(fam.words); let r = 0;
   const onsets = [...new Set(fam.words.map(w=>w[0][0]))];
   function round(){
@@ -565,10 +566,10 @@ function house(fi){
 // 이중자음 집짓기 — 단어에서 패턴 자리를 비우고(_ock, fi_) 오늘 패턴 중에서 골라 끼운다
 function houseP(fi){
   const fam = SD.families[fi], order = shuffle(fam.words); let r = 0;
-  const pats = [...new Set(SD.families.map(f=>f.pat))];
+  const pats = [...new Set(SD.families.map(f=>f.pat).filter(x=>x && !x.includes('_')))];
   function round(){
     const w = order[r], at = w[0].indexOf(fam.pat); let solved = false;
-    const other = BK.days.flatMap(d=>d.families.map(f=>f.pat)).filter(x=>!pats.includes(x));
+    const other = BK.days.flatMap(d=>d.families.map(f=>f.pat)).filter(x=>x && !x.includes('_') && !pats.includes(x));
     const tiles = shuffle(pats.concat(other.length ? [pick(other)] : []));
     h(`<p class="guide">🏠 그림에 맞는 소리 조각을 끼워요 <small>${fam.name} · ${r+1} / ${order.length}</small></p>
        <div class="card" style="padding:4px 26px"><div class="emoji" style="font-size:min(22vw,110px)">${w[2]}</div><div class="ko">${w[1]}</div></div>
@@ -663,8 +664,9 @@ function sq(type, w){
   const fam = WD[w[0]].f.words, q = {type, k:w[0], w, hk:vowelOf(w[0])};
   const others = n => shuffle(fam.filter(x=>x[0]!==w[0])).slice(0,n);
   if(type==='word' || type==='read') q.opts = shuffle([w].concat(others(2)));
-  if(type==='vowel' && WD[w[0]].f.pat){   // 장모음: 그 소리를 쓰는 철자 고르기(rain → ai · ay · a_e)
-    const day = WD[w[0]].d, pats = [...new Set(day.families.map(f=>f.pat))];
+  const dayPats = [...new Set(WD[w[0]].d.families.map(f=>f.pat).filter(Boolean))];
+  if(type==='vowel' && WD[w[0]].f.pat && dayPats.length >= 2){   // 장모음: 그 소리를 쓰는 철자 고르기(rain → ai · ay · a_e)
+    const pats = dayPats;
     q.type = 'pat'; q.ans = WD[w[0]].f.pat; q.opts = shuffle(pats).slice(0,3);
     if(!q.opts.includes(q.ans)) q.opts[0] = q.ans; q.opts = shuffle(q.opts);
   } else if(type==='vowel'){ const v = vowelOf(w[0]); q.opts = shuffle([v].concat(shuffle('aeiou'.split('').filter(x=>x!==v)).slice(0,2))) }
@@ -947,7 +949,7 @@ function goShort(nextI, node){
   const idx = f => STEPS.map((s,i)=>f(s)?i:-1).filter(i=>i>=0);
   let lanes = `<div class="lane"><div class="lt" style="font-size:24px">매일</div>${idx(s=>['review','wreview'].includes(s.t)).map(node).join('')}
     <span style="font-size:16px;color:#8a7d60">26자 소리 녹음${DAY>1?' · 지난 단어':''}</span></div>`;
-  lanes += `<div class="lane"><div class="lt en" ${CONSMODE?'style="font-size:22px;width:auto;min-width:64px"':''}>${CONSMODE ? [...new Set(SD.families.map(f=>f.pat))].join(' ') : SD.vowel.toUpperCase()+SD.vowel}</div>${idx(s=>['meet','lmeet','cmeet'].includes(s.t)).map(node).join('')}
+  if(!REVMODE) lanes += `<div class="lane"><div class="lt en" ${CONSMODE?'style="font-size:22px;width:auto;min-width:64px"':''}>${CONSMODE ? [...new Set(SD.families.map(f=>f.pat))].join(' ') : SD.vowel.toUpperCase()+SD.vowel}</div>${idx(s=>['meet','lmeet','cmeet'].includes(s.t)).map(node).join('')}
     <span style="font-size:16px;color:#8a7d60">${CONSMODE ? SD.kind : LONGMODE ? `긴 소리 '${BK.snd[SD.snd]}'` : `짧은 소리 '${C.letters[SD.vowel].ko}'`}</span></div>`;
   SD.families.forEach((f,fi)=>{
     lanes += `<div class="lane"><div class="lt en" style="font-size:22px;width:auto;min-width:64px">${f.name}</div>${idx(s=>s.f===fi).map(node).join('')}
@@ -956,7 +958,7 @@ function goShort(nextI, node){
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">섞어<br>놀기</div>${idx(s=>['unscr','listen','spell'].includes(s.t)).map(node).join('')}</div>`;
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">문장</div>${idx(s=>['sbuild','sread','quiz'].includes(s.t)).map(node).join('')}
     <span class="en" style="font-size:16px;color:#8a7d60">${SD.sents.map(x=>x.en).join('  ')}</span></div>`;
-  h(`<p class="guide">${SNAME?SNAME+', ':''}${CONSMODE ? `오늘은 <span class="en" style="font-size:32px">${SD.families.map(f=>f.name).join(' · ')}</span> 소리를 읽어요!`
+  h(`<p class="guide">${SNAME?SNAME+', ':''}${REVMODE ? `총복습 · ${SD.kind}<small>앞에서 배운 소리를 다시 읽어요</small>` : CONSMODE ? `오늘은 <span class="en" style="font-size:32px">${SD.families.map(f=>f.name).join(' · ')}</span> 소리를 읽어요!`
        : `오늘은 ${LONGMODE?'긴':'짧은'} <span class="en" style="font-size:32px">${SD.vowel}</span> 소리 단어를 읽어요!`}<small>반짝이는 칸을 눌러요</small></p>
      <div class="map">${lanes}</div>
      <div class="row">
@@ -1463,7 +1465,7 @@ function end(){
 //    점수는 /api/exam 에 쌓여 단어급수 진급시험과 같은 성적표(전체·동학년 상위%·9등급·70점 진급)가 나온다.
 function examIntro(){
   $('#title').textContent = A.title; $('#dots').innerHTML='';
-  h(`<p class="guide">🎯 ${SIGHTMODE?'사이트워즈 마무리':BK&&BK.dv?'이중모음':CONSMODE?'이중자음':LONGMODE?'장모음':SHORTMODE?'단모음':'알파벳'} 진급시험</p>
+  h(`<p class="guide">🎯 ${REVMODE?'LV1 파닉스 졸업':SIGHTMODE?'사이트워즈 마무리':BK&&BK.dv?'이중모음':CONSMODE?'이중자음':LONGMODE?'장모음':SHORTMODE?'단모음':'알파벳'} 진급시험</p>
      <div class="card" style="font-size:20px;line-height:1.8;text-align:left">
        ${SIGHTMODE ? '🔊 듣고 단어 찾기 20개 · 📖 문장 빈칸 6개' : SHORTMODE ? '🔊 듣고·📖 읽고 고르는 문제 26개(문장 4개 포함)' : '🔊 소리를 듣고 고르는 문제 26개'}<br>🎤 그림 이름을 말하는 문제 4개<br>
        <span style="color:#8a7d60">70점을 넘으면 다음 책으로 올라가요!</span></div>
@@ -1490,7 +1492,7 @@ function examRun(){
     ...shuffle(all).slice(0,6).map(k=>makeQ('case', k, all)),
     ...shuffle(all).slice(0,4).map(k=>makeQ('word', k, all)),
   ]).concat(shuffle(firsts).slice(0,4).map(k=>makeQ('say', k, all)));
-  runQuestions(qs, SIGHTMODE ? '🎯 마무리 시험' : '🎯 진급시험', async (ans, sec)=>{
+  runQuestions(qs, SIGHTMODE ? '🎯 마무리 시험' : REVMODE ? '🎓 졸업 시험' : '🎯 진급시험', async (ans, sec)=>{
     const {by, lt, n} = tally(ans);
     h(`<p class="guide">🎯 채점하는 중…</p>`);
     let rep = null, err = '';
@@ -1544,9 +1546,10 @@ function examRun(){
     for(const id of SD.words.map(w=>'word-'+w[0]).concat(SD.sents.map(x=>'sent-'+x.id), ['fb-0'])){ try{ await fetch(audUrl(id)) }catch(e){} }
     return;
   }
-  const bkNo = A ? (A.book === C.diph.book ? 5 : A.book === C.cons.book ? 4 : A.book === C.long.book ? 3 : A.book === C.short.book ? 2 : 1) : (+QS.get('book') || 1);
+  const bkNo = A ? (A.book === C.rev.book ? 6 : A.book === C.diph.book ? 5 : A.book === C.cons.book ? 4 : A.book === C.long.book ? 3 : A.book === C.short.book ? 2 : 1) : (+QS.get('book') || 1);
   CONSMODE = bkNo === 4 || bkNo === 5; LONGMODE = bkNo === 3; SHORTMODE = bkNo >= 2;   // 4·5권 = 패턴 책(이중자음·이중모음)
-  BK = bkNo === 5 ? C.diph : bkNo === 4 ? C.cons : LONGMODE ? C.long : SHORTMODE ? C.short : null;
+  REVMODE = bkNo === 6;   // 총복습: 1~5권 가족이 섞여 있다(패턴 있는 가족·없는 가족)
+  BK = bkNo === 6 ? C.rev : bkNo === 5 ? C.diph : bkNo === 4 ? C.cons : LONGMODE ? C.long : SHORTMODE ? C.short : null;
   if(SHORTMODE) shortInit();
   if(A && A.type==='exam'){ return examIntro() }
 

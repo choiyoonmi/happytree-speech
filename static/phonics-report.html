@@ -126,7 +126,7 @@ document.getElementById('back').onclick = () => {
     ${sayAvg!=null ? bar('단어 발음(평균)', sayAvg, 100) : ''}</div>
 
   <div class="sec"><h2>📅 하루 학습 (${R.days.filter(d=>d.done).length}/${R.days.length})</h2>
-    ${R.days.length ? `<div class="days">${R.days.map(d=>`<div class="day ${d.done?'done':''}"><b class="en">${WORDS && (R.book==='LV1 4권'||R.book==='LV1 5권'||R.book==='LV1 사이트워즈') ? (d.title||'').replace(/^.*\(|\)$/g,'') : WORDS ? (R.book==='LV1 3권'?'긴 ':'짧은 ')+([...String((d.letters||[''])[0])].find(c=>'aeiou'.includes(c))||'') : (d.letters||[]).map(x=>String(x).toUpperCase()).join(' ')}</b>
+    ${R.days.length ? `<div class="days">${R.days.map(d=>`<div class="day ${d.done?'done':''}"><b class="en">${WORDS && (R.book==='LV1 4권'||R.book==='LV1 5권'||R.book==='LV1 6권'||R.book==='LV1 사이트워즈') ? (d.title||'').replace(/^.*\(|\)$/g,'') : WORDS ? (R.book==='LV1 3권'?'긴 ':'짧은 ')+([...String((d.letters||[''])[0])].find(c=>'aeiou'.includes(c))||'') : (d.letters||[]).map(x=>String(x).toUpperCase()).join(' ')}</b>
       Day ${d.day||'-'}<br>${d.done?`✅ 퀴즈 ${d.quiz!=null?d.quiz+'점':'-'}`:(d.steps?`진행 중`:(d.dueDate?esc(d.dueDate.slice(5).replace('-','/'))+' 예정':'예정'))}</div>`).join('')}</div>`
       : '<p class="empty">배정된 파닉스 과제가 없어요.</p>'}</div>
 
