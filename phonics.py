@@ -817,7 +817,7 @@ def _mastery(quiz_ok, quiz_n, exam_ok, exam_n, say):
 # 소리 하나(snd-·lv-)는 크기를 맞춘다(원장 2026-10-30 "day 에서 ㄷ 소리가 너무 작아").
 #   실측: 모음 '에이' 최대 -6dB 인데 ㄷ -21·ㅂ -26·ㄱ -26·ㅋ -25dB — 떼어 낸 자음은 4~8배 작게 나온다.
 #   모양은 그대로 두고 가장 큰 소리를 -2dB 로 끌어올린다(+24dB 까지). NORM_TAG 를 바꾸면 다시 만들어진다.
-NORM_TAG = "|peak-2"
+NORM_TAG = "|mean-17x2"
 
 
 def _needs_norm(aid):
@@ -825,25 +825,45 @@ def _needs_norm(aid):
 
 
 def _normalize(data: bytes) -> bytes:
+    """낱소리(snd·lv·dg·dv) 크기를 '소리 나는 부분의 평균'으로 맞춘다.
+    최고점(-2dB)만 맞추던 때는 기차 칸 'ㅋ · 에이 · ㅋ' 가 칸마다 크게·작게 들렸다(원장 2026-11-02) —
+    터지는 자음(b·g·k)은 순간 최고점만 높아 평균이 -24~-32, 모음·m·n 은 -11~-15 로 21dB 차이.
+    평균을 -17dB 로 올리고 리미터로 찢어짐을 막는다. 리미터가 깎은 만큼 한 번 더."""
     import re as _re, subprocess, tempfile, os as _os
     src = dst = None
+    TARGET = -17.0
+
+    def mean_of(path):
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", path, "-af",
+                            "silenceremove=start_periods=1:start_threshold=-45dB:stop_periods=-1:stop_threshold=-45dB,volumedetect",
+                            "-f", "null", "-"], capture_output=True, text=True, timeout=30)
+        m = _re.search(r"mean_volume: (-?[0-9.]+) dB", r.stderr or "")
+        return float(m.group(1)) if m else None
+
     try:
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
             f.write(data); src = f.name
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", src, "-af", "volumedetect", "-f", "null", "-"],
-                           capture_output=True, text=True, timeout=30)
-        m = _re.search(r"max_volume: (-?[0-9.]+) dB", r.stderr or "")
-        if not m:
+        cur, out = src, None
+        for k in range(2):
+            mv = mean_of(cur)
+            if mv is None:
+                break
+            gain = max(-12.0, min(40.0, TARGET - mv))   # th(θ)·h 는 크게 올려야 한다
+            if abs(gain) <= 0.7:
+                break
+            dst = f"{src}.{k}.mp3"
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-y", "-i", cur, "-af",
+                                f"volume={gain:.1f}dB,alimiter=limit=0.89:attack=2:release=30:level=false",
+                                "-codec:a", "libmp3lame", "-b:a", "64k", dst], capture_output=True, timeout=30)
+            if r.returncode != 0:
+                break
+            if out and out != src:
+                try: _os.remove(out)
+                except OSError: pass
+            cur = out = dst
+        if not out:
             return data
-        gain = min(40.0, -2.0 - float(m.group(1)))   # th(θ)는 +38dB 가 필요했다
-        if gain <= 0.5:
-            return data
-        dst = src + ".out.mp3"
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-y", "-i", src, "-af", f"volume={gain:.1f}dB",
-                            "-codec:a", "libmp3lame", "-b:a", "64k", dst], capture_output=True, timeout=30)
-        if r.returncode != 0:
-            return data
-        with open(dst, "rb") as f:
+        with open(out, "rb") as f:
             return f.read()
     except Exception as e:
         print("[phonics] 음량 맞추기 실패(원본 사용):", e)
