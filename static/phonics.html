@@ -117,6 +117,11 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 .pbig.play{animation:pulse .6s infinite alternate} .pko{font-size:15px;color:#8a7d60;text-align:center}
 @media (max-width:560px){ .pmeet{grid-template-columns:1fr} }
 .sw4{min-height:120px} .sline b{color:var(--gold)}
+.chart button.cc{border:0;font:inherit;cursor:pointer}
+.board{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;width:100%;max-width:640px;margin:6px 0}
+.bc{background:#fff;border-radius:12px;min-height:58px;display:flex;align-items:center;justify-content:center;font-size:32px;box-shadow:0 3px 0 #e7dcc2}
+.bc.me{outline:4px solid var(--gold);background:#fff3c4;transform:scale(1.08)}
+.dice{font-size:56px;line-height:1}
 .car.v{color:var(--gold)} .car.mute{color:#c9c2b2;background:#f4f1ea;font-size:min(9vw,48px)} .car.on{background:#fff3c4;transform:translateY(-6px)} .car.all{background:#fff3c4}
 .house{display:flex;flex-direction:column;align-items:center;margin:10px 0}
 .house .roof{width:0;height:0;border-left:120px solid transparent;border-right:120px solid transparent;border-bottom:60px solid #e57373}
@@ -181,10 +186,10 @@ const EMBED = !!(AID && SID);
 let C = null;             // /api/phonics/content
 let A = null;             // 이 과제(트리톡)
 let LET = [], DAY = 1, STEPS = [], cur = -1;
-const NAMES = {sflash:'보고 듣기', sfind:'듣고 찾기', sunscr:'글자 맞추기', ssay:'빨리 읽기', cmeet:'소리 만나기', lmeet:'긴 소리 만나기', review:'복습 소리표', match:'그림 연결', unscr:'글자 섞기', sbuild:'문장 만들기', sread:'문장 읽기', wreview:'지난 단어', train:'블렌딩 기차', house:'집짓기', listen:'듣고 고르기', spell:'받아쓰기', meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기', quiz:'오늘의 퀴즈'};
-const ICON  = {sflash:'👀', sfind:'🔎', sunscr:'🔀', ssay:'🎤', cmeet:'👋', lmeet:'👋', review:'🔁', match:'🔗', unscr:'🔀', sbuild:'🧩', sread:'🎙', wreview:'📖', train:'🚂', house:'🏠', listen:'🎧', spell:'🔡', meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏', quiz:'🏆'};
+const NAMES = {abcsong:'ABC 차례로', abcorder:'순서 맞추기', fsfind:'첫소리 찾기', vfind:'모음 소리 찾기', vmeet5:'모음 만나기', board:'보드게임', canread:'Can You Read?', sflash:'보고 듣기', sfind:'듣고 찾기', sunscr:'글자 맞추기', ssay:'빨리 읽기', cmeet:'소리 만나기', lmeet:'긴 소리 만나기', review:'복습 소리표', match:'그림 연결', unscr:'글자 섞기', sbuild:'문장 만들기', sread:'문장 읽기', wreview:'지난 단어', train:'블렌딩 기차', house:'집짓기', listen:'듣고 고르기', spell:'받아쓰기', meet:'만나기', parrot:'앵무새', trace:'따라쓰기', words:'단어 말하기', bubble:'소리 버블', fish:'첫소리 낚시', memory:'짝 찾기', quiz:'오늘의 퀴즈'};
+const ICON  = {abcsong:'🔤', abcorder:'🔢', fsfind:'🔍', vfind:'🎯', vmeet5:'👋', board:'🎲', canread:'📖', sflash:'👀', sfind:'🔎', sunscr:'🔀', ssay:'🎤', cmeet:'👋', lmeet:'👋', review:'🔁', match:'🔗', unscr:'🔀', sbuild:'🧩', sread:'🎙', wreview:'📖', train:'🚂', house:'🏠', listen:'🎧', spell:'🔡', meet:'👋', parrot:'🦜', trace:'✍️', words:'🎤', bubble:'🫧', fish:'🎣', memory:'🃏', quiz:'🏆'};
 const QAREA = {snd:'소리 듣고 글자', pic:'그림 보고 첫소리', case:'큰글자·작은글자', word:'단어 듣고 그림', say:'말하기',
-               sfind:'듣고 단어 찾기', sblank:'문장 빈칸', read:'단어 읽고 그림', vowel:'가운데 소리', pat:'철자 고르기', first:'첫 글자', sent:'문장 읽고 그림', hsent:'문장 듣고 고르기'};
+               fsnd:'소리 듣고 그림', vsnd:'모음 소리 찾기', sfind:'듣고 단어 찾기', sblank:'문장 빈칸', read:'단어 읽고 그림', vowel:'가운데 소리', pat:'철자 고르기', first:'첫 글자', sent:'문장 읽고 그림', hsent:'문장 듣고 고르기'};
 const store = {
   get(){ try{ return JSON.parse(localStorage.getItem('ht_phonics')||'{}') }catch(e){ return {} } },
   set(v){ try{ localStorage.setItem('ht_phonics', JSON.stringify(v)) }catch(e){} }
@@ -338,38 +343,56 @@ function build(){
   if(SHORTMODE){
     // 단모음: 26자 소리표(매일) → 지난 단어(2일차~) → 모음 만나기 → 가족마다 기차·집짓기 → 듣기·받아쓰기·퀴즈
     REVIEW = C.days.flatMap(d=>d.letters); NAMES.review = '소리표 26자';
+    // 2권은 Phonics Monster 2 목차 — Zero·Game·Review·Can You Read? 날은 활동이 다르다
+    const kd = SD.kind || 'unit', push = a=>a.forEach(t=>STEPS.push({t}));
+    if(kd==='read'){ push(['canread']); return }
+    if(kd==='zero'){ push(['review','vmeet5','vfind','quiz']); return }
+    if(kd==='game'){ push(['review','board','vfind','listen','quiz']); return }
+    if(kd==='review'){ push(['review','wreview','vfind','unscr','listen','spell','sread','quiz']); return }
     STEPS.push({t:'review'});
-    if(DAY > 1) STEPS.push({t:'wreview'});
+    if(BK.days.some(d=>d.day < DAY && (d.families||[]).length)) STEPS.push({t:'wreview'});   // 앞에 배운 단어가 있을 때만(2권 Zero Unit 다음 날 같은 경우)
     if(!REVMODE) STEPS.push({t: CONSMODE ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});
     SD.families.forEach((f,fi)=>{ ['train','house','match'].forEach(t=>STEPS.push({t, f:fi})) });
-    ['unscr','listen','spell','sbuild','sread','quiz'].forEach(t=>STEPS.push({t}));
+    ['unscr','listen','spell','sbuild','sread'].forEach(t=>STEPS.push({t}));
+    if(BK === C.short) STEPS.push({t:'vfind'});   // 단모음 음가 찾기(원장 2026-11-02)
+    STEPS.push({t:'quiz'});
     return;
   }
-  REVIEW = C.days.filter(d=>d.day < DAY).flatMap(d=>d.letters);
+  // 1권은 Phonics Monster 1 목차: Zero Unit · Unit · Game · Review · Can You Read?
+  const kd = (SD && SD.kind) || 'unit', push = a=>a.forEach(t=>STEPS.push({t}));
+  if(kd==='read'){ push(['canread']); return }
+  if(kd==='zero'){ push(['abcsong','abcorder','fsfind','memory','quiz']); return }
+  if(kd==='game'){ push(['board','fsfind','bubble','quiz']); return }
+  if(kd==='review'){ REVIEW = LET.slice(); push(['review','fsfind','fish','memory','quiz']); return }
+  REVIEW = C.days.filter(d=>d.kind==='unit' && d.day < DAY).flatMap(d=>d.letters);
   if(REVIEW.length) STEPS.push({t:'review'});
   LET.forEach(k=>['meet','parrot','trace','words'].forEach(t=>STEPS.push({t,k})));
-  ['bubble','fish','memory','quiz'].forEach(t=>STEPS.push({t}));
+  ['fsfind','bubble','fish','memory','quiz'].forEach(t=>STEPS.push({t}));
 }
 function key(i){ const s=STEPS[i]; return DAY+':'+s.t+(s.k?':'+s.k:'')+(s.f!=null?':'+s.f:'') }
 function dots(){
   $('#dots').innerHTML = cur<0 ? '' : STEPS.map((s,i)=>`<i class="${i===cur?'now':S.done[key(i)]?'done':''}"></i>`).join('');
 }
 let doneLock = false;   // '다음' 을 두 번 눌러 한 칸 건너뛰지 않게
-function finish(){ if(doneLock || cur<0) return; doneLock = true; S.done[key(cur)] = 1; save(); cur+1 < STEPS.length ? run(cur+1) : go('end') }
+function finish(){ if(doneLock || cur<0) return; doneLock = true; S.done[key(cur)] = 1;
+  const all = STEPS.every((s,i)=>S.done[key(i)]);
+  save(all && EMBED ? {status:'submitted', submittedAt:nowStr(), phonicsScore:(S.quiz && S.quiz.score!=null) ? S.quiz.score : null} : undefined);
+  cur+1 < STEPS.length ? run(cur+1) : go('end') }
 function run(i){
   cur = i; doneLock = false; const s = STEPS[i]; dots();
   $('#title').textContent = (s.f!=null ? SD.families[s.f].name+' · ' : s.t==='cmeet' ? SD.families.map(f=>f.name).join(' · ')+' · ' : s.k ? s.k.toUpperCase()+s.k+' · ' : ['review','wreview'].includes(s.t) || SIGHTMODE ? '' : ['sbuild','sread'].includes(s.t) ? '문장 · ' : '섞어 놀기 · ') + NAMES[s.t];
-  ({sflash, sfind, sunscr, ssay, review, wreview, cmeet, lmeet, meet, parrot, trace, words, bubble, fish, memory, quiz, train, house, listen, spell, match, unscr, sbuild, sread})[s.t](s.f!=null ? s.f : s.k);
+  ({abcsong, abcorder, fsfind, vfind, vmeet5, board, canread, sflash, sfind, sunscr, ssay, review, wreview, cmeet, lmeet, meet, parrot, trace, words, bubble, fish, memory, quiz, train, house, listen, spell, match, unscr, sbuild, sread})[s.t](s.f!=null ? s.f : s.k);
 }
 function homeBtn(){ cur<0 ? leave() : go('map') }
 function go(where){
   if(playing){ try{playing.pause()}catch(e){} }
   cur = -1; dots();
   if(where==='end') return end();
-  $('#title').textContent = (A ? A.title : '해피트리 파닉스 · '+DAY+'일차');
+  $('#title').textContent = (A ? A.title : '해피트리 파닉스 · '+DAY+'일차'+(SD && SD.name ? ' · '+SD.name : ''));
   const nextI = STEPS.findIndex((s,i)=>!S.done[key(i)]);
   const node = i => `<button class="node ${S.done[key(i)]?'done':i===nextI?'next':''}" data-i="${i}">${ICON[STEPS[i].t]}<span>${NAMES[STEPS[i].t]}</span></button>`;
   if(SIGHTMODE) return goSight(nextI, node);
+  if(SD && SD.kind && SD.kind!=='unit') return goSimple(nextI, node);
   if(SHORTMODE) return goShort(nextI, node);
   const rv = STEPS.findIndex(s=>s.t==='review');
   let lanes = rv<0 ? '' : `<div class="lane"><div class="lt" style="font-size:26px">복습</div>${node(rv)}
@@ -945,6 +968,205 @@ function goSight(nextI, node){
   stage().querySelectorAll('.node').forEach(b=>b.onclick=()=>run(+b.dataset.i));
 }
 
+// ══════════ Phonics Monster 목차 활동(원장 2026-11-02) ══════════
+// 1권: Zero Unit(ABC 차례로·순서 맞추기) · 🔍 첫소리 찾기 · 🎲 보드게임(Game) · 📖 Can You Read?
+// 2권: Zero Unit(모음 5개 만나기) · 🎯 모음 소리 찾기(단모음 음가) · 🎲 보드게임 · 📖 Can You Read?
+const wait2 = ms => new Promise(r=>setTimeout(r, ms));
+const ALL26 = 'abcdefghijklmnopqrstuvwxyz'.split('');
+const fewLet = n => LET.length > n ? shuffle(LET).slice(0, n) : LET;
+
+// 🔤 ABC 차례로 듣기 — 26칸, ▶ 를 누르면 A부터 차례로 이름을 불러 준다. 칸을 누르면 이름+소리.
+function abcsong(){
+  h(`<p class="guide">🔤 ABC를 차례로 들어요<small id="how"></small></p>
+     <div class="chart">${ALL26.map(k=>`<button class="cc" data-k="${k}"><b class="en">${k.toUpperCase()}${k}</b></button>`).join('')}</div>
+     <div class="row"><button class="btn" id="go">▶ 처음부터 듣기</button></div><button class="btn hide" id="nx">다음 ▶</button>`);
+  const cells = [...stage().querySelectorAll('.cc')], heard = new Set(); let busy = false;
+  const check = ()=>{ $('#how').textContent = `${heard.size} / 26`;
+    if(heard.size===26 && $('#nx').classList.contains('hide')){ fruit(); $('#nx').classList.remove('hide') } };
+  cells.forEach(c=>c.onclick=async ()=>{ if(busy) return; c.classList.add('now');
+    await play('name-'+c.dataset.k); await play('snd-'+c.dataset.k); c.classList.remove('now'); c.classList.add('done'); heard.add(c.dataset.k); check() });
+  $('#go').onclick = async ()=>{ if(busy) return; busy = true;
+    for(const c of cells){ c.classList.add('now'); c.scrollIntoView({block:'nearest'}); await play('name-'+c.dataset.k); await wait2(200);
+      c.classList.remove('now'); c.classList.add('done'); heard.add(c.dataset.k) }
+    busy = false; check() };
+  $('#nx').onclick = finish; check();
+}
+
+// 🔢 순서 맞추기 — A B _ D 의 빈칸
+function abcorder(){
+  let r = 0; const N = 8;
+  function round(){
+    const st = Math.floor(Math.random()*23), seq = ALL26.slice(st, st+4), bi = 1 + Math.floor(Math.random()*3), ans = seq[bi];
+    const up = Math.random() < .5, F = x => up ? x.toUpperCase() : x;
+    const opts = shuffle([ans].concat(shuffle(ALL26.filter(x=>x!==ans)).slice(0,2))); let solved = false;
+    h(`<p class="guide">🔢 빈칸에 들어갈 글자는? <small>${r+1} / ${N}</small></p>
+       <div class="slots">${seq.map((x,i)=>`<span class="slot en ${i===bi?'':'ok'}">${i===bi?'?':F(x)}</span>`).join('')}</div>
+       <div class="sea">${opts.map(o=>`<button class="qc en" data-o="${o}">${F(o)}</button>`).join('')}</div>`);
+    stage().querySelectorAll('.qc').forEach(b=>b.onclick=async ()=>{
+      if(solved) return;
+      if(b.dataset.o===ans){ solved = true; beep('ok'); stage().querySelectorAll('.slot')[bi].textContent = F(ans); await play('name-'+ans);
+        await wait2(400); r++; r<N ? round() : (fruit(2), finish()) }
+      else { beep('no'); b.classList.add('shake'); setTimeout(()=>b.classList.remove('shake'),350) }
+    });
+  }
+  round();
+}
+
+// 🔍 첫소리 찾기 — 소리를 듣고 그 소리로 시작하는 그림을 고른다(6번)
+function fsfind(){
+  const ks = LET.filter(startsWith), targets = shuffle(ks.concat(ks, ks)).slice(0, 6); let r = 0;
+  function round(){
+    const t = targets[r], w = pick(C.letters[t].words); let solved = false;
+    const pool = (LET.length >= 3 ? LET : ALL26).filter(x=>x!==t && startsWith(x));
+    const opts = shuffle([w].concat(shuffle(pool).slice(0,2).map(x=>pick(C.letters[x].words))));
+    h(`<p class="guide">🔍 이 소리로 시작하는 그림을 찾아요 <small>${r+1} / ${targets.length}</small></p>
+       <div class="row"><button class="spk" id="sp">🔊</button><div class="light" style="font-size:24px">소리 <b style="color:var(--gold)">${C.letters[t].ko}</b></div></div>
+       <div class="sea">${opts.map((o,i)=>`<button class="qc" data-i="${i}" style="font-size:64px">${o[2]}</button>`).join('')}</div>`);
+    $('#sp').onclick = e=>play('snd-'+t, e.currentTarget);
+    stage().querySelectorAll('.qc').forEach(b=>b.onclick=async ()=>{
+      if(solved) return; const o = opts[+b.dataset.i];
+      if(o[0]===w[0]){ solved = true; b.style.background = '#c8e6c9'; beep('ok'); await play('word-'+o[0]); await wait2(300);
+        r++; r<targets.length ? round() : (fruit(2), finish()) }
+      else { beep('no'); b.classList.add('shake'); setTimeout(()=>b.classList.remove('shake'),350); await play('word-'+o[0]); play('snd-'+t) }
+    });
+    setTimeout(()=>play('snd-'+t, $('#sp')), 300);
+  }
+  round();
+}
+
+// 🎯 모음 소리 찾기(2권) — ① 모음 소리를 듣고 a·e·i·o·u 중에서 ② 단어를 듣고 가운데 모음
+function vfind(){
+  const V = 'aeiou'.split(''), ws = SHORTMODE && SD.kind!=='zero' ? dayWords() : [];
+  const main = SD.vowel && SD.vowel.length===1 ? SD.vowel : null;
+  const rounds = [];
+  for(let i=0;i<6;i++){
+    if(ws.length && i%2===1) rounds.push({t:'word', w:pick(ws)});
+    else rounds.push({t:'snd', v: main && i%3!==2 ? main : pick(V)});
+  }
+  let r = 0;
+  function round(){
+    const q = rounds[r]; let solved = false;
+    const ans = q.t==='snd' ? q.v : vowelOf(q.w[0]);
+    const audio = q.t==='snd' ? 'snd-'+q.v : 'word-'+q.w[0];
+    const i = q.t==='word' ? q.w[0].indexOf(ans) : -1;
+    h(`<p class="guide">🎯 ${q.t==='snd' ? '이 모음 소리는 무엇일까?' : '가운데 모음은 무엇일까?'} <small>${r+1} / ${rounds.length}</small></p>
+       <div class="row"><button class="spk" id="sp">🔊</button>${q.t==='word' ? `<div class="card" style="padding:4px 18px"><div class="emoji" style="font-size:64px">${q.w[2]}</div>
+         <div class="word en">${q.w[0].slice(0,i)}<b>_</b>${q.w[0].slice(i+1)}</div></div>` : ''}</div>
+       <div class="sea">${V.map(v=>`<button class="qc en" data-v="${v}">${v}</button>`).join('')}</div>`);
+    $('#sp').onclick = e=>play(audio, e.currentTarget);
+    stage().querySelectorAll('.qc').forEach(b=>b.onclick=async ()=>{
+      if(solved) return;
+      if(b.dataset.v===ans){ solved = true; b.style.background = '#c8e6c9'; beep('ok'); await play('chant-'+ans); await wait2(200);
+        r++; r<rounds.length ? round() : (fruit(2), finish()) }
+      else { beep('no'); b.classList.add('shake'); setTimeout(()=>b.classList.remove('shake'),350); play(audio) }
+    });
+    setTimeout(()=>play(audio, $('#sp')), 300);
+  }
+  round();
+}
+
+// 👋 모음 5개 만나기(2권 Zero Unit) — 카드를 누르면 "A says 애아 … ant"
+function vmeet5(){
+  const V = 'aeiou'.split(''), heard = new Set();
+  h(`<p class="guide">👋 짧은 모음 다섯 친구를 만나요<small id="how"></small></p>
+     <div class="cards5">${V.map(v=>`<button class="c5" data-v="${v}"><span class="w en" style="font-size:54px;color:var(--gold)">${v.toUpperCase()}${v}</span>
+       <span class="e">${C.letters[v].words[0][2]}</span><span class="ko">'${C.letters[v].ko}'</span></button>`).join('')}</div>
+     <button class="btn hide" id="nx">다음 ▶</button>`);
+  const check = ()=>{ $('#how').textContent = `${heard.size} / 5`; if(heard.size===5 && $('#nx').classList.contains('hide')){ fruit(); $('#nx').classList.remove('hide') } };
+  stage().querySelectorAll('.c5').forEach(b=>b.onclick=async ()=>{ await play('chant-'+b.dataset.v, b); heard.add(b.dataset.v); b.classList.add('heard'); check() });
+  $('#nx').onclick = finish; check();
+}
+
+// 🎲 보드게임(Game) — 주사위(1~3)를 굴려 칸을 가고, 도착한 칸 그림을 맞힌다. 끝까지 가면 🏆
+function board(){
+  const book1 = !SHORTMODE;
+  const pool = book1 ? LET.flatMap(k=>C.letters[k].words.slice(0,3).map(w=>({w, k})))
+                     : dayWords().map(w=>({w, k:w[0]}));
+  const cells = shuffle(pool).slice(0, 10), last = cells.length + 1;
+  let pos = 0, waiting = false;
+  h(`<p class="guide">🎲 주사위를 굴려 🏆까지 가요<small>도착한 칸 그림을 맞히면 계속 가요</small></p>
+     <div class="board">${['🏁', ...cells.map(c=>c.w[2]), '🏆'].map((e,i)=>`<div class="bc" data-i="${i}">${e}</div>`).join('')}</div>
+     <div class="row"><div class="dice" id="dice">🎲</div><button class="btn" id="roll" style="margin-top:0">굴리기</button></div>
+     <div id="bq"></div><button class="btn hide" id="nx">다음 ▶</button>`);
+  const bcs = [...stage().querySelectorAll('.bc')];
+  const mark = ()=>bcs.forEach((c,i)=>c.classList.toggle('me', i===pos));
+  mark();
+  function ask(c){
+    waiting = true; let solved = false;
+    let opts, isRight, render, guide;
+    if(book1){
+      const end = !startsWith(c.k);
+      opts = shuffle([c.k].concat(shuffle(LET.filter(x=>x!==c.k)).concat(shuffle(ALL26)).filter((x,i,a)=>x!==c.k && a.indexOf(x)===i).slice(0,2)));
+      isRight = x=>x===c.k; render = x=>x; guide = end ? '어떤 소리가 들어 있을까?' : '무슨 소리로 시작할까?';
+    } else {
+      const fam = WD[c.w[0]].f.words;
+      opts = shuffle([c.w].concat(shuffle(fam.filter(x=>x[0]!==c.w[0])).slice(0,2))).map(x=>x[0]);
+      isRight = x=>x===c.w[0]; render = x=>x; guide = '그림에 맞는 단어는?';
+    }
+    $('#bq').innerHTML = `<div class="card" style="padding:8px 16px;margin-top:8px"><div class="ko" style="font-size:20px">${guide}</div>
+      <div class="emoji" style="font-size:64px">${c.w[2]}</div>
+      <div class="sea" style="margin-top:4px">${opts.map(o=>`<button class="qc en" data-o="${o}">${render(o)}</button>`).join('')}</div></div>`;
+    $('#bq').querySelectorAll('.qc').forEach(b=>b.onclick=async ()=>{
+      if(solved) return;
+      if(isRight(b.dataset.o)){ solved = true; beep('ok'); await play('word-'+c.w[0]); $('#bq').innerHTML = ''; waiting = false; $('#roll').disabled = false }
+      else { beep('no'); b.classList.add('shake'); setTimeout(()=>b.classList.remove('shake'),350); play('word-'+c.w[0]) }
+    });
+    if(book1) play('word-'+c.w[0]);
+  }
+  $('#roll').onclick = async ()=>{
+    if(waiting || pos>=last) return;
+    $('#roll').disabled = true;
+    const n = 1 + Math.floor(Math.random()*3), faces = ['⚀','⚁','⚂'];
+    for(let i=0;i<6;i++){ $('#dice').textContent = faces[i%3]; await wait2(90) }
+    $('#dice').textContent = faces[n-1]; beep('pop');
+    for(let i=0;i<n && pos<last;i++){ pos++; mark(); await wait2(260) }
+    if(pos>=last){ cheer('🏆'); fruit(3); $('#nx').classList.remove('hide'); return }
+    ask(cells[pos-1]);
+  };
+  $('#nx').onclick = finish;
+}
+
+// 📖 Can You Read? — 단어(소리로 읽히는 것)와 사이트워즈를 보고 읽어 녹음(채점)
+function canread(){
+  const words = SD.readWords || [], sights = SD.sightWords || [];
+  const emojiOf = w => { if(WD[w]) return WD[w].w[2];
+    for(const k of ALL26){ const x = C.letters[k].words.find(v=>v[0]===w); if(x) return x[2] } return '' };
+  const list = words.map(w=>({w, e:emojiOf(w), kind:'단어'})).concat(sights.map(w=>({w, e:'', kind:'사이트워즈'})));
+  let i = 0;
+  function one(){
+    const it = list[i], tw = [it.w, '', it.e];
+    h(`<p class="guide">📖 Can You Read? <small>${it.kind} · ${i+1} / ${list.length}</small></p>
+       <div class="card" style="min-width:min(80vw,360px)">${it.e ? `<div class="emoji" style="font-size:80px">${it.e}</div>` : ''}
+         <div class="word en" style="font-size:min(16vw,84px)">${it.w}</div></div>
+       <div class="row" style="margin-top:14px"><button class="spk" id="sp">🔊</button><div id="mic"></div></div>
+       <div class="stars" id="st"></div><div class="msg" id="msg">먼저 혼자 읽어 보고, 모르면 🔊</div>
+       <button class="btn hide" id="nx">${i+1<list.length?'다음 ▶':'다 읽었어요 ▶'}</button>`);
+    $('#sp').onclick = e=>play('word-'+it.w, e.currentTarget);
+    recButton($('#mic'), {maxMs:3000, async onDone(r){
+      if(r.error){ $('#msg').textContent = r.error; beep('no'); return }
+      $('#msg').textContent = '듣고 있어요… 👂';
+      const o = await scoreTake(tw, r);
+      $('#st').textContent = '⭐'.repeat(o.stars)+'☆'.repeat(3-o.stars); $('#msg').textContent = o.note; beep('ok');
+      if($('#nx').classList.contains('hide')){ fruit(); $('#nx').classList.remove('hide') }
+    }});
+    $('#nx').onclick = ()=>{ $('#nx').onclick = null; i++; i<list.length ? one() : finish() };
+  }
+  one();
+}
+
+// 목차 날(Zero·Game·Review·Read) 지도 — 칸을 한 줄로
+function goSimple(nextI, node){
+  const nm = SD.name ? `${SD.name}${SD.label ? ' · '+SD.label : ''}` : '';
+  h(`<p class="guide">${SNAME?SNAME+', ':''}${E2(nm)}<small>반짝이는 칸을 눌러요</small></p>
+     <div class="map"><div class="lane">${STEPS.map((s,i)=>node(i)).join('')}</div></div>
+     <div class="row">
+       ${nextI<0?'<button class="btn" onclick="go(\'end\')">🌳 내 나무 보기</button>':''}
+       ${EMBED?'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button><button class="btn ghost" onclick="leave()">↩ 나가기</button>':''}
+     </div>`);
+  stage().querySelectorAll('.node').forEach(b=>b.onclick=()=>run(+b.dataset.i));
+}
+const E2 = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
 function goShort(nextI, node){
   const idx = f => STEPS.map((s,i)=>f(s)?i:-1).filter(i=>i>=0);
   let lanes = `<div class="lane"><div class="lt" style="font-size:24px">매일</div>${idx(s=>['review','wreview'].includes(s.t)).map(node).join('')}
@@ -1203,7 +1425,7 @@ function words(k){
 
 // ── 5. 소리 버블 ── 소리를 듣고 그 글자 방울을 톡! 6번.
 function bubble(){
-  const ks = LET;
+  const ks = fewLet(4);
   const targets = shuffle(ks.concat(ks, ks)).slice(0,6);
   let r = 0, raf = 0, bubs = [];
   h(`<p class="guide">🫧 소리를 듣고 그 글자 방울을 톡!<small id="cnt">1 / 6</small></p>
@@ -1245,7 +1467,7 @@ function bubble(){
 // ── 6. 첫소리 낚시 ── 그림 + 단어 소리 → 첫 글자 물고기를 낚아요. 6번.
 //    끝소리 글자(x)는 '어떤 소리가 들어 있을까?' 로 묻는다.
 function fish(){
-  const ks = LET;
+  const ks = fewLet(4);
   const pool = shuffle(ks.flatMap(k=>C.letters[k].words.map(w=>({k,w})))).slice(0,6);
   let r = 0;
   function round(){
@@ -1272,7 +1494,7 @@ function fish(){
 
 // ── 7. 짝 찾기 ── 대문자·소문자 카드 짝 맞추기
 function memory(){
-  const ks = LET;
+  const ks = fewLet(4);
   const cards = shuffle(ks.flatMap(k=>[{k,lb:k.toUpperCase()},{k,lb:k}]));
   h(`<p class="guide">🃏 큰 글자와 작은 글자 짝을 찾아요</p><div class="grid">${cards.map((c,i)=>`<button class="mem en" data-i="${i}">?</button>`).join('')}</div>`);
   let open = [], got = 0, lock = false;
@@ -1339,6 +1561,16 @@ function runQuestions(qs, title, onDone){
     } else if(q.type==='case'){
       h(head+`<p class="guide">짝꿍 작은 글자를 찾아요</p><div class="big en" style="font-size:150px">${q.k.toUpperCase()}</div><div class="sea" id="ch"></div>`);
       choices(q.opts, L, x=>x===q.k);
+    } else if(q.type==='fsnd'){
+      h(head+`<p class="guide">🔍 이 소리로 시작하는 그림은?</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
+      $('#sp').onclick = e=>play('snd-'+q.k, e.currentTarget);
+      choices(q.opts, x=>`<span style="font-size:60px">${x[2]}</span>`, x=>x[0][0]===q.k);
+      setTimeout(()=>play('snd-'+q.k, $('#sp')), 300);
+    } else if(q.type==='vsnd'){
+      h(head+`<p class="guide">🎯 이 모음 소리는 무엇일까?</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
+      $('#sp').onclick = e=>play('snd-'+q.k, e.currentTarget);
+      choices(q.opts, L, x=>x===q.k);
+      setTimeout(()=>play('snd-'+q.k, $('#sp')), 300);
     } else if(q.type==='sfind'){
       h(head+`<p class="guide">🔊 잘 듣고 그 단어를 골라요</p><button class="spk" id="sp">🔊</button><div class="sea" id="ch"></div>`);
       $('#sp').onclick = e=>play('word-'+q.k, e.currentTarget);
@@ -1413,10 +1645,19 @@ function areaList(by){
 }
 
 // ── 8. 오늘의 퀴즈 ── 7문항(소리→글자 3, 그림→첫소리, 대→소문자, 단어→그림, 말하기)
+function fsndQ(k, pool){   // 소리 → 그림(첫소리 찾기)
+  const others = shuffle((pool.length>=3 ? pool : ALL26).filter(x=>x!==k && startsWith(x))).slice(0,2);
+  return {type:'fsnd', k, opts: shuffle([pick(C.letters[k].words)].concat(others.map(x=>pick(C.letters[x].words))))};
+}
+function vsndQ(v){ return {type:'vsnd', k:v, opts:'aeiou'.split('')} }
 function quiz(){
   const ks = LET, firsts = ks.filter(startsWith);
-  const snd = shuffle(ks.concat(ks)).slice(0,3);
-  const qs = SIGHTMODE ? sightQuiz() : SHORTMODE ? shortQuiz() : shuffle([
+  const snd = shuffle(ks.concat(ks)).slice(0,2);
+  const qs = SIGHTMODE ? sightQuiz()
+    : SHORTMODE && SD.kind==='zero' ? shuffle('aeiou'.split('').concat([pick('aeiou'.split(''))])).map(vsndQ)
+    : SHORTMODE ? shortQuiz().concat(BK === C.short ? [vsndQ(SD.vowel && SD.vowel.length===1 ? SD.vowel : pick('aeiou'.split('')))] : [])
+    : shuffle([
+    fsndQ(pick(firsts.length?firsts:ks), ks), fsndQ(pick(firsts.length?firsts:ks), ks),
     ...snd.map(k=>makeQ('snd', k, ks)),
     makeQ('pic', pick(firsts.length?firsts:ks), ks),
     makeQ('case', pick(ks), ks),
@@ -1485,11 +1726,13 @@ function examRun(){
   : SHORTMODE ? shuffle([
     ...sw.slice(0,7).map(w=>sq('word', w)), ...sw.slice(7,14).map(w=>sq('read', w)),
     ...sw.slice(14,19).map(w=>sq('vowel', w)), ...sw.slice(19,22).map(w=>sq('first', w)),
+    ...(BK === C.short ? shuffle('aeiou'.split('')).slice(0,3).map(vsndQ) : []),
     ...ss.slice(0,2).map(x=>sentQ('sent', x, allS)), ...ss.slice(2,4).map(x=>sentQ('hsent', x, allS)),
   ]).concat(sw.slice(22,26).map(w=>sq('say', w))) : shuffle([
-    ...shuffle(all).slice(0,10).map(k=>makeQ('snd', k, all)),
-    ...shuffle(firsts).slice(0,6).map(k=>makeQ('pic', k, all)),
-    ...shuffle(all).slice(0,6).map(k=>makeQ('case', k, all)),
+    ...shuffle(all).slice(0,8).map(k=>makeQ('snd', k, all)),
+    ...shuffle(firsts).slice(0,5).map(k=>makeQ('pic', k, all)),
+    ...shuffle(all).slice(0,5).map(k=>makeQ('case', k, all)),
+    ...shuffle(firsts).slice(0,4).map(k=>fsndQ(k, all)),
     ...shuffle(all).slice(0,4).map(k=>makeQ('word', k, all)),
   ]).concat(shuffle(firsts).slice(0,4).map(k=>makeQ('say', k, all)));
   runQuestions(qs, SIGHTMODE ? '🎯 마무리 시험' : REVMODE ? '🎓 졸업 시험' : '🎯 진급시험', async (ans, sec)=>{
@@ -1556,15 +1799,21 @@ function examRun(){
   // 오늘 글자: 과제의 items(복사돼도 남는다) → 없으면 ?day=
   const want = A ? (A.items||[]).map(x=>String(x).toLowerCase()) : null;
   if(SHORTMODE){
-    const words = sd => sd.families.flatMap(f=>f.words.map(w=>w[0])).join();
+    const words = sd => (sd.items || sd.families.flatMap(f=>f.words.map(w=>w[0]))).join().toLowerCase();
     // 단어로 찾고, 못 찾으면(단어를 바꾼 뒤 배정된 옛 과제) 제목의 'Day N' 으로
     const tday = A && +(((A.title||'').match(/Day\s*0*(\d+)/)||[])[1]||0);
     SD = (want && BK.days.find(x=>words(x)===want.join())) || (tday && BK.days.find(x=>x.day===tday))
          || BK.days.find(x=>x.day===(+QS.get('day')||1)) || BK.days[0];
+    if(SD.kind && SD.kind!=='unit' && (SD.units||[]).length){   // Game·Review: 그 Unit 들의 가족·문장을 모아 쓴다
+      const us = BK.days.filter(d=>d.kind==='unit' && SD.units.includes(d.units[0]));
+      SD = Object.assign({}, SD, {families: us.flatMap(d=>d.families), sents: us.flatMap(d=>d.sents)});
+    }
     DAY = SD.day; LET = [SD.vowel];
   } else {
-  const d = want ? C.days.find(x=>x.letters.join()===want.join()) : C.days.find(x=>x.day===(+QS.get('day')||1));
-  DAY = d ? d.day : 1; LET = d ? d.letters : (want || C.days[0].letters);
+  const tday1 = A && +(((A.title||'').match(/Day\s*0*(\d+)/)||[])[1]||0);
+  const d = (want && C.days.find(x=>(x.items||x.letters).join().toLowerCase()===want.join())) || (tday1 && C.days.find(x=>x.day===tday1))
+            || C.days.find(x=>x.day===(+QS.get('day')||1)) || C.days[0];
+  SD = d; DAY = d.day; LET = d.letters;
   }
   build();
   if(EMBED){

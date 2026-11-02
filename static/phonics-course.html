@@ -81,10 +81,12 @@ const E = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt
   }
 
   // 칸 하나 = 책의 Day 하나
-  const dayLabel = (bk, d) => bk==1 ? d.letters.map(x=>x.toUpperCase()).join(' · ')
+  const dayLabel = (bk, d) => (bk==1 || bk==2) && d.name ? `${d.name} · ${d.label}`
+    : bk==1 ? d.letters.map(x=>x.toUpperCase()).join(' · ')
     : bk==='s' ? d.words.map(w=>w[0]).join(' · ')
     : bk==6 ? d.kind : bk==2 ? `짧은 ${d.vowel}` : bk==3 ? `긴 ${d.vowel}` : d.families.map(f=>f.name).join(' · ');
-  const dayEmoji = (bk, d) => bk==1 ? C.letters[d.letters[0]].words[0][2] : bk==='s' ? '👀' : (d.families[0].words[0][2]);
+  const KIND_E = {zero:'🔤', game:'🎲', review:'🔁', read:'📖'};
+  const dayEmoji = (bk, d) => d.kind && d.kind!=='unit' ? KIND_E[d.kind] : bk==1 ? C.letters[d.letters[0]].words[0][2] : bk==='s' ? '👀' : (d.families[0].words[0][2]);
   const daysOf = bk => bk==1 ? C.days : BOOKS[bk].days;
   const cell = (bk, d) => ({bk, day:d.day, key:bk+'|'+d.day, e:dayEmoji(bk,d), t:`${bk==='s'?'사이트워즈 '+d.day+'세트':'Day '+d.day} · ${dayLabel(bk,d)}`, rep:REP[TRACK][bk]});
   const exam = (bk, t) => ({bk, day:'exam', key:bk+'|exam', e:bk==='s'?'🏅':bk==6?'🎓':'🎯', t, rep:1, exam:true});

@@ -31,85 +31,132 @@ BOOK_NAME = "알파벳"
 # ipa: SSML 에 넣는 소리(화면엔 안 보임), ko: 아이에게 보여 주는 한글 소리(원장 표기 2026-10-30), words: [단어, 뜻, 그림(emoji)] — 글자마다 5개(원장 2026-10-30)
 # pos='end' 는 그 소리가 단어 끝에 있는 글자(x) — 첫소리 문제에서 뺀다.
 LETTERS = {
-    "a": {"ipa": "æ",  "ko": "애아", "words": [["apple", "사과", "🍎"], ["ant", "개미", "🐜"], ["alligator", "악어", "🐊"], ["ambulance", "구급차", "🚑"], ["astronaut", "우주비행사", "🧑‍🚀"]]},
-    "b": {"ipa": "b",  "ko": "ㅂ", "words": [["ball", "공", "⚽"], ["bear", "곰", "🐻"], ["bus", "버스", "🚌"], ["banana", "바나나", "🍌"], ["bird", "새", "🐦"]]},
-    "c": {"ipa": "k",  "ko": "ㅋ", "words": [["cat", "고양이", "🐱"], ["car", "자동차", "🚗"], ["cake", "케이크", "🎂"], ["cow", "소", "🐄"], ["carrot", "당근", "🥕"]]},
-    "d": {"ipa": "d",  "ko": "ㄷ", "words": [["dog", "개", "🐶"], ["duck", "오리", "🦆"], ["door", "문", "🚪"], ["dinosaur", "공룡", "🦕"], ["dolphin", "돌고래", "🐬"]]},
-    "e": {"ipa": "ɛ",  "ko": "에", "words": [["egg", "달걀", "🥚"], ["elephant", "코끼리", "🐘"], ["elf", "요정", "🧝"], ["envelope", "봉투", "✉️"], ["elevator", "엘리베이터", "🛗"]]},
-    "f": {"ipa": "f",  "ko": "ㅍ", "words": [["fish", "물고기", "🐟"], ["fork", "포크", "🍴"], ["feather", "깃털", "🪶"], ["fire", "불", "🔥"], ["foot", "발", "🦶"]]},
-    "g": {"ipa": "ɡ",  "ko": "ㄱ", "words": [["goat", "염소", "🐐"], ["gift", "선물", "🎁"], ["gorilla", "고릴라", "🦍"], ["guitar", "기타", "🎸"], ["goose", "거위", "🪿"]]},
-    "h": {"ipa": "h",  "ko": "ㅎ", "words": [["hat", "모자", "🎩"], ["horse", "말", "🐴"], ["house", "집", "🏠"], ["hippo", "하마", "🦛"], ["hamburger", "햄버거", "🍔"]]},
-    "i": {"ipa": "ɪ",  "ko": "이", "words": [["insect", "곤충", "🐞"], ["iguana", "이구아나", "🦎"], ["ink", "잉크", "🖋️"], ["inchworm", "자벌레", "🐛"], ["ill", "아픈", "🤒"]]},
-    "j": {"ipa": "dʒ", "ko": "ㅈ", "words": [["juice", "주스", "🧃"], ["jellyfish", "해파리", "🪼"], ["jet", "제트기", "✈️"], ["jeans", "청바지", "👖"], ["jacket", "재킷", "🧥"]]},
-    "k": {"ipa": "k",  "ko": "ㅋ", "words": [["kite", "연", "🪁"], ["king", "왕", "🤴"], ["key", "열쇠", "🔑"], ["kangaroo", "캥거루", "🦘"], ["koala", "코알라", "🐨"]]},
-    "l": {"ipa": "l",  "ko": "을ㄹ", "words": [["lion", "사자", "🦁"], ["lemon", "레몬", "🍋"], ["leaf", "나뭇잎", "🍃"], ["leg", "다리", "🦵"], ["lollipop", "막대사탕", "🍭"]]},
-    "m": {"ipa": "m",  "ko": "음ㅁ", "words": [["monkey", "원숭이", "🐵"], ["moon", "달", "🌙"], ["milk", "우유", "🥛"], ["mouse", "생쥐", "🐭"], ["mango", "망고", "🥭"]]},
-    "n": {"ipa": "n",  "ko": "은ㄴ", "words": [["nose", "코", "👃"], ["nest", "둥지", "🪺"], ["nut", "견과", "🥜"], ["nine", "아홉", "9️⃣"], ["noodles", "국수", "🍜"]]},
-    "o": {"ipa": "ɑ",  "ko": "아", "words": [["octopus", "문어", "🐙"], ["ox", "황소", "🐂"], ["otter", "수달", "🦦"], ["olive", "올리브", "🫒"], ["octagon", "팔각형", "🛑"]]},
-    "p": {"ipa": "p",  "ko": "ㅍ", "words": [["pig", "돼지", "🐷"], ["pizza", "피자", "🍕"], ["pen", "펜", "🖊️"], ["panda", "판다", "🐼"], ["penguin", "펭귄", "🐧"]]},
-    "q": {"ipa": "kw", "ko": "워", "words": [["queen", "여왕", "👸"], ["question", "질문", "❓"], ["quack", "꽥꽥", "🦆"], ["quiet", "조용히", "🤫"], ["quarter", "25센트 동전", "🪙"]]},
-    "r": {"ipa": "ɹ",  "ko": "얼ㄹ", "words": [["rabbit", "토끼", "🐰"], ["robot", "로봇", "🤖"], ["ring", "반지", "💍"], ["rainbow", "무지개", "🌈"], ["rocket", "로켓", "🚀"]]},
-    "s": {"ipa": "s",  "ko": "ㅅ", "words": [["sun", "해", "☀️"], ["sock", "양말", "🧦"], ["seal", "물개", "🦭"], ["snake", "뱀", "🐍"], ["sandwich", "샌드위치", "🥪"]]},
-    "t": {"ipa": "t",  "ko": "ㅌ", "words": [["tiger", "호랑이", "🐯"], ["tomato", "토마토", "🍅"], ["tent", "텐트", "⛺"], ["turtle", "거북", "🐢"], ["tooth", "이", "🦷"]]},
-    "u": {"ipa": "ʌ",  "ko": "어", "words": [["umbrella", "우산", "☂️"], ["up", "위로", "⬆️"], ["underwear", "속옷", "🩲"], ["uncle", "삼촌", "👨"], ["upset", "속상한", "😣"]]},
-    "v": {"ipa": "v",  "ko": "ㅂ", "words": [["van", "승합차", "🚐"], ["violin", "바이올린", "🎻"], ["volcano", "화산", "🌋"], ["vest", "조끼", "🦺"], ["vase", "꽃병", "🏺"]]},
-    "w": {"ipa": "w",  "ko": "우워", "words": [["worm", "지렁이", "🪱"], ["web", "거미줄", "🕸️"], ["watch", "손목시계", "⌚"], ["wolf", "늑대", "🐺"], ["watermelon", "수박", "🍉"]]},
-    "x": {"ipa": "ks", "ko": "ㅋㅅ", "pos": "end", "words": [["box", "상자", "📦"], ["fox", "여우", "🦊"], ["six", "여섯", "6️⃣"], ["ax", "도끼", "🪓"], ["taxi", "택시", "🚕"]]},
-    "y": {"ipa": "j",  "ko": "이여", "words": [["yo-yo", "요요", "🪀"], ["yarn", "털실", "🧶"], ["yawn", "하품", "🥱"], ["yellow", "노란색", "🟡"], ["yes", "네", "🙆"]]},
-    "z": {"ipa": "z",  "ko": "ㅈ", "words": [["zebra", "얼룩말", "🦓"], ["zero", "영", "0️⃣"], ["zombie", "좀비", "🧟"], ["zipper", "지퍼", "🤐"], ["zucchini", "애호박", "🥒"]]},
+    "a": {"ipa": "æ",  "ko": "애아", "words": [["ant", "개미", "🐜"], ["alligator", "악어", "🐊"], ["apple", "사과", "🍎"], ["ambulance", "구급차", "🚑"], ["astronaut", "우주비행사", "🧑‍🚀"]]},
+    "b": {"ipa": "b",  "ko": "ㅂ", "words": [["ball", "공", "⚽"], ["book", "책", "📕"], ["bear", "곰", "🐻"], ["bus", "버스", "🚌"], ["banana", "바나나", "🍌"]]},
+    "c": {"ipa": "k",  "ko": "ㅋ", "words": [["car", "자동차", "🚗"], ["cow", "소", "🐄"], ["cat", "고양이", "🐱"], ["cake", "케이크", "🎂"], ["carrot", "당근", "🥕"]]},
+    "d": {"ipa": "d",  "ko": "ㄷ", "words": [["door", "문", "🚪"], ["dog", "개", "🐶"], ["desk", "책상", "🧑‍💻"], ["duck", "오리", "🦆"], ["dinosaur", "공룡", "🦕"]]},
+    "e": {"ipa": "ɛ",  "ko": "에", "words": [["egg", "달걀", "🥚"], ["elephant", "코끼리", "🐘"], ["elbow", "팔꿈치", "💪"], ["elf", "요정", "🧝"], ["envelope", "봉투", "✉️"]]},
+    "f": {"ipa": "f",  "ko": "ㅍ", "words": [["fish", "물고기", "🐟"], ["five", "다섯", "5️⃣"], ["fox", "여우", "🦊"], ["fork", "포크", "🍴"], ["feather", "깃털", "🪶"]]},
+    "g": {"ipa": "ɡ",  "ko": "ㄱ", "words": [["green", "초록색", "🟢"], ["girl", "소녀", "👧"], ["gorilla", "고릴라", "🦍"], ["goat", "염소", "🐐"], ["gift", "선물", "🎁"]]},
+    "h": {"ipa": "h",  "ko": "ㅎ", "words": [["hat", "모자", "🎩"], ["hand", "손", "✋"], ["house", "집", "🏠"], ["horse", "말", "🐴"], ["hippo", "하마", "🦛"]]},
+    "i": {"ipa": "ɪ",  "ko": "이", "words": [["igloo", "이글루", "🧊🏠"], ["insect", "곤충", "🐞"], ["iguana", "이구아나", "🦎"], ["ink", "잉크", "🖋️"], ["inchworm", "자벌레", "🐛"]]},
+    "j": {"ipa": "dʒ", "ko": "ㅈ", "words": [["jet", "제트기", "✈️"], ["jam", "잼", "🍯"], ["jacket", "재킷", "🧥"], ["juice", "주스", "🧃"], ["jellyfish", "해파리", "🪼"]]},
+    "k": {"ipa": "k",  "ko": "ㅋ", "words": [["kangaroo", "캥거루", "🦘"], ["kid", "아이", "🧒"], ["king", "왕", "🤴"], ["kite", "연", "🪁"], ["key", "열쇠", "🔑"]]},
+    "l": {"ipa": "l",  "ko": "을ㄹ", "words": [["lamp", "램프", "💡"], ["lion", "사자", "🦁"], ["leaf", "나뭇잎", "🍃"], ["lemon", "레몬", "🍋"], ["leg", "다리", "🦵"]]},
+    "m": {"ipa": "m",  "ko": "음ㅁ", "words": [["monster", "괴물", "👾"], ["mouse", "생쥐", "🐭"], ["map", "지도", "🗺️"], ["moon", "달", "🌙"], ["milk", "우유", "🥛"]]},
+    "n": {"ipa": "n",  "ko": "은ㄴ", "words": [["nest", "둥지", "🪺"], ["nut", "견과", "🥜"], ["neck", "목", "🦒"], ["nose", "코", "👃"], ["nine", "아홉", "9️⃣"]]},
+    "o": {"ipa": "ɑ",  "ko": "아", "words": [["ox", "황소", "🐂"], ["octopus", "문어", "🐙"], ["ostrich", "타조", "🦤"], ["otter", "수달", "🦦"], ["olive", "올리브", "🫒"]]},
+    "p": {"ipa": "p",  "ko": "ㅍ", "words": [["pen", "펜", "🖊️"], ["pig", "돼지", "🐷"], ["pizza", "피자", "🍕"], ["panda", "판다", "🐼"], ["penguin", "펭귄", "🐧"]]},
+    "q": {"ipa": "kw", "ko": "워", "words": [["question", "질문", "❓"], ["queen", "여왕", "👸"], ["quiet", "조용히", "🤫"], ["quack", "꽥꽥", "🦆"], ["quarter", "25센트 동전", "🪙"]]},
+    "r": {"ipa": "ɹ",  "ko": "얼ㄹ", "words": [["robot", "로봇", "🤖"], ["ring", "반지", "💍"], ["rabbit", "토끼", "🐰"], ["rainbow", "무지개", "🌈"], ["rocket", "로켓", "🚀"]]},
+    "s": {"ipa": "s",  "ko": "ㅅ", "words": [["sun", "해", "☀️"], ["sock", "양말", "🧦"], ["six", "여섯", "6️⃣"], ["snake", "뱀", "🐍"], ["seal", "물개", "🦭"]]},
+    "t": {"ipa": "t",  "ko": "ㅌ", "words": [["tiger", "호랑이", "🐯"], ["tape", "테이프", "📼"], ["tent", "텐트", "⛺"], ["tomato", "토마토", "🍅"], ["turtle", "거북", "🐢"]]},
+    "u": {"ipa": "ʌ",  "ko": "어", "words": [["up", "위로", "⬆️"], ["under", "아래에", "⬇️"], ["umbrella", "우산", "☂️"], ["uncle", "삼촌", "👨"], ["upset", "속상한", "😣"]]},
+    "v": {"ipa": "v",  "ko": "ㅂ", "words": [["van", "승합차", "🚐"], ["vase", "꽃병", "🏺"], ["violin", "바이올린", "🎻"], ["vest", "조끼", "🦺"], ["volcano", "화산", "🌋"]]},
+    "w": {"ipa": "w",  "ko": "우워", "words": [["web", "거미줄", "🕸️"], ["wolf", "늑대", "🐺"], ["watch", "손목시계", "⌚"], ["worm", "지렁이", "🪱"], ["watermelon", "수박", "🍉"]]},
+    "x": {"ipa": "ks", "ko": "ㅋㅅ", "pos": "end", "words": [["box", "상자", "📦"], ["fox", "여우", "🦊"], ["ax", "도끼", "🪓"], ["six", "여섯", "6️⃣"], ["taxi", "택시", "🚕"]]},
+    "y": {"ipa": "j",  "ko": "이여", "words": [["yo-yo", "요요", "🪀"], ["yacht", "요트", "⛵"], ["yellow", "노란색", "🟡"], ["yarn", "털실", "🧶"], ["yawn", "하품", "🥱"]]},
+    "z": {"ipa": "z",  "ko": "ㅈ", "words": [["zebra", "얼룩말", "🦓"], ["zero", "영", "0️⃣"], ["zoo", "동물원", "🦒🐘"], ["zipper", "지퍼", "🤐"], ["zombie", "좀비", "🧟"]]},
 }
 for _k, _L in LETTERS.items():
     _L["key"] = _L["words"][0][0]
 
-# 하루 3글자(원장 2026-10-30). 26자 → 9일, 마지막 날은 2글자.
+# 1권 = Phonics Monster 1 목차(원장 2026-11-02): Zero Unit → Unit 1~4 · Game 1·2 · Unit 5 Review → Unit 6~9 · Game 3·4 ·
+#   Unit 10 Review → Can You Read?. 16일. kind: zero/unit/game/review/read. letters = 그날 다루는 글자.
 _ORDER = list("abcdefghijklmnopqrstuvwxyz")
-DAYS = [{"day": i + 1, "letters": _ORDER[i * 3:i * 3 + 3]} for i in range(9)]
+_U1 = {1: "abc", 2: "def", 3: "ghi", 4: "jkl", 6: "mno", 7: "pqr", 8: "stuv", 9: "wxyz"}
+_PLAN1 = [("zero", "Zero Unit", "알파벳 연습", None), ("unit", "Unit 1", None, [1]), ("unit", "Unit 2", None, [2]),
+          ("game", "Game 1", "Unit 1~2", [1, 2]), ("unit", "Unit 3", None, [3]), ("unit", "Unit 4", None, [4]),
+          ("game", "Game 2", "Unit 3~4", [3, 4]), ("review", "Unit 5", "Review · Unit 1~4", [1, 2, 3, 4]),
+          ("unit", "Unit 6", None, [6]), ("unit", "Unit 7", None, [7]), ("game", "Game 3", "Unit 6~7", [6, 7]),
+          ("unit", "Unit 8", None, [8]), ("unit", "Unit 9", None, [9]), ("game", "Game 4", "Unit 8~9", [8, 9]),
+          ("review", "Unit 10", "Review · Unit 6~9", [6, 7, 8, 9]), ("read", "Can You Read?", "단어·사이트워즈 읽기", None)]
+READ1 = ["cat", "dog", "pig", "sun", "fox", "hat", "bus", "jet", "pen", "box"]   # Can You Read? — 소리로 읽히는 쉬운 단어
+SIGHT1 = ["I", "a", "the", "see", "can", "it"]
+DAYS = []
+for _i, (_kind, _name, _label, _units) in enumerate(_PLAN1):
+    _lt = [c for u in (_units or []) for c in _U1[u]] if _units else (list(_ORDER) if _kind in ("zero", "read") else [])
+    DAYS.append({"day": _i + 1, "kind": _kind, "name": _name, "units": _units or [],
+                 "label": _label or " · ".join(c.upper() for c in _lt), "letters": _lt})
+for _d in DAYS:   # 과제 items = 그날 글자(복사돼도 남아 날을 찾는 열쇠). Can You Read? 는 읽을 단어
+    _d["items"] = (READ1 + SIGHT1) if _d["kind"] == "read" else _d["letters"]
+    if _d["kind"] == "read":
+        _d["readWords"], _d["sightWords"] = READ1, SIGHT1
+for _d in SHORT if False else []:
+    pass
 
 
-# ── LV1 2권 단모음 ── 하루 = 모음 하나의 단어가족 3개(원장 2026-10-30 '가족별 3개씩 묶기'), 5일.
-#   인쇄본(단어급수교재/phonics_builder.py SHORT)의 가족 그대로, 그림 못 그리는 단어(led·not·win…)만 바꿈.
+# ── LV1 2권 단모음 ── Phonics Monster 2 목차(원장 2026-11-02). 16일: Zero Unit(소리 연습) → Unit 1·2 짧은 a →
+#   Game 1 → Unit 3·4 짧은 i → Game 2 → Unit 5 Review → Unit 6·7 짧은 u → Game 3 → Unit 8 짧은 e → Unit 9 짧은 o →
+#   Game 4 → Unit 10 Review → Can You Read?. Unit 날만 단어가족(families)이 있고, Game·Review 는 그 Unit 들을 섞는다.
 BOOK2 = "LV1 2권"
 BOOK2_NAME = "단모음"
 VOWEL_KEY = {"a": "apple", "e": "egg", "i": "insect", "o": "octopus", "u": "umbrella"}
-SHORT = [
-    {"day": 1, "vowel": "a", "families": [
-        {"name": "-at", "words": [["cat", "고양이", "🐱"], ["hat", "모자", "🎩"], ["bat", "박쥐", "🦇"], ["rat", "쥐", "🐀"]]},
-        {"name": "-an", "words": [["man", "남자", "👨"], ["pan", "프라이팬", "🍳"], ["van", "승합차", "🚐"], ["fan", "부채", "🪭"]]},
-        {"name": "-ap · -ag", "words": [["cap", "모자", "🧢"], ["map", "지도", "🗺️"], ["bag", "가방", "👜"], ["tag", "꼬리표", "🏷️"]]}]},
-    {"day": 2, "vowel": "e", "families": [
-        {"name": "-en", "words": [["hen", "암탉", "🐔"], ["pen", "펜", "🖊️"], ["ten", "열", "🔟"], ["men", "남자들", "👬"]]},
-        {"name": "-et", "words": [["net", "그물", "🥅"], ["vet", "수의사", "🩺"], ["jet", "제트기", "✈️"], ["wet", "젖은", "💦"]]},
-        {"name": "-ed · -eg", "words": [["bed", "침대", "🛏️"], ["red", "빨강", "🔴"], ["leg", "다리", "🦵"], ["beg", "조르다", "🙏"]]}]},
-    {"day": 3, "vowel": "i", "families": [
-        {"name": "-ig", "words": [["pig", "돼지", "🐷"], ["big", "큰", "🐘"], ["dig", "파다", "⛏️"], ["wig", "가발", "👩‍🦰"]]},
-        {"name": "-in", "words": [["pin", "핀", "📍"], ["fin", "지느러미", "🦈"], ["bin", "쓰레기통", "🗑️"], ["win", "이기다", "🏆"]]},
-        {"name": "-it · -ix", "words": [["sit", "앉다", "🪑"], ["hit", "치다", "⚾"], ["six", "여섯", "6️⃣"], ["fix", "고치다", "🔧"]]}]},
-    {"day": 4, "vowel": "o", "families": [
-        {"name": "-og", "words": [["dog", "개", "🐶"], ["log", "통나무", "🪵"], ["fog", "안개", "🌫️"], ["jog", "조깅하다", "🏃"]]},
-        {"name": "-ot", "words": [["hot", "뜨거운", "🔥"], ["pot", "냄비", "🍲"], ["dot", "점", "🔵"], ["cot", "아기 침대", "🛏️"]]},
-        {"name": "-op · -ox", "words": [["hop", "깡충 뛰다", "🐇"], ["mop", "대걸레", "🧹"], ["box", "상자", "📦"], ["fox", "여우", "🦊"]]}]},
-    {"day": 5, "vowel": "u", "families": [
-        {"name": "-un", "words": [["sun", "해", "☀️"], ["run", "달리다", "🏃‍♂️"], ["bun", "빵", "🍞"], ["fun", "재미있는", "🎉"]]},
-        {"name": "-ug", "words": [["bug", "벌레", "🐛"], ["hug", "안아 주다", "🤗"], ["mug", "머그컵", "☕"], ["jug", "주전자", "🫖"]]},
-        {"name": "-ut · -up", "words": [["nut", "견과", "🥜"], ["cut", "자르다", "✂️"], ["cup", "컵", "🥤"], ["pup", "강아지", "🐕"]]}]},
-]
-SHORT_WORDS = [w for d in SHORT for f in d["families"] for w in f["words"]]
-
-# 모음별 문장(원장 2026-10-30 "단모음별 문장 만들기 & 녹음 & 퀴즈") — 그날 단어 + 쉬운 낱말만
-SENTS = {
-    "a": [["The cat has a hat.", "고양이가 모자를 가졌어요.", "🐱🎩"], ["A man has a fan.", "남자가 부채를 가졌어요.", "👨🪭"],
-          ["The bat is on the map.", "박쥐가 지도 위에 있어요.", "🦇🗺️"], ["The rat is in the bag.", "쥐가 가방 안에 있어요.", "🐀👜"]],
-    "e": [["The hen is on the bed.", "암탉이 침대 위에 있어요.", "🐔🛏️"], ["The jet is red.", "제트기가 빨개요.", "✈️🔴"],
-          ["The vet has a pen.", "수의사가 펜을 가졌어요.", "🩺🖊️"], ["Ten men get wet.", "남자 열 명이 젖어요.", "👬💦"]],
-    "i": [["The pig is big.", "돼지가 커요.", "🐷🐘"], ["A pig can dig.", "돼지가 땅을 팔 수 있어요.", "🐷⛏️"],
-          ["The pin is in the bin.", "핀이 통 안에 있어요.", "📍🗑️"], ["I can fix it.", "나는 그걸 고칠 수 있어요.", "🙋🔧"]],
-    "o": [["The fox is in the box.", "여우가 상자 안에 있어요.", "🦊📦"], ["The dog is on the log.", "개가 통나무 위에 있어요.", "🐶🪵"],
-          ["The pot is hot.", "냄비가 뜨거워요.", "🍲🔥"], ["I can jog.", "나는 달릴 수 있어요.", "🙋🏃"]],
-    "u": [["The bug is in the mug.", "벌레가 컵 안에 있어요.", "🐛☕"], ["The sun is hot.", "해가 뜨거워요.", "☀️🔥"],
-          ["A pup can run.", "강아지가 달릴 수 있어요.", "🐕🏃‍♂️"], ["I hug the pup.", "나는 강아지를 안아요.", "🤗🐕"]],
+_U2 = {
+    1: ("a", [("-ad", [["dad", "아빠", "👨"], ["bad", "나쁜", "👎"], ["sad", "슬픈", "😢"]]),
+              ("-ag", [["bag", "가방", "👜"], ["tag", "꼬리표", "🏷️"], ["wag", "꼬리를 흔들다", "🐕"]]),
+              ("-am", [["jam", "잼", "🍯"], ["ram", "숫양", "🐏"], ["ham", "햄", "🍖"]])]),
+    2: ("a", [("-an", [["fan", "부채", "🪭"], ["can", "깡통", "🥫"], ["man", "남자", "🧍‍♂️"]]),
+              ("-ap", [["map", "지도", "🗺️"], ["cap", "모자", "🧢"], ["tap", "수도꼭지", "🚰"]]),
+              ("-at", [["cat", "고양이", "🐱"], ["fat", "뚱뚱한", "🐖"], ["hat", "모자", "🎩"]])]),
+    3: ("i", [("-ig", [["pig", "돼지", "🐷"], ["big", "큰", "🐘"], ["wig", "가발", "👩‍🦰"]]),
+              ("-in", [["bin", "쓰레기통", "🗑️"], ["win", "이기다", "🏆"], ["pin", "핀", "📍"]]),
+              ("-ip", [["lip", "입술", "👄"], ["hip", "엉덩이", "🕺"], ["rip", "찢다", "📄"]])]),
+    4: ("i", [("-it", [["kit", "도구 상자", "🧰"], ["sit", "앉다", "🪑"], ["hit", "치다", "⚾"]]),
+              ("-ix", [["mix", "섞다", "🥣"], ["fix", "고치다", "🔧"], ["six", "여섯", "6️⃣"]]),
+              ("-id", [["lid", "뚜껑", "🫕"], ["kid", "아이", "🧒"]])]),
+    6: ("u", [("-ug", [["bug", "벌레", "🐛"], ["hug", "안아 주다", "🤗"], ["rug", "깔개", "🟫"]]),
+              ("-un", [["sun", "해", "☀️"], ["bun", "빵", "🍞"], ["run", "달리다", "🏃"]]),
+              ("-ut", [["nut", "견과", "🥜"], ["hut", "오두막", "🛖"], ["cut", "자르다", "✂️"]])]),
+    7: ("u", [("-ub · -ud", [["tub", "욕조", "🛁"], ["cub", "아기 곰", "🧸"], ["mud", "진흙", "🟤"], ["bud", "새싹", "🌱"]]),
+              ("-um", [["gum", "껌", "🍬"], ["hum", "흥얼거리다", "🎵"]]),
+              ("-up", [["cup", "컵", "🥤"], ["pup", "강아지", "🐕"]])]),
+    8: ("e", [("-ed", [["red", "빨강", "🔴"], ["bed", "침대", "🛏️"], ["Ted", "테드(곰 인형)", "🧸"]]),
+              ("-en", [["hen", "암탉", "🐔"], ["ten", "열", "🔟"], ["pen", "펜", "🖊️"]]),
+              ("-et", [["jet", "제트기", "✈️"], ["wet", "젖은", "💦"], ["pet", "반려동물", "🐶"]])]),
+    9: ("o", [("-og", [["dog", "개", "🐶"], ["log", "통나무", "🪵"], ["jog", "조깅하다", "🏃"]]),
+              ("-ot", [["pot", "냄비", "🍲"], ["hot", "뜨거운", "🔥"], ["dot", "점", "🔵"]]),
+              ("-ox", [["fox", "여우", "🦊"], ["box", "상자", "📦"], ["ox", "황소", "🐂"]])]),
 }
-for _d in SHORT:
-    _d["sents"] = [{"id": f"s{_d['vowel']}{i + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for i, x in enumerate(SENTS[_d["vowel"]])]
+_S2 = {
+    1: [["Dad has a bag.", "아빠가 가방을 가졌어요.", "👨👜"], ["The ram is sad.", "숫양이 슬퍼요.", "🐏😢"]],
+    2: [["The cat has a hat.", "고양이가 모자를 썼어요.", "🐱🎩"], ["A man has a fan.", "남자가 부채를 가졌어요.", "🧍‍♂️🪭"]],
+    3: [["The pig is big.", "돼지가 커요.", "🐷🐘"], ["The pin is in the bin.", "핀이 통 안에 있어요.", "📍🗑️"]],
+    4: [["The kid can sit.", "아이가 앉을 수 있어요.", "🧒🪑"], ["I can fix it.", "나는 그걸 고칠 수 있어요.", "🙋🔧"]],
+    6: [["The bug is on the rug.", "벌레가 깔개 위에 있어요.", "🐛🟫"], ["I can run in the sun.", "나는 햇볕 아래에서 달릴 수 있어요.", "🏃☀️"]],
+    7: [["The pup is in the tub.", "강아지가 욕조 안에 있어요.", "🐕🛁"], ["The cub has a cup.", "아기 곰이 컵을 가졌어요.", "🧸🥤"]],
+    8: [["The hen is on the bed.", "암탉이 침대 위에 있어요.", "🐔🛏️"], ["Ted has a red pen.", "테드는 빨간 펜이 있어요.", "🧸🖊️"]],
+    9: [["The fox is in the box.", "여우가 상자 안에 있어요.", "🦊📦"], ["The dog is on the log.", "개가 통나무 위에 있어요.", "🐶🪵"]],
+}
+_PLAN2 = [("zero", "Zero Unit", "소리 연습", None), ("unit", "Unit 1", None, [1]), ("unit", "Unit 2", None, [2]),
+          ("game", "Game 1", "Unit 1~2", [1, 2]), ("unit", "Unit 3", None, [3]), ("unit", "Unit 4", None, [4]),
+          ("game", "Game 2", "Unit 3~4", [3, 4]), ("review", "Unit 5", "Review · Unit 1~4", [1, 2, 3, 4]),
+          ("unit", "Unit 6", None, [6]), ("unit", "Unit 7", None, [7]), ("game", "Game 3", "Unit 6~7", [6, 7]),
+          ("unit", "Unit 8", None, [8]), ("unit", "Unit 9", None, [9]), ("game", "Game 4", "Unit 8~9", [8, 9]),
+          ("review", "Unit 10", "Review · Unit 6~9", [6, 7, 8, 9]), ("read", "Can You Read?", "단어·사이트워즈 읽기", None)]
+READ2 = ["cat", "map", "pig", "six", "bug", "cup", "bed", "pen", "dog", "box"]
+SIGHT2 = ["I", "a", "the", "is", "can", "see"]
+SHORT = []
+for _i, (_kind, _name, _label, _units) in enumerate(_PLAN2):
+    _d = {"day": _i + 1, "kind": _kind, "name": _name, "units": _units or [], "families": [], "sents": []}
+    if _kind == "unit":
+        _v, _fams = _U2[_units[0]]
+        _d.update(vowel=_v, label=f"짧은 {_v}", families=[{"name": n, "words": ws} for n, ws in _fams],
+                  sents=[{"id": f"s{_units[0]}{j + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for j, x in enumerate(_S2[_units[0]])])
+    else:
+        _d.update(vowel=("aeiou" if _kind in ("zero", "read") else ""), label=_label)
+    SHORT.append(_d)
+SHORT_WORDS = [w for d in SHORT for f in d["families"] for w in f["words"]]
+for _d in SHORT:   # 과제 items(복사돼도 남아 날을 찾는 열쇠) — Game·Review 는 섞는 Unit 들의 단어
+    if _d["kind"] == "unit":
+        _d["items"] = [w[0] for f in _d["families"] for w in f["words"]]
+    elif _d["kind"] in ("game", "review"):
+        _d["items"] = [w[0] for x in SHORT if x["kind"] == "unit" and x["units"][0] in _d["units"] for f in x["families"] for w in f["words"]]
+    elif _d["kind"] == "zero":
+        _d["items"] = list("aeiou")
+    else:
+        _d["items"] = READ2 + SIGHT2
+        _d["readWords"], _d["sightWords"] = READ2, SIGHT2
 
 
 # ── LV1 3권 장모음 ── 원장 범위(a-e ai ay / i-e ie igh / o-e oe oa ow / u-e ue ui / ee ea), 같은 긴 소리끼리 하루.
@@ -330,8 +377,8 @@ BOOK6 = "LV1 6권"
 BOOK6_NAME = "총복습"
 _SRC = {"s": SHORT, "l": LONG, "c": CONS, "d": DIPH}
 REV_PLAN = [
-    ("단모음 ①", [("s", 1, 0), ("s", 2, 1), ("s", 3, 0)]),
-    ("단모음 ②", [("s", 4, 0), ("s", 5, 1), ("s", 1, 1)]),
+    ("단모음 ①", [("s", 3, 2), ("s", 12, 2), ("s", 5, 0)]),
+    ("단모음 ②", [("s", 13, 0), ("s", 9, 0), ("s", 3, 0)]),
     ("장모음 ①", [("l", 1, 0), ("l", 1, 1), ("l", 2, 0)]),
     ("장모음 ②", [("l", 3, 2), ("l", 4, 0), ("l", 5, 0)]),
     ("블렌드", [("c", 1, 0), ("c", 3, 1), ("c", 5, 0)]),
@@ -488,9 +535,8 @@ def _templates():
     """보관함 원본: Day 1~9 + 진급시험. id 를 고정해 두어 몇 번 떠도 한 벌만 생긴다."""
     rows = []
     for d in DAYS:
-        lt = " · ".join(k.upper() for k in d["letters"])
-        rows.append({"id": f"phx-lv1-1-d{d['day']:02d}", "title": f"{BOOK} {BOOK_NAME} Day {d['day']} ({lt})",
-                     "book": BOOK, "type": "phonics", "phonicsDay": d["day"], "items": d["letters"],
+        rows.append({"id": f"phx-lv1-1-d{d['day']:02d}", "title": f"{BOOK} {BOOK_NAME} Day {d['day']} ({d['name']}: {d['label']})",
+                     "book": BOOK, "type": "phonics", "phonicsDay": d["day"], "items": d["items"],
                      "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                      "exampleAudio": [], "recordMode": "each", "published": False})
     rows.append({"id": "phx-lv1-1-exam", "title": f"{BOOK} {BOOK_NAME} 진급시험", "book": BOOK,
@@ -498,10 +544,11 @@ def _templates():
                  "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [], "exampleAudio": [],
                  "recordMode": "each", "published": False})
     for d in SHORT:
-        fam = " / ".join(f["name"] for f in d["families"])   # 가족 이름 안에 ' · ' 가 있어 '/' 로 나눈다
-        rows.append({"id": f"phx-lv1-2-d{d['day']:02d}", "title": f"{BOOK2} {BOOK2_NAME} Day {d['day']} ({d['vowel']}: {fam})",
+        fam = " / ".join(f["name"] for f in d["families"])
+        rows.append({"id": f"phx-lv1-2-d{d['day']:02d}",
+                     "title": f"{BOOK2} {BOOK2_NAME} Day {d['day']} ({d['name']}: {d['label']}{' · ' + fam if fam else ''})",
                      "book": BOOK2, "type": "phonics", "phonicsDay": d["day"],
-                     "items": [w[0] for f in d["families"] for w in f["words"]],
+                     "items": d["items"],
                      "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                      "exampleAudio": [], "recordMode": "each", "published": False})
     for d in LONG:
