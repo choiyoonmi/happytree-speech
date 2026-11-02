@@ -368,40 +368,113 @@ for _d in DIPH:
     else:
         _d["items"] = [w[0] for f in _d["families"] for w in f["words"]]
 
-# ── LV1 6권 총복습 ── 1~5권 가족을 섞어 다시 돈다(9~10개월). 새 단어 없음 → 소리·문장 음원 그대로.
-#   (책, Day, 가족 번호). 문장은 가족이 나온 날의 문장을 하나씩 + 하나 더.
+# ── LV1 6권 총복습 ── Phonics Monster ASAP 목차(원장 2026-11-02): Unit 0 Single Letters → 단모음(Unit 1~6) → Teacher e(7)
+#   → 장모음(8~12) → Speed Race → 블렌드·이중자(14~17) → Bossy r(18) → 모음 팀·이중모음(20~22) → Check-up → Phonics Master.
+#   학습 달(9~10달)은 그대로. 앞 권 가족은 (책, Day, 가족 번호)로 가져오고, 교재에만 있는 소리(sm·mp·nk·kn·ck·ng, ar·or·er·ir·ur,
+#   ie·igh·y, oi·oy)는 여기서 새로 만든다.
 BOOK6 = "LV1 6권"
 BOOK6_NAME = "총복습"
 _SRC = {"s": SHORT, "l": LONG, "c": CONS, "d": DIPH}
-REV_PLAN = [
-    ("단모음 ①", [("s", 3, 2), ("s", 12, 2), ("s", 5, 0)]),
-    ("단모음 ②", [("s", 13, 0), ("s", 9, 0), ("s", 3, 0)]),
-    ("장모음 ①", [("l", 2, 0), ("l", 4, 0), ("l", 7, 0)]),
-    ("장모음 ②", [("l", 8, 0), ("l", 9, 0), ("l", 3, 0)]),
-    ("블렌드", [("c", 2, 0), ("c", 3, 1), ("c", 3, 3)]),
-    ("이중자", [("c", 4, 1), ("c", 4, 0), ("c", 5, 0)]),
-    ("이중모음 ①", [("d", 5, 0), ("d", 4, 0), ("d", 1, 0)]),
-    ("이중모음 ②", [("d", 2, 1), ("d", 3, 0), ("d", 4, 1)]),
+
+
+def _f6(name, pat, ws, say=None, sayko=None):
+    f = _f4(name, pat, ws)
+    if say:
+        f["say"], f["sayko"] = say, sayko
+    return f
+
+
+_N6 = {
+    "sm": _f6("sm", "sm", [("smile", "미소", "😊", "s|m|i:Li|l|e*"), ("smell", "냄새 맡다", "👃", "s|m|e|ll:l"), ("smoke", "연기", "💨", "s|m|o:Lo|k|e*")]),
+    "mp": _f6("mp", "mp", [("lamp", "램프", "🪔", "l|a|m|p"), ("camp", "캠프", "🏕️", "c|a|m|p"), ("jump", "뛰다", "🦘", "j|u|m|p")]),
+    "nk": _f6("nk", "nk", [("pink", "분홍색", "🩷", "p|i|n:ng|k"), ("sink", "싱크대", "🚰", "s|i|n:ng|k"), ("bank", "은행", "🏦", "b|a|n:ng|k")],
+              "dg-ng", "응 + ㅋ"),
+    "kn": _f6("kn", "kn", [("knee", "무릎", "🦵", "k*|n|ee:Le"), ("knife", "칼", "🔪", "k*|n|i:Li|f|e*"), ("knot", "매듭", "🪢", "k*|n|o|t")],
+              "snd-n", "k 는 소리 없이 ㄴ"),
+    "ck": _f6("ck", "ck", [("duck", "오리", "🦆", "d|u|ck:k"), ("sock", "양말", "🧦", "s|o|ck:k"), ("clock", "시계", "⏰", "c|l|o|ck:k")]),
+    "ng": _f6("ng", "ng", [("ring", "반지", "💍", "r|i|ng:ng"), ("king", "왕", "🤴", "k|i|ng:ng"), ("sing", "노래하다", "🎤", "s|i|ng:ng")]),
+    "ar": _f6("ar", "ar", [("car", "자동차", "🚗", "c|ar:Var"), ("star", "별", "⭐", "s|t|ar:Var"), ("park", "공원", "🏞️", "p|ar:Var|k")],
+              "dv-ar", "아ㄹ"),
+    "or": _f6("or", "or", [("fork", "포크", "🍴", "f|or:Vor|k"), ("corn", "옥수수", "🌽", "c|or:Vor|n"), ("horse", "말", "🐎", "h|or:Vor|s|e*")],
+              "dv-or", "오ㄹ"),
+    "er": _f6("er", "er", [("tiger", "호랑이", "🐯", "t|i:Li|g|er:Ver"), ("sister", "언니·누나·여동생", "👧", "s|i|s|t|er:Ver")], "dv-er", "얼"),
+    "ir": _f6("ir", "ir", [("bird", "새", "🐦", "b|ir:Ver|d"), ("girl", "소녀", "👧", "g|ir:Ver|l")], "dv-er", "얼"),
+    "ur": _f6("ur", "ur", [("nurse", "간호사", "👩‍⚕️", "n|ur:Ver|s|e*"), ("turn", "돌다", "🔄", "t|ur:Ver|n")], "dv-er", "얼"),
+    "ie": _f6("ie", "ie", [("pie", "파이", "🥧", "p|ie:Li"), ("tie", "넥타이", "👔", "t|ie:Li")], "lv-i", "아이"),
+    "igh": _f6("igh", "igh", [("night", "밤", "🌃", "n|igh:Li|t"), ("light", "불빛", "💡", "l|igh:Li|t"), ("right", "오른쪽", "➡️", "r|igh:Li|t")],
+               "lv-i", "아이"),
+    "y": _f6("y (아이)", "y", [("fly", "날다", "🪰", "f|l|y:Li"), ("cry", "울다", "😢", "c|r|y:Li"), ("sky", "하늘", "🌌", "s|k|y:Li")], "lv-i", "아이"),
+    "oi": _f6("oi", "oi", [("coin", "동전", "🪙", "c|oi:Voi|n"), ("soil", "흙", "🪴", "s|oi:Voi|l"), ("oil", "기름", "🛢️", "oi:Voi|l")],
+              "dv-oi", "오이"),
+    "oy": _f6("oy", "oy", [("boy", "소년", "👦", "b|oy:Voi"), ("toy", "장난감", "🧸", "t|oy:Voi"), ("joy", "기쁨", "😄", "j|oy:Voi")],
+              "dv-oi", "오이"),
+}
+_S6 = {
+    7: [["I have a kit and a kite.", "나는 도구 상자와 연이 있어요.", "🧰🪁"]],
+    14: [["I jump and smile.", "나는 뛰고 웃어요.", "🦘😊"], ["I see a pink lamp.", "나는 분홍 램프를 봐요.", "🩷🪔"]],
+    15: [["The king has a ring.", "왕이 반지를 가졌어요.", "🤴💍"], ["The duck is on my knee.", "오리가 내 무릎 위에 있어요.", "🦆🦵"]],
+    18: [["I see a star in the park.", "나는 공원에서 별을 봐요.", "⭐🏞️"], ["The girl has a bird.", "소녀가 새를 가졌어요.", "👧🐦"]],
+    21: [["I eat pie at night.", "나는 밤에 파이를 먹어요.", "🥧🌃"], ["I can fly in the sky.", "나는 하늘을 날 수 있어요.", "🪰🌌"]],
+    22: [["The boy has a toy.", "소년이 장난감을 가졌어요.", "👦🧸"], ["I see a coin in the soil.", "나는 흙 속에서 동전을 봐요.", "🪙🪴"]],
+}
+# (종류, 이름, 설명, Unit 번호(이 책 안), 가족들). 가족 = (책, Day, 번호) 또는 새 소리 이름. meet=새 소리 만나기
+_PLAN6 = [
+    ("zero", "Unit 0", "Single Letters", [], []),
+    ("unit", "Unit 1~3", "짧은 a · e · i", [1], [("s", 2, 0), ("s", 12, 1), ("s", 5, 0)]),
+    ("unit", "Unit 4~5", "짧은 o · u", [4], [("s", 13, 1), ("s", 9, 1), ("s", 3, 2)]),
+    ("review", "Unit 6", "Review · Story · 단모음", [1, 4], []),
+    ("unit", "Unit 7", "Teacher e", [7], [("l", 10, 0), ("l", 10, 1), ("l", 10, 2)]),
+    ("unit", "Unit 8~10", "긴 a · i · o", [8], [("l", 3, 0), ("l", 5, 2), ("l", 8, 1)]),
+    ("unit", "Unit 11~12", "긴 u · e", [11], [("l", 9, 0), ("l", 9, 1), ("d", 2, 1)]),
+    ("game", "Speed Race", "Unit 7~12", [7, 8, 11], []),
+    ("unit", "Unit 14", "sm · mp · nk", [14], ["sm", "mp", "nk"]),
+    ("unit", "Unit 15", "kn · ck · ng", [15], ["kn", "ck", "ng"]),
+    ("unit", "Unit 17", "ch · sh · th · wh", [17], [("c", 4, 0), ("c", 4, 1), ("c", 5, 0), ("c", 5, 1)]),
+    ("unit", "Unit 18", "Bossy r · ar or er ir ur", [18], ["ar", "or", "er", "ir", "ur"]),
+    ("unit", "Unit 20", "ai · ay · ea · ee", [20], [("d", 1, 0), ("d", 1, 1), ("d", 2, 0), ("d", 2, 1)]),
+    ("unit", "Unit 21", "ie · igh · y · oa · ow", [21], ["ie", "igh", "y", ("d", 3, 0), ("d", 3, 1)]),
+    ("unit", "Unit 22", "ou · ow · oi · oy", [22], [("d", 4, 0), ("d", 4, 1), "oi", "oy"]),
+    ("review", "Check-up", "Bingo · Unit 14~22", [14, 15, 17, 18, 20, 21, 22], []),
+    ("read", "Phonics Master", "Can You Read Them All? · Sight Words to Know", [], []),
 ]
+READ6 = ["cat", "pen", "cake", "kite", "ship", "star", "rain", "boat", "coin", "night"]
+SIGHT6 = ["said", "look", "come", "here", "play", "what"]
 REV = []
-for _i, (_kind, _parts) in enumerate(REV_PLAN):
-    _fams, _sents, _seen = [], [], set()
-    for _b, _day, _fi in _parts:
+for _i, (_kind, _name, _label, _units, _parts) in enumerate(_PLAN6):
+    _fams, _sents, _new = [], [], False
+    for _p in _parts:
+        if isinstance(_p, str):
+            _new = True
+            _fams.append(_N6[_p])
+            continue
+        _b, _day, _fi = _p
         _d = next(x for x in _SRC[_b] if x["day"] == _day)
         _f = dict(_d["families"][_fi])
         _f["words"] = _f["words"][:4]
         if _b == "s":
             _f["name"] = f"{_d['vowel']} {_f['name']}"
         _fams.append(_f)
-        if _day not in _seen:            # 같은 날 문장은 한 번만
-            _seen.add((_b, _day))
-            _sents += [x for x in _d["sents"] if any(w[0] in x["en"].lower().split() or w[0] + "." in x["en"].lower() for w in _f["words"])][:2]
+        _sents += [x for x in _d["sents"] if any(w[0].lower() in x["en"].lower().replace(".", "").split() for w in _f["words"])][:2]
+    if _units and _units[0] in _S6:
+        _sents = [{"id": f"r{_units[0]}{j + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for j, x in enumerate(_S6[_units[0]])] + _sents
     _uniq = []
     for x in _sents:
         if x["id"] not in [y["id"] for y in _uniq]:
             _uniq.append(x)
-    REV.append({"day": _i + 1, "vowel": "", "kind": _kind, "families": _fams, "sents": _uniq[:4]})
+    _d6 = {"day": _i + 1, "kind": _kind, "name": _name, "label": _label, "units": _units, "vowel": "",
+           "families": _fams, "sents": _uniq[:4], "meet": _new, "nomeet": _parts[:1] == [("l", 10, 0)]}
+    REV.append(_d6)
 REV_WORDS = [w for d in REV for f in d["families"] for w in f["words"]]
+for _d in REV:
+    if _d["kind"] == "unit":
+        _d["items"] = [w[0] for f in _d["families"] for w in f["words"]]
+    elif _d["kind"] in ("review", "game"):
+        _d["items"] = [w[0] for x in REV if x["kind"] == "unit" and x["units"][0] in _d["units"] for f in x["families"] for w in f["words"]]
+    elif _d["kind"] == "read":
+        _d["items"] = READ6 + SIGHT6
+        _d["readWords"], _d["sightWords"] = READ6, SIGHT6
+    else:
+        _d["items"] = list("abcdefghijklmnopqrstuvwxyz")
 
 # ── LV1 사이트워즈 ── Dolch 초급 92(Pre-primer 40 + Primer 52), 4개씩 23세트. 원장 2026-10-30:
 #   3개월차(장모음과 함께) 시작 → 10개월차 마무리, 주 1세트. 문장은 그 세트·앞 세트 단어 + 파닉스 단어로만.
@@ -518,6 +591,11 @@ def _audio_table():
     for d in DIPH:
         for x in d["sents"]:
             t[f"sent-{x['id']}"] = f'<prosody rate="-20%">{x["en"]}</prosody>'
+    for w in REV_WORDS:
+        t[f"word-{w[0]}"] = f'<prosody rate="-10%">{w[0]}</prosody>'
+    for d in REV:
+        for x in d["sents"]:
+            t[f"sent-{x['id']}"] = f'<prosody rate="-20%">{x["en"]}</prosody>'
     for k, (ipa, _ko) in DV_SND.items():
         t[f"dv-{k}"] = f'<prosody rate="-25%">{_ph(ipa, k)}</prosody>'
     for i, ok in enumerate(["Great job!", "Good try!"]):
@@ -591,10 +669,9 @@ def _templates():
                  "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                  "exampleAudio": [], "recordMode": "each", "published": False})
     for d in REV:
-        fam = " / ".join(f["name"] for f in d["families"])
-        rows.append({"id": f"phx-lv1-6-d{d['day']:02d}", "title": f"{BOOK6} {BOOK6_NAME} Day {d['day']} ({d['kind']}: {fam})",
+        rows.append({"id": f"phx-lv1-6-d{d['day']:02d}", "title": f"{BOOK6} {BOOK6_NAME} Day {d['day']} ({d['name']}: {d['label']})",
                      "book": BOOK6, "type": "phonics", "phonicsDay": d["day"],
-                     "items": [w[0] for f in d["families"] for w in f["words"]],
+                     "items": d["items"],
                      "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                      "exampleAudio": [], "recordMode": "each", "published": False})
     rows.append({"id": "phx-lv1-6-exam", "title": f"LV1 파닉스 졸업 시험", "book": BOOK6,

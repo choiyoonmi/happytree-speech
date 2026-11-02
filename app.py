@@ -4158,7 +4158,7 @@ def student_report(student_id: str, start: str = "", end: str = ""):
             ph = {"quiz": q.get("score"),
                   # 알파벳은 그날 글자(A·B·C), 단모음은 단어 12개라 '단모음 a' 로 줄인다
                   # 1·2권은 Phonics Monster 목차라 제목 괄호 안('Unit 1: A · B · C', 'Game 1: Unit 1~2')을 그대로
-                  "letters": [(re.search(r"\(([^)]*)\)", a.get("title") or "") or [None, ""])[1]] if a.get("book") in ("LV1 1권", "LV1 2권", "LV1 3권", "LV1 4권", "LV1 5권") else
+                  "letters": [(re.search(r"\(([^)]*)\)", a.get("title") or "") or [None, ""])[1]] if a.get("book") in ("LV1 1권", "LV1 2권", "LV1 3권", "LV1 4권", "LV1 5권", "LV1 6권") else
                              [k.upper() for k in _its] if len(_its) <= 3 else
                              [{"LV1 3권": f"장모음 {_v}", "LV1 4권": "이중자음", "LV1 5권": "이중모음", "LV1 6권": "총복습", "LV1 사이트워즈": "사이트워즈"}.get(a.get("book"), f"단모음 {_v}")],
                   "weak": [(k.upper() if len(k) == 1 else k) for k, v in lt.items() if (v or {}).get("ok", 0) < (v or {}).get("n", 0)],

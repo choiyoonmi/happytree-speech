@@ -352,7 +352,7 @@ function build(){
                                            : ['review','wreview','board','unscr','listen','spell','sread','quiz']); return }
     STEPS.push({t:'review'});
     if(BK.days.some(d=>d.day < DAY && (d.families||[]).length)) STEPS.push({t:'wreview'});   // 앞에 배운 단어가 있을 때만(2권 Zero Unit 다음 날 같은 경우)
-    if(!REVMODE && !SD.nomeet) STEPS.push({t: CONSMODE ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});   // Magic e 날은 만나기 없음
+    if((!REVMODE || SD.meet) && !SD.nomeet) STEPS.push({t: (CONSMODE || REVMODE) ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});   // Magic e 날은 만나기 없음, 6권은 새 소리 날만
     SD.families.forEach((f,fi)=>{ ['train','house','match'].forEach(t=>STEPS.push({t, f:fi})) });
     ['unscr','listen','spell','sbuild','sread'].forEach(t=>STEPS.push({t}));
     if(BK === C.short) STEPS.push({t:'vfind'});   // 단모음 음가 찾기(원장 2026-11-02)
