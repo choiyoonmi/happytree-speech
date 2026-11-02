@@ -94,10 +94,10 @@ const E = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt
   const PLAN = [
     {m:'1달', title:'알파벳', cells:[...C.days.map(d=>cell(1,d)), exam(1,'알파벳 진급시험')]},
     {m:'2달', title:'단모음', cells:[...C.short.days.map(d=>cell(2,d)), exam(2,'단모음 진급시험')]},
-    {m:'3~4달', title:'장모음 · 사이트워즈 시작', cells:[...C.long.days.map(d=>cell(3,d)), exam(3,'장모음 진급시험'), ...sightRange(1,8)]},
-    {m:'5~6달', title:'이중자음', cells:[...C.cons.days.map(d=>cell(4,d)), exam(4,'이중자음 진급시험'), ...sightRange(9,16)]},
-    {m:'7~8달', title:'이중모음', cells:[...C.diph.days.map(d=>cell(5,d)), exam(5,'이중모음 진급시험'), ...sightRange(17,23)]},
-    {m:'9~10달', title:'총복습 · 사이트워즈 마무리', cells:[...C.rev.days.map(d=>cell(6,d)), exam(6,'LV1 파닉스 졸업 시험'), exam('s','사이트워즈 마무리 시험')]},
+    {m:'3~4달', title:'장모음 · 사이트워즈 시작', cells:[...C.long.days.map(d=>cell(3,d)), exam(3,'장모음 진급시험'), ...sightRange(1,20)]},
+    {m:'5~6달', title:'이중자음', cells:[...C.cons.days.map(d=>cell(4,d)), exam(4,'이중자음 진급시험'), ...sightRange(21,40)]},
+    {m:'7~8달', title:'이중모음', cells:[...C.diph.days.map(d=>cell(5,d)), exam(5,'이중모음 진급시험'), ...sightRange(41,60)]},
+    {m:'9~10달', title:'총복습 · 사이트워즈 마무리', cells:[...C.rev.days.map(d=>cell(6,d)), exam(6,'LV1 파닉스 졸업 시험'), ...sightRange(61,79), exam('s','사이트워즈 마무리 시험')]},
   ];
   const all = PLAN.flatMap(p=>p.cells), total = all.reduce((n,c)=>n+c.rep,0);
   const got = c => Math.min(done[c.key]||0, c.rep);

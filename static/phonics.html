@@ -950,7 +950,7 @@ function blankQ(x, pool){
   return {type:'sblank', k:pickT.k, x, shown, ans:pickT.k, opts};
 }
 function sightQuiz(){
-  const ws = shuffle(setWords()), pool = setWords().concat(prevSight()), ss = shuffle(SD.sents);
+  const w0 = shuffle(setWords()), ws = Array.from({length:4}, (_,i)=>w0[i % w0.length]), pool = setWords().concat(prevSight()), ss = shuffle(SD.sents);   // 3개짜리 세트(78·79)도 4문항
   return shuffle([sightQ('sfind', ws[0], pool), sightQ('sfind', ws[1], pool), sightQ('sfind', ws[2], pool),
                   blankQ(ss[0], pool), blankQ(ss[1], pool), sentQ('sent', ss[0], BK.days.flatMap(d=>d.sents))])
          .concat([Object.assign(sightQ('say', ws[3], pool), {type:'say'})]);
