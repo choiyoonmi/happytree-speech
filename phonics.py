@@ -476,7 +476,7 @@ for _d in REV:
     else:
         _d["items"] = list("abcdefghijklmnopqrstuvwxyz")
 
-# ── LV1 사이트워즈 ── Dolch 314(초급 92 + 1·2·3학년 128 + 명사 94), 대개 4개씩 79세트. 원장 2026-10-30:
+# ── LV1 사이트워즈 ── Dolch 315(초급 92 + 1·2·3학년 128 + 명사 95), 대개 4개씩 79세트. 원장 2026-10-30:
 #   3개월차(장모음과 함께) 시작 → 10개월차 마무리, 한 달 약 10세트(주 2~3세트, 원장 11/02 "최소 300개"). 문장은 그 세트·앞 세트 단어 + 파닉스 단어로만.
 BOOKS = "LV1 사이트워즈"
 SIGHT = [
@@ -586,7 +586,7 @@ SIGHT += [
     (["boat", "배"], ["hill", "언덕"], ["ground", "땅"], ["stick", "막대기"]),
     (["robin", "울새"], ["squirrel", "다람쥐"], ["wood", "숲"], ["top", "꼭대기"]),
     (["bell", "종"], ["watch", "손목시계"], ["men", "남자들"]),
-    (["corn", "옥수수"], ["doll", "인형"], ["nest", "둥지"]),
+    (["corn", "옥수수"], ["doll", "인형"], ["nest", "둥지"], ["wind", "바람"]),
 ]
 SIGHT_SENTS += [
     [["He has a ball.", "그는 공을 가지고 있어요.", "👦⚽"], ["She has her ball.", "그녀는 자기 공을 가지고 있어요.", "👧⚽"]],
@@ -644,7 +644,7 @@ SIGHT_SENTS += [
     [["Run up the hill.", "언덕 위로 달려요.", "⛰️"], ["Put the stick on the ground.", "막대기를 땅에 놓아요.", "🪵"]],
     [["A robin is on top of the tree.", "울새가 나무 꼭대기에 있어요.", "🐦🌳"], ["The squirrel is in the wood.", "다람쥐가 숲에 있어요.", "🐿️🌲"]],
     [["The men ring the bell.", "남자들이 종을 울려요.", "🔔"], ["Look at my watch.", "내 손목시계를 봐요.", "⌚"]],
-    [["The bird is in the nest.", "새가 둥지에 있어요.", "🪺"], ["I eat corn with my doll.", "나는 인형이랑 옥수수를 먹어요.", "🌽🪆"]],
+    [["The bird is in the nest.", "새가 둥지에 있어요.", "🪺"], ["My doll and I eat corn in the wind.", "인형이랑 나는 바람 속에서 옥수수를 먹어요.", "🌬️🌽🪆"]],
 ]
 SIGHT_DAYS = [{"day": i + 1, "words": [list(w) for w in ws],
                "sents": [{"id": f"w{i + 1}{j + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for j, x in enumerate(SIGHT_SENTS[i])]}
@@ -715,6 +715,8 @@ def _audio_table():
             t[f"sent-{x['id']}"] = f'<prosody rate="-20%">{x["en"]}</prosody>'
     for k, (ipa, _ko) in DV_SND.items():
         t[f"dv-{k}"] = f'<prosody rate="-25%">{_ph(ipa, k)}</prosody>'
+    # wind 는 혼자 두면 '와인드(감다)'로 읽힐 수 있다 → 바람(윈드)으로 못 박는다
+    t["word-wind"] = f'<prosody rate="-10%">{_ph("wɪnd", "wind")}</prosody>'
     for i, ok in enumerate(["Great job!", "Good try!"]):
         t[f"fb-{i}"] = ok
     return t
