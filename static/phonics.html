@@ -561,7 +561,7 @@ function train(fi){
 // ── 🏠 단어가족 집짓기 ── 그림을 보고 '_at' 집에 첫 글자를 끼워 단어를 만든다
 function house(fi){
   const pf = SD.families[fi].pat;
-  if(CONSMODE || (REVMODE && pf && !pf.includes('_'))) return houseP(fi);
+  if((CONSMODE || REVMODE) && pf && !pf.includes('_')) return houseP(fi);   // 이어진 철자만 끼우기(4권 Before You Start 의 a_e 는 첫 글자)
   const fam = SD.families[fi], order = shuffle(fam.words); let r = 0;
   const onsets = [...new Set(fam.words.map(w=>w[0][0]))];
   function round(){

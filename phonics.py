@@ -248,156 +248,125 @@ for _d in LONG:
     else:
         _d["items"] = list("aeiou") + ["long"]
 
-# ── LV1 4권 이중자음 ── 블렌드(bl·cr·st…)와 이중자(sh·ch·th·wh·ck·ng), 하루 패턴 3개, 7일.
-#   조각 태그: :La/:Li/:Lo/:Lu/:Lyu/:Le = 긴 소리, :sh/:ch/:th/:ng = 이중자 소리(dg-), :k/:s/:l/:z/:w = 그 글자 소리,
-#   태그 없으면 글자 소리(모음은 짧은 소리), * = 소리 안 나는 e.
+# ── LV1 4권 이중자음 ── Phonics Monster 4 앞쪽(원장 2026-11-02, 학습 달 5~6달 그대로):
+#   Before You Start(장모음 복습) → Unit 1 bl fl gl sl → Unit 2 br cr dr gr → Unit 3 ch sh → Unit 4 th wh → Unit 5 hard/soft c, g → Review.
+#   조각 태그: :La…:Le 긴 소리, :Vow·:Var·:Ver·:Voo 이중모음 소리(dv-), :sh :ch :th :ng 이중자 소리(dg-), :k :s :j :z :i :o :u :f :l 그 글자 소리, * 묵음 e.
 BOOK4 = "LV1 4권"
 BOOK4_NAME = "이중자음"
 DIGRAPH_SND = {"sh": ("ʃ", "쉬"), "ch": ("tʃ", "취"), "th": ("θ", "쓰"), "ng": ("ŋ", "응")}
-CONS = [
-    {"day": 1, "kind": "l 블렌드", "families": [
-        {"name": "bl", "pat": "bl", "words": [["block", "블록", "🧱", "b|l|o|ck:k"], ["black", "검은색", "⬛", "b|l|a|ck:k"],
-                                             ["blue", "파란색", "🔵", "b|l|ue:Lu"], ["blow", "불다", "🌬️", "b|l|ow:Lo"]]},
-        {"name": "cl", "pat": "cl", "words": [["clap", "박수 치다", "👏", "c|l|a|p"], ["clock", "시계", "🕰️", "c|l|o|ck:k"],
-                                             ["clip", "클립", "📎", "c|l|i|p"], ["class", "반", "🏫", "c|l|a|ss:s"]]},
-        {"name": "pl", "pat": "pl", "words": [["plug", "플러그", "🔌", "p|l|u|g"], ["plant", "식물", "🪴", "p|l|a|n|t"],
-                                             ["plate", "접시", "🍽️", "p|l|a:La|t|e*"], ["play", "놀다", "⚽", "p|l|ay:La"]]}]},
-    {"day": 2, "kind": "l 블렌드", "families": [
-        {"name": "fl", "pat": "fl", "words": [["flag", "깃발", "🚩", "f|l|a|g"], ["flame", "불꽃", "🔥", "f|l|a:La|m|e*"],
-                                             ["flute", "플루트", "🪈", "f|l|u:Lu|t|e*"], ["flip", "뒤집다", "🤸", "f|l|i|p"]]},
-        {"name": "gl", "pat": "gl", "words": [["glass", "유리컵", "🥛", "g|l|a|ss:s"], ["globe", "지구본", "🌍", "g|l|o:Lo|b|e*"],
-                                             ["glue", "풀", "🧴", "g|l|ue:Lu"], ["glad", "기쁜", "😊", "g|l|a|d"]]},
-        {"name": "sl", "pat": "sl", "words": [["sled", "썰매", "🛷", "s|l|e|d"], ["slide", "미끄럼틀", "🛝", "s|l|i:Li|d|e*"],
-                                             ["sleep", "자다", "😴", "s|l|ee:Le|p"], ["slug", "민달팽이", "🐌", "s|l|u|g"]]}]},
-    {"day": 3, "kind": "r 블렌드", "families": [
-        {"name": "br", "pat": "br", "words": [["brick", "벽돌", "🧱", "b|r|i|ck:k"], ["bride", "신부", "👰", "b|r|i:Li|d|e*"],
-                                             ["brain", "뇌", "🧠", "b|r|ai:La|n"]]},
-        {"name": "cr", "pat": "cr", "words": [["crab", "게", "🦀", "c|r|a|b"], ["crane", "기중기", "🏗️", "c|r|a:La|n|e*"],
-                                             ["crow", "까마귀", "🐦‍⬛", "c|r|ow:Lo"], ["crib", "아기 침대", "🛏️", "c|r|i|b"]]},
-        {"name": "dr", "pat": "dr", "words": [["drum", "북", "🥁", "d|r|u|m"], ["dress", "드레스", "👗", "d|r|e|ss:s"],
-                                             ["drip", "똑똑 떨어지다", "💧", "d|r|i|p"], ["drive", "운전하다", "🚗", "d|r|i:Li|v|e*"]]}]},
-    {"day": 4, "kind": "r 블렌드", "families": [
-        {"name": "fr", "pat": "fr", "words": [["frog", "개구리", "🐸", "f|r|o|g"], ["fruit", "과일", "🍎", "f|r|ui:Lu|t"],
-                                             ["free", "공짜의", "🆓", "f|r|ee:Le"]]},
-        {"name": "gr", "pat": "gr", "words": [["grapes", "포도", "🍇", "g|r|a:La|p|e*|s"], ["green", "초록색", "🟢", "g|r|ee:Le|n"],
-                                             ["grass", "풀밭", "🌿", "g|r|a|ss:s"], ["grin", "활짝 웃다", "😁", "g|r|i|n"]]},
-        {"name": "tr", "pat": "tr", "words": [["tree", "나무", "🌳", "t|r|ee:Le"], ["train", "기차", "🚆", "t|r|ai:La|n"],
-                                             ["trip", "여행", "🧳", "t|r|i|p"]]}]},
-    {"day": 5, "kind": "s 블렌드", "families": [
-        {"name": "st", "pat": "st", "words": [["stop", "멈추다", "🛑", "s|t|o|p"], ["step", "계단", "👣", "s|t|e|p"],
-                                             ["stone", "돌", "🪨", "s|t|o:Lo|n|e*"], ["stamp", "우표", "📮", "s|t|a|m|p"]]},
-        {"name": "sp", "pat": "sp", "words": [["spin", "돌다", "🌀", "s|p|i|n"], ["spill", "쏟다", "🫗", "s|p|i|ll:l"],
-                                             ["spade", "삽", "♠️", "s|p|a:La|d|e*"], ["spot", "점", "🔴", "s|p|o|t"]]},
-        {"name": "sn", "pat": "sn", "words": [["snake", "뱀", "🐍", "s|n|a:La|k|e*"], ["snail", "달팽이", "🐌", "s|n|ai:La|l"],
-                                             ["snow", "눈", "❄️", "s|n|ow:Lo"]]}]},
-    {"day": 6, "kind": "이중자", "families": [
-        {"name": "sh", "pat": "sh", "words": [["ship", "배", "🚢", "sh:sh|i|p"], ["shell", "조개껍데기", "🐚", "sh:sh|e|ll:l"],
-                                             ["fish", "물고기", "🐟", "f|i|sh:sh"], ["sheep", "양", "🐑", "sh:sh|ee:Le|p"]]},
-        {"name": "ch", "pat": "ch", "words": [["chip", "감자칩", "🍟", "ch:ch|i|p"], ["chick", "병아리", "🐥", "ch:ch|i|ck:k"],
-                                             ["cheese", "치즈", "🧀", "ch:ch|ee:Le|s:z|e*"], ["beach", "해변", "🏖️", "b|ea:Le|ch:ch"]]},
-        {"name": "th", "pat": "th", "words": [["three", "셋", "3️⃣", "th:th|r|ee:Le"], ["bath", "목욕", "🛁", "b|a|th:th"],
-                                             ["teeth", "이빨", "🦷", "t|ee:Le|th:th"]]}]},
-    {"day": 7, "kind": "이중자", "families": [
-        {"name": "wh", "pat": "wh", "words": [["whale", "고래", "🐳", "wh:w|a:La|l|e*"], ["wheel", "바퀴", "🛞", "wh:w|ee:Le|l"],
-                                             ["white", "흰색", "⚪", "wh:w|i:Li|t|e*"]]},
-        {"name": "ck", "pat": "ck", "words": [["duck", "오리", "🦆", "d|u|ck:k"], ["sock", "양말", "🧦", "s|o|ck:k"],
-                                             ["rock", "바위", "🪨", "r|o|ck:k"], ["truck", "트럭", "🚚", "t|r|u|ck:k"]]},
-        {"name": "ng", "pat": "ng", "words": [["ring", "반지", "💍", "r|i|ng:ng"], ["king", "왕", "🤴", "k|i|ng:ng"],
-                                             ["sing", "노래하다", "🎤", "s|i|ng:ng"], ["wing", "날개", "🪽", "w|i|ng:ng"]]}]},
-]
-CONS_SENTS = {
-    1: [["I clap and play.", "나는 박수 치며 놀아요.", "👏⚽"], ["The clock is black.", "시계가 검은색이에요.", "🕰️⬛"],
-        ["I see a blue block.", "나는 파란 블록을 봐요.", "🔵🧱"], ["The plant is on the plate.", "식물이 접시 위에 있어요.", "🪴🍽️"]],
-    2: [["The flag is red.", "깃발이 빨개요.", "🚩🔴"], ["I am glad.", "나는 기뻐요.", "😊"],
-        ["I see a slug on the sled.", "썰매 위에 민달팽이가 보여요.", "🐌🛷"], ["The glue is in the glass.", "풀이 유리컵 안에 있어요.", "🧴🥛"]],
-    3: [["The crab can dig.", "게가 땅을 팔 수 있어요.", "🦀⛏️"], ["I see a crow.", "나는 까마귀를 봐요.", "🙋🐦‍⬛"],
-        ["The bride has a dress.", "신부가 드레스를 입었어요.", "👰👗"], ["I hit the drum.", "나는 북을 쳐요.", "🥁"]],
-    4: [["The frog is green.", "개구리가 초록색이에요.", "🐸🟢"], ["I see a tree.", "나는 나무를 봐요.", "🙋🌳"],
-        ["I get on the train.", "나는 기차를 타요.", "🙋🚆"], ["The grass is green.", "풀밭이 초록색이에요.", "🌿🟢"]],
-    5: [["Stop the bus.", "버스를 멈춰요.", "🛑🚌"], ["I see snow.", "나는 눈을 봐요.", "🙋❄️"],
-        ["The snail is on the stone.", "달팽이가 돌 위에 있어요.", "🐌🪨"], ["The snake can spin.", "뱀이 빙글빙글 돌 수 있어요.", "🐍🌀"]],
-    6: [["I see a fish.", "나는 물고기를 봐요.", "🙋🐟"], ["The sheep is in the bath.", "양이 목욕통 안에 있어요.", "🐑🛁"],
-        ["I see three chicks.", "나는 병아리 세 마리를 봐요.", "3️⃣🐥"], ["The chick has a chip.", "병아리가 감자칩을 가졌어요.", "🐥🍟"]],
-    7: [["The duck can sing.", "오리가 노래할 수 있어요.", "🦆🎤"], ["The king has a ring.", "왕이 반지를 가졌어요.", "🤴💍"],
-        ["I see a whale.", "나는 고래를 봐요.", "🙋🐳"], ["The sock is white.", "양말이 흰색이에요.", "🧦⚪"]],
-}
-for _d in CONS:
-    _d["vowel"] = _d["families"][0]["pat"]
-    _d["sents"] = [{"id": f"c{_d['day']}{i + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for i, x in enumerate(CONS_SENTS[_d["day"]])]
-CONS_WORDS = [w for d in CONS for f in d["families"] for w in f["words"]]
-
-# ── LV1 5권 이중모음 ── oo·ew / ou·ow·oi / oy·au·aw / ar·or·er / ir·ur·ear, 하루 패턴 3개, 5일.
-#   조각 태그 :V<키> = 이중모음 소리(dv-<키>), 가족 say = 패턴 소리 음원(소리 만나기에서 씀).
-BOOK5 = "LV1 5권"
-BOOK5_NAME = "이중모음"
 DV_SND = {"oo": ("ʊ", "우"), "ow": ("aʊ", "아우"), "oi": ("ɔɪ", "오이"), "aw": ("ɔ", "오-"),
           "ar": ("ɑɹ", "아ㄹ"), "or": ("ɔɹ", "오ㄹ"), "er": ("ɝ", "얼"), "ear": ("ɪɹ", "이얼")}
-DIPH = [
-    {"day": 1, "kind": "우 소리", "families": [
-        {"name": "oo (긴)", "pat": "oo", "say": "lv-u", "sayko": "우-", "words": [
-            ["moon", "달", "🌙", "m|oo:Lu|n"], ["spoon", "숟가락", "🥄", "s|p|oo:Lu|n"],
-            ["boot", "장화", "👢", "b|oo:Lu|t"], ["pool", "수영장", "🏊", "p|oo:Lu|l"]]},
-        {"name": "oo (짧은)", "pat": "oo", "say": "dv-oo", "sayko": "우", "words": [
-            ["book", "책", "📕", "b|oo:Voo|k"], ["cook", "요리하다", "👨‍🍳", "c|oo:Voo|k"],
-            ["foot", "발", "🦶", "f|oo:Voo|t"], ["hook", "갈고리", "🪝", "h|oo:Voo|k"]]},
-        {"name": "ew", "pat": "ew", "say": "lv-u", "sayko": "우-", "words": [
-            ["new", "새로운", "🆕", "n|ew:Lu"], ["stew", "스튜", "🍲", "s|t|ew:Lu"],
-            ["dew", "이슬", "💧", "d|ew:Lu"], ["screw", "나사", "🔩", "s|c|r|ew:Lu"]]}]},
-    {"day": 2, "kind": "아우 · 오이", "families": [
-        {"name": "ou", "pat": "ou", "say": "dv-ow", "sayko": "아우", "words": [
-            ["house", "집", "🏠", "h|ou:Vow|s|e*"], ["mouse", "생쥐", "🐭", "m|ou:Vow|s|e*"],
-            ["cloud", "구름", "☁️", "c|l|ou:Vow|d"], ["mouth", "입", "👄", "m|ou:Vow|th:th"]]},
-        {"name": "ow", "pat": "ow", "say": "dv-ow", "sayko": "아우", "words": [
-            ["cow", "소", "🐄", "c|ow:Vow"], ["owl", "부엉이", "🦉", "ow:Vow|l"],
-            ["crown", "왕관", "👑", "c|r|ow:Vow|n"], ["clown", "광대", "🤡", "c|l|ow:Vow|n"]]},
-        {"name": "oi", "pat": "oi", "say": "dv-oi", "sayko": "오이", "words": [
-            ["coin", "동전", "🪙", "c|oi:Voi|n"], ["oil", "기름", "🛢️", "oi:Voi|l"],
-            ["boil", "끓이다", "♨️", "b|oi:Voi|l"], ["point", "가리키다", "👉", "p|oi:Voi|n|t"]]}]},
-    {"day": 3, "kind": "오이 · 오-", "families": [
-        {"name": "oy", "pat": "oy", "say": "dv-oi", "sayko": "오이", "words": [
-            ["boy", "소년", "👦", "b|oy:Voi"], ["toy", "장난감", "🧸", "t|oy:Voi"], ["joy", "기쁨", "😄", "j|oy:Voi"]]},
-        {"name": "au", "pat": "au", "say": "dv-aw", "sayko": "오-", "words": [
-            ["sauce", "소스", "🥫", "s|au:Vaw|c:s|e*"], ["launch", "발사하다", "🚀", "l|au:Vaw|n|ch:ch"],
-            ["pause", "멈추다", "⏸️", "p|au:Vaw|s:z|e*"]]},
-        {"name": "aw", "pat": "aw", "say": "dv-aw", "sayko": "오-", "words": [
-            ["saw", "톱", "🪚", "s|aw:Vaw"], ["paw", "발바닥", "🐾", "p|aw:Vaw"],
-            ["draw", "그리다", "✏️", "d|r|aw:Vaw"], ["straw", "빨대", "🥤", "s|t|r|aw:Vaw"]]}]},
-    {"day": 4, "kind": "r 모음", "families": [
-        {"name": "ar", "pat": "ar", "say": "dv-ar", "sayko": "아ㄹ", "words": [
-            ["star", "별", "⭐", "s|t|ar:Var"], ["jar", "병", "🫙", "j|ar:Var"],
-            ["farm", "농장", "🚜", "f|ar:Var|m"], ["shark", "상어", "🦈", "sh:sh|ar:Var|k"]]},
-        {"name": "or", "pat": "or", "say": "dv-or", "sayko": "오ㄹ", "words": [
-            ["corn", "옥수수", "🌽", "c|or:Vor|n"], ["horn", "뿔피리", "📯", "h|or:Vor|n"],
-            ["storm", "폭풍", "⛈️", "s|t|or:Vor|m"], ["fort", "요새", "🏰", "f|or:Vor|t"]]},
-        {"name": "er", "pat": "er", "say": "dv-er", "sayko": "얼", "words": [
-            ["her", "그녀의", "👩", "h|er:Ver"], ["fern", "고사리", "🌿", "f|er:Ver|n"],
-            ["tiger", "호랑이", "🐯", "t|i:Li|g|er:Ver"], ["sister", "언니·누나", "👧", "s|i|s|t|er:Ver"]]}]},
-    {"day": 5, "kind": "r 모음", "families": [
-        {"name": "ir", "pat": "ir", "say": "dv-er", "sayko": "얼", "words": [
-            ["bird", "새", "🐦", "b|ir:Ver|d"], ["girl", "소녀", "👧", "g|ir:Ver|l"],
-            ["shirt", "셔츠", "👕", "sh:sh|ir:Ver|t"], ["first", "첫 번째", "🥇", "f|ir:Ver|s|t"]]},
-        {"name": "ur", "pat": "ur", "say": "dv-er", "sayko": "얼", "words": [
-            ["nurse", "간호사", "👩‍⚕️", "n|ur:Ver|s|e*"], ["purse", "지갑", "👛", "p|ur:Ver|s|e*"],
-            ["surf", "파도 타다", "🏄", "s|ur:Ver|f"], ["burn", "타다", "🔥", "b|ur:Ver|n"]]},
-        {"name": "ear", "pat": "ear", "say": "dv-ear", "sayko": "이얼", "words": [
-            ["ear", "귀", "👂", "ear:Vear"], ["beard", "턱수염", "🧔", "b|ear:Vear|d"], ["year", "해·년", "📅", "y|ear:Vear"]]}]},
-]
-DIPH_SENTS = {
-    1: [["The moon is new.", "달이 새로 떴어요.", "🌙🆕"], ["I look at my book.", "나는 내 책을 봐요.", "🙋📕"],
-        ["My foot is in the pool.", "내 발이 수영장 안에 있어요.", "🦶🏊"], ["I can cook stew.", "나는 스튜를 요리할 수 있어요.", "👨‍🍳🍲"]],
-    2: [["A mouse is in the house.", "생쥐가 집 안에 있어요.", "🐭🏠"], ["The owl is on the cow.", "부엉이가 소 위에 있어요.", "🦉🐄"],
-        ["I have a coin.", "나는 동전이 있어요.", "🪙"], ["The clown has a crown.", "광대가 왕관을 썼어요.", "🤡👑"]],
-    3: [["The boy has a toy.", "소년이 장난감을 가졌어요.", "👦🧸"], ["The cat has a big paw.", "고양이 발바닥이 커요.", "🐱🐾"],
-        ["I like to draw.", "나는 그리는 게 좋아요.", "✏️"], ["The sauce is hot.", "소스가 뜨거워요.", "🥫🔥"]],
-    4: [["I see a star.", "나는 별을 봐요.", "🙋⭐"], ["The shark is big.", "상어가 커요.", "🦈"],
-        ["I like corn.", "나는 옥수수가 좋아요.", "🌽"], ["Her sister is funny.", "그녀의 언니는 웃겨요.", "👧😂"]],
-    5: [["The girl has a bird.", "소녀가 새를 가졌어요.", "👧🐦"], ["My shirt is red.", "내 셔츠는 빨개요.", "👕🔴"],
-        ["The nurse has a purse.", "간호사가 지갑을 가졌어요.", "👩‍⚕️👛"], ["My ear is little.", "내 귀는 작아요.", "👂"]],
+
+
+def _f4(name, pat, ws):
+    return {"name": name, "pat": pat, "words": [list(w) for w in ws]}
+
+
+_U4 = {
+    1: [_f4("bl", "bl", [("black", "검은색", "⬛", "b|l|a|ck:k"), ("blade", "칼날", "🔪", "b|l|a:La|d|e*"), ("blue", "파란색", "🔵", "b|l|ue:Lu")]),
+        _f4("fl", "fl", [("flag", "깃발", "🚩", "f|l|a|g"), ("flame", "불꽃", "🔥", "f|l|a:La|m|e*"), ("flute", "플루트", "🪈", "f|l|u:Lu|t|e*")]),
+        _f4("gl", "gl", [("globe", "지구본", "🌍", "g|l|o:Lo|b|e*"), ("glass", "유리컵", "🥛", "g|l|a|ss:s"), ("glue", "풀", "🧴", "g|l|ue:Lu")]),
+        _f4("sl", "sl", [("slide", "미끄럼틀", "🛝", "s|l|i:Li|d|e*"), ("sled", "썰매", "🛷", "s|l|e|d"), ("sleep", "자다", "😴", "s|l|ee:Le|p")])],
+    2: [_f4("br", "br", [("brick", "벽돌", "🧱", "b|r|i|ck:k"), ("bride", "신부", "👰", "b|r|i:Li|d|e*"), ("brave", "용감한", "🦸", "b|r|a:La|v|e*")]),
+        _f4("cr", "cr", [("crab", "게", "🦀", "c|r|a|b"), ("cross", "십자 모양", "➕", "c|r|o|ss:s"), ("crow", "까마귀", "🐦‍⬛", "c|r|ow:Lo")]),
+        _f4("dr", "dr", [("dress", "드레스", "👗", "d|r|e|ss:s"), ("drum", "북", "🥁", "d|r|u|m"), ("dragon", "용", "🐉", "d|r|a|g|o:u|n")]),
+        _f4("gr", "gr", [("grape", "포도", "🍇", "g|r|a:La|p|e*"), ("grass", "풀밭", "🌿", "g|r|a|ss:s"), ("green", "초록색", "🟢", "g|r|ee:Le|n")])],
+    3: [_f4("ch", "ch", [("chin", "턱", "🧔", "ch:ch|i|n"), ("chip", "감자칩", "🍟", "ch:ch|i|p"), ("chop", "자르다", "🪓", "ch:ch|o|p"),
+                         ("lunch", "점심", "🍱", "l|u|n|ch:ch"), ("ostrich", "타조", "🦤", "o|s|t|r|i|ch:ch"), ("watch", "손목시계", "⌚", "w|a:o|tch:ch")]),
+        _f4("sh", "sh", [("ship", "배", "🚢", "sh:sh|i|p"), ("shape", "모양", "🔷", "sh:sh|a:La|p|e*"), ("shark", "상어", "🦈", "sh:sh|ar:Var|k"),
+                         ("brush", "솔", "🪥", "b|r|u|sh:sh"), ("fish", "물고기", "🐟", "f|i|sh:sh"), ("wash", "씻다", "🧼", "w|a:o|sh:sh")])],
+    4: [_f4("th", "th", [("thick", "두꺼운", "📗", "th:th|i|ck:k"), ("thin", "얇은", "🥢", "th:th|i|n"), ("three", "셋", "3️⃣", "th:th|r|ee:Le"),
+                         ("bath", "목욕", "🛁", "b|a|th:th"), ("teeth", "이빨", "🦷", "t|ee:Le|th:th"), ("mouth", "입", "👄", "m|ou:Vow|th:th")]),
+        _f4("wh", "wh", [("white", "흰색", "⚪", "wh:w|i:Li|t|e*"), ("whale", "고래", "🐳", "wh:w|a:La|l|e*"), ("wheel", "바퀴", "🛞", "wh:w|ee:Le|l"),
+                         ("whip", "채찍", "🪢", "wh:w|i|p"), ("whisk", "거품기", "🥄", "wh:w|i|s|k"), ("whisper", "속삭이다", "🤫", "wh:w|i|s|p|er:Ver")])],
+    5: [_f4("hard c", "c", [("candy", "사탕", "🍬", "c|a|n|d|y:Le"), ("cut", "자르다", "✂️", "c|u|t"), ("cold", "추운", "🥶", "c|o:Lo|l|d")]),
+        _f4("soft c", "c", [("city", "도시", "🏙️", "c:s|i|t|y:Le"), ("face", "얼굴", "🙂", "f|a:La|c:s|e*"), ("bicycle", "자전거", "🚲", "b|i:Li|c:s|y:i|c|l|e*")]),
+        _f4("hard g", "g", [("gum", "껌", "🫧", "g|u|m"), ("gorilla", "고릴라", "🦍", "g|o|r|i|ll:l|a:u"), ("alligator", "악어", "🐊", "a|ll:l|i|g|a:La|t|or:Vor")]),
+        _f4("soft g", "g", [("giraffe", "기린", "🦒", "g:j|i|r|a|ff:f|e*"), ("gym", "체육관", "🏋️", "g:j|y:i|m"), ("cage", "새장", "🔲", "c|a:La|g:j|e*")])],
 }
-for _d in DIPH:
-    _d["vowel"] = _d["families"][0]["pat"]
-    _d["sents"] = [{"id": f"v{_d['day']}{i + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for i, x in enumerate(DIPH_SENTS[_d["day"]])]
+_S4 = {
+    1: [["The flag is blue.", "깃발이 파래요.", "🚩🔵"], ["I sleep on the sled.", "나는 썰매 위에서 자요.", "😴🛷"]],
+    2: [["The crab has a drum.", "게가 북을 가졌어요.", "🦀🥁"], ["The grass is green.", "풀밭이 초록색이에요.", "🌿🟢"]],
+    3: [["I see a fish and a ship.", "나는 물고기와 배를 봐요.", "🐟🚢"], ["I eat lunch and chips.", "나는 점심과 감자칩을 먹어요.", "🍱🍟"]],
+    4: [["I see three whales.", "나는 고래 세 마리를 봐요.", "3️⃣🐳"], ["My teeth are white.", "내 이는 하얘요.", "🦷⚪"]],
+    5: [["The city is big.", "도시가 커요.", "🏙️"], ["I see a giraffe at the zoo.", "나는 동물원에서 기린을 봐요.", "🦒"]],
+}
+_PLAN4 = [("unit", "Before You Start", "장모음 복습", [0]), ("unit", "Unit 1", "bl · fl · gl · sl", [1]), ("unit", "Unit 2", "br · cr · dr · gr", [2]),
+          ("unit", "Unit 3", "ch · sh", [3]), ("unit", "Unit 4", "th · wh", [4]), ("unit", "Unit 5", "hard/soft c · g", [5]),
+          ("review", "Review", "Unit 1~5", [1, 2, 3, 4, 5])]
+CONS = []
+for _i, (_kind, _name, _label, _units) in enumerate(_PLAN4):
+    _d = {"day": _i + 1, "kind": _kind, "name": _name, "label": _label, "units": _units, "families": [], "sents": [], "vowel": ""}
+    if _kind == "unit" and _units[0] == 0:
+        # 장모음 복습: 3권 Unit 1·3·6·8 의 첫 가족(-ake·-ice·-ole·-ube)
+        _src = [x for x in LONG if x["kind"] == "unit"]
+        _d.update(nomeet=True, kind="unit",
+                  families=[dict(next(x for x in _src if x["units"][0] == u)["families"][0]) for u in (1, 3, 6, 8)],
+                  sents=[x for u in (1, 4) for x in next(y for y in _src if y["units"][0] == u)["sents"][:1]])
+    elif _kind == "unit":
+        _d.update(families=_U4[_units[0]], vowel=_U4[_units[0]][0]["pat"],
+                  sents=[{"id": f"c{_units[0]}{j + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for j, x in enumerate(_S4[_units[0]])])
+    CONS.append(_d)
+CONS_WORDS = [w for d in CONS for f in d["families"] for w in f["words"]]
+for _d in CONS:
+    if _d["kind"] == "review":
+        _d["items"] = [w[0] for x in CONS if x["kind"] == "unit" and x["units"][0] in _d["units"] for f in x["families"] for w in f["words"]]
+    else:
+        _d["items"] = [w[0] for f in _d["families"] for w in f["words"]]
+
+# ── LV1 5권 이중모음 ── Phonics Monster 4 뒤쪽(원장 2026-11-02, 학습 달 7~8달 그대로):
+#   Unit 6 ai ay → Unit 7 ea ee → Unit 8 oa ow → Unit 9 ou ow → Unit 10 long/short oo → Review.
+BOOK5 = "LV1 5권"
+BOOK5_NAME = "이중모음"
+_U5 = {
+    6: [_f4("ai", "ai", [("mail", "편지", "📬", "m|ai:La|l"), ("snail", "달팽이", "🐌", "s|n|ai:La|l"), ("rain", "비", "🌧️", "r|ai:La|n"),
+                         ("tail", "꼬리", "🐿️", "t|ai:La|l"), ("train", "기차", "🚆", "t|r|ai:La|n"), ("wait", "기다리다", "⏳", "w|ai:La|t")]),
+        _f4("ay", "ay", [("hay", "건초", "🌾", "h|ay:La"), ("crayon", "크레용", "🖍️", "c|r|ay:La|o:u|n"), ("gray", "회색", "🩶", "g|r|ay:La"),
+                         ("clay", "찰흙", "🟫", "c|l|ay:La"), ("spray", "뿌리다", "💨", "s|p|r|ay:La"), ("play", "놀다", "⚽", "p|l|ay:La")])],
+    7: [_f4("ea", "ea", [("eat", "먹다", "🍽️", "ea:Le|t"), ("beach", "해변", "🏖️", "b|ea:Le|ch:ch"), ("sea", "바다", "🌊", "s|ea:Le"),
+                         ("meat", "고기", "🥩", "m|ea:Le|t"), ("leaf", "나뭇잎", "🍃", "l|ea:Le|f"), ("clean", "깨끗한", "🧹", "c|l|ea:Le|n")]),
+        _f4("ee", "ee", [("bee", "벌", "🐝", "b|ee:Le"), ("sheep", "양", "🐑", "sh:sh|ee:Le|p"), ("seed", "씨앗", "🌱", "s|ee:Le|d"),
+                         ("tree", "나무", "🌳", "t|r|ee:Le"), ("feet", "발", "🦶", "f|ee:Le|t"), ("green", "초록색", "🟢", "g|r|ee:Le|n")])],
+    8: [_f4("oa", "oa", [("boat", "배", "⛵", "b|oa:Lo|t"), ("toast", "토스트", "🍞", "t|oa:Lo|s|t"), ("soap", "비누", "🧼", "s|oa:Lo|p"),
+                         ("coat", "코트", "🧥", "c|oa:Lo|t"), ("goat", "염소", "🐐", "g|oa:Lo|t"), ("road", "길", "🛣️", "r|oa:Lo|d")]),
+        _f4("ow (오우)", "ow", [("bowl", "그릇", "🥣", "b|ow:Lo|l"), ("crow", "까마귀", "🐦‍⬛", "c|r|ow:Lo"), ("snow", "눈", "❄️", "s|n|ow:Lo"),
+                               ("blow", "불다", "🌬️", "b|l|ow:Lo"), ("window", "창문", "🪟", "w|i|n|d|ow:Lo"), ("yellow", "노란색", "🟡", "y|e|ll:l|ow:Lo")])],
+    9: [_f4("ou", "ou", [("house", "집", "🏠", "h|ou:Vow|s|e*"), ("couch", "소파", "🛋️", "c|ou:Vow|ch:ch"), ("cloud", "구름", "☁️", "c|l|ou:Vow|d"),
+                         ("mouse", "생쥐", "🐭", "m|ou:Vow|s|e*"), ("blouse", "블라우스", "👚", "b|l|ou:Vow|s|e*"), ("count", "세다", "🔢", "c|ou:Vow|n|t")]),
+        _f4("ow (아우)", "ow", [("owl", "부엉이", "🦉", "ow:Vow|l"), ("brown", "갈색", "🟤", "b|r|ow:Vow|n"), ("cow", "소", "🐄", "c|ow:Vow"),
+                               ("clown", "광대", "🤡", "c|l|ow:Vow|n"), ("crown", "왕관", "👑", "c|r|ow:Vow|n"), ("down", "아래로", "⬇️", "d|ow:Vow|n")])],
+    10: [_f4("oo (긴)", "oo", [("moon", "달", "🌙", "m|oo:Lu|n"), ("spoon", "숟가락", "🥄", "s|p|oo:Lu|n"), ("food", "음식", "🍱", "f|oo:Lu|d"),
+                              ("zoo", "동물원", "🦒🐘", "z|oo:Lu"), ("moose", "무스", "🫎", "m|oo:Lu|s|e*"), ("school", "학교", "🏫", "s|ch:k|oo:Lu|l")]),
+         _f4("oo (짧은)", "oo", [("book", "책", "📕", "b|oo:Voo|k"), ("foot", "발", "🦶", "f|oo:Voo|t"), ("cook", "요리하다", "👨‍🍳", "c|oo:Voo|k"),
+                                ("wood", "나무(목재)", "🪵", "w|oo:Voo|d"), ("hook", "갈고리", "🪝", "h|oo:Voo|k"), ("cookie", "쿠키", "🍪", "c|oo:Voo|k|ie:Le")])],
+}
+_SAY5 = {"ai": ("lv-a", "에이"), "ay": ("lv-a", "에이"), "ea": ("lv-e", "이-"), "ee": ("lv-e", "이-"), "oa": ("lv-o", "오우"),
+         "ow (오우)": ("lv-o", "오우"), "ou": ("dv-ow", "아우"), "ow (아우)": ("dv-ow", "아우"), "oo (긴)": ("lv-u", "우-"), "oo (짧은)": ("dv-oo", "우")}
+for _fs in _U5.values():
+    for _f in _fs:
+        _f["say"], _f["sayko"] = _SAY5[_f["name"]]
+_S5 = {
+    6: [["The snail is in the rain.", "달팽이가 비를 맞아요.", "🐌🌧️"], ["I play with clay.", "나는 찰흙으로 놀아요.", "⚽🟫"]],
+    7: [["I eat meat at the beach.", "나는 해변에서 고기를 먹어요.", "🥩🏖️"], ["The bee is on the tree.", "벌이 나무 위에 있어요.", "🐝🌳"]],
+    8: [["The goat has a coat.", "염소가 코트를 입었어요.", "🐐🧥"], ["I see snow on the road.", "나는 길 위의 눈을 봐요.", "❄️🛣️"]],
+    9: [["A mouse is in the house.", "생쥐가 집 안에 있어요.", "🐭🏠"], ["The clown has a crown.", "광대가 왕관을 썼어요.", "🤡👑"]],
+    10: [["I eat food with a spoon.", "나는 숟가락으로 음식을 먹어요.", "🍱🥄"], ["I look at my book.", "나는 내 책을 봐요.", "📕"]],
+}
+_PLAN5 = [("unit", "Unit 6", "ai · ay", [6]), ("unit", "Unit 7", "ea · ee", [7]), ("unit", "Unit 8", "oa · ow", [8]),
+          ("unit", "Unit 9", "ou · ow", [9]), ("unit", "Unit 10", "long/short oo", [10]), ("review", "Review", "Unit 6~10", [6, 7, 8, 9, 10])]
+DIPH = []
+for _i, (_kind, _name, _label, _units) in enumerate(_PLAN5):
+    _d = {"day": _i + 1, "kind": _kind, "name": _name, "label": _label, "units": _units, "families": [], "sents": [], "vowel": ""}
+    if _kind == "unit":
+        _d.update(families=_U5[_units[0]], vowel=_U5[_units[0]][0]["pat"],
+                  sents=[{"id": f"v{_units[0]}{j + 1}", "en": x[0], "ko": x[1], "pic": x[2]} for j, x in enumerate(_S5[_units[0]])])
+    DIPH.append(_d)
 DIPH_WORDS = [w for d in DIPH for f in d["families"] for w in f["words"]]
+for _d in DIPH:
+    if _d["kind"] == "review":
+        _d["items"] = [w[0] for x in DIPH if x["kind"] == "unit" and x["units"][0] in _d["units"] for f in x["families"] for w in f["words"]]
+    else:
+        _d["items"] = [w[0] for f in _d["families"] for w in f["words"]]
 
 # ── LV1 6권 총복습 ── 1~5권 가족을 섞어 다시 돈다(9~10개월). 새 단어 없음 → 소리·문장 음원 그대로.
 #   (책, Day, 가족 번호). 문장은 가족이 나온 날의 문장을 하나씩 + 하나 더.
@@ -409,10 +378,10 @@ REV_PLAN = [
     ("단모음 ②", [("s", 13, 0), ("s", 9, 0), ("s", 3, 0)]),
     ("장모음 ①", [("l", 2, 0), ("l", 4, 0), ("l", 7, 0)]),
     ("장모음 ②", [("l", 8, 0), ("l", 9, 0), ("l", 3, 0)]),
-    ("블렌드", [("c", 1, 0), ("c", 3, 1), ("c", 5, 0)]),
-    ("이중자", [("c", 6, 0), ("c", 6, 1), ("c", 7, 2)]),
-    ("이중모음 ①", [("d", 1, 0), ("d", 2, 0), ("d", 2, 2)]),
-    ("이중모음 ②", [("d", 3, 2), ("d", 4, 0), ("d", 5, 0)]),
+    ("블렌드", [("c", 2, 0), ("c", 3, 1), ("c", 3, 3)]),
+    ("이중자", [("c", 4, 1), ("c", 4, 0), ("c", 5, 0)]),
+    ("이중모음 ①", [("d", 5, 0), ("d", 4, 0), ("d", 1, 0)]),
+    ("이중모음 ②", [("d", 2, 1), ("d", 3, 0), ("d", 4, 1)]),
 ]
 REV = []
 for _i, (_kind, _parts) in enumerate(REV_PLAN):
@@ -592,10 +561,9 @@ def _templates():
                  "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                  "exampleAudio": [], "recordMode": "each", "published": False})
     for d in CONS:
-        fam = " / ".join(f["name"] for f in d["families"])
-        rows.append({"id": f"phx-lv1-4-d{d['day']:02d}", "title": f"{BOOK4} {BOOK4_NAME} Day {d['day']} ({fam})",
+        rows.append({"id": f"phx-lv1-4-d{d['day']:02d}", "title": f"{BOOK4} {BOOK4_NAME} Day {d['day']} ({d['name']}: {d['label']})",
                      "book": BOOK4, "type": "phonics", "phonicsDay": d["day"],
-                     "items": [w[0] for f in d["families"] for w in f["words"]],
+                     "items": d["items"],
                      "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                      "exampleAudio": [], "recordMode": "each", "published": False})
     rows.append({"id": "phx-lv1-4-exam", "title": f"{BOOK4} {BOOK4_NAME} 진급시험", "book": BOOK4,
@@ -613,10 +581,9 @@ def _templates():
                  "passScore": 70, "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                  "exampleAudio": [], "recordMode": "each", "published": False})
     for d in DIPH:
-        fam = " / ".join(f["name"] for f in d["families"])
-        rows.append({"id": f"phx-lv1-5-d{d['day']:02d}", "title": f"{BOOK5} {BOOK5_NAME} Day {d['day']} ({fam})",
+        rows.append({"id": f"phx-lv1-5-d{d['day']:02d}", "title": f"{BOOK5} {BOOK5_NAME} Day {d['day']} ({d['name']}: {d['label']})",
                      "book": BOOK5, "type": "phonics", "phonicsDay": d["day"],
-                     "items": [w[0] for f in d["families"] for w in f["words"]],
+                     "items": d["items"],
                      "meanings": [], "rounds": 1, "dueDate": None, "assignedIds": [], "assignedClasses": [],
                      "exampleAudio": [], "recordMode": "each", "published": False})
     rows.append({"id": "phx-lv1-5-exam", "title": f"{BOOK5} {BOOK5_NAME} 진급시험", "book": BOOK5,
@@ -756,7 +723,8 @@ def make_router(*, data_dir: Path, azure_key, azure_region, run_assessment,
                          "snd": {k: v[1] for k, v in LONG_SND.items()}},
                 "cons": {"book": BOOK4, "bookName": BOOK4_NAME, "days": CONS,
                          "snd": {k: v[1] for k, v in LONG_SND.items()},
-                         "dg": {k: v[1] for k, v in DIGRAPH_SND.items()}},
+                         "dg": {k: v[1] for k, v in DIGRAPH_SND.items()},
+                         "dv": {k: v[1] for k, v in DV_SND.items()}},
                 "sight": {"book": BOOKS, "bookName": "사이트워즈", "days": SIGHT_DAYS},
                 "rev": {"book": BOOK6, "bookName": BOOK6_NAME, "days": REV,
                         "snd": {k: v[1] for k, v in LONG_SND.items()},
