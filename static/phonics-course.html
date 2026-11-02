@@ -81,7 +81,7 @@ const E = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt
   }
 
   // 칸 하나 = 책의 Day 하나
-  const dayLabel = (bk, d) => (bk==1 || bk==2) && d.name ? `${d.name} · ${d.label}`
+  const dayLabel = (bk, d) => (bk==1 || bk==2 || bk==3) && d.name ? `${d.name} · ${d.label}`
     : bk==1 ? d.letters.map(x=>x.toUpperCase()).join(' · ')
     : bk==='s' ? d.words.map(w=>w[0]).join(' · ')
     : bk==6 ? d.kind : bk==2 ? `짧은 ${d.vowel}` : bk==3 ? `긴 ${d.vowel}` : d.families.map(f=>f.name).join(' · ');

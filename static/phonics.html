@@ -348,10 +348,11 @@ function build(){
     if(kd==='read'){ push(['canread']); return }
     if(kd==='zero'){ push(['review','vmeet5','vfind','quiz']); return }
     if(kd==='game'){ push(['review','board','vfind','listen','quiz']); return }
-    if(kd==='review'){ push(['review','wreview','vfind','unscr','listen','spell','sread','quiz']); return }
+    if(kd==='review'){ push(BK === C.short ? ['review','wreview','vfind','unscr','listen','spell','sread','quiz']
+                                           : ['review','wreview','board','unscr','listen','spell','sread','quiz']); return }
     STEPS.push({t:'review'});
     if(BK.days.some(d=>d.day < DAY && (d.families||[]).length)) STEPS.push({t:'wreview'});   // 앞에 배운 단어가 있을 때만(2권 Zero Unit 다음 날 같은 경우)
-    if(!REVMODE) STEPS.push({t: CONSMODE ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});
+    if(!REVMODE && !SD.nomeet) STEPS.push({t: CONSMODE ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});   // Magic e 날은 만나기 없음
     SD.families.forEach((f,fi)=>{ ['train','house','match'].forEach(t=>STEPS.push({t, f:fi})) });
     ['unscr','listen','spell','sbuild','sread'].forEach(t=>STEPS.push({t}));
     if(BK === C.short) STEPS.push({t:'vfind'});   // 단모음 음가 찾기(원장 2026-11-02)
@@ -421,6 +422,8 @@ let SHORTMODE = false, LONGMODE = false, CONSMODE = false, REVMODE = false, SD =
 const WD = {};   // 단어 → {w, f, d}
 function shortInit(){ BK.days.forEach(d=>d.families.forEach(f=>f.words.forEach(w=>{ WD[w[0]] = {w, f, d} }))) }
 const dayWords = () => SD.families.flatMap(f=>f.words);
+// 같은 단어가 두 Unit 에 나오면(tube: 긴 u·Magic e) 오늘 배우는 가족에서 보기를 고른다
+const famOf = w => ((SD && SD.families || []).find(f=>f.words.some(x=>x[0]===w)) || WD[w].f).words;
 const vowelOf = word => [...word].find(ch=>'aeiou'.includes(ch)) || '';
 function hiV(word){
   // 장모음: 그 단어 가족의 철자를 금색으로 — 팀(ai·igh)은 통째로, 매직 e(a_e)는 모음과 끝 e
@@ -637,7 +640,7 @@ function cmeet(){
 function listen(){
   const ws = dayWords(), targets = shuffle(ws).slice(0, 6); let r = 0;
   function round(){
-    const w = targets[r], fam = WD[w[0]].f.words; let solved = false;
+    const w = targets[r], fam = famOf(w[0]); let solved = false;
     const opts = shuffle([w].concat(shuffle(fam.filter(x=>x[0]!==w[0])).slice(0,2)));
     h(`<p class="guide">🎧 잘 듣고 그림을 골라요 <small>${r+1} / ${targets.length}</small></p>
        <button class="spk" id="sp">🔊</button>
@@ -684,7 +687,7 @@ function spell(){
 
 // 단모음 문제 만들기(오늘의 퀴즈·진급시험): word=듣고 그림 / read=그림 보고 단어 읽기 / vowel=가운데 소리 / first=첫 글자 / say=말하기
 function sq(type, w){
-  const fam = WD[w[0]].f.words, q = {type, k:w[0], w, hk:vowelOf(w[0])};
+  const fam = famOf(w[0]), q = {type, k:w[0], w, hk:vowelOf(w[0])};
   const others = n => shuffle(fam.filter(x=>x[0]!==w[0])).slice(0,n);
   if(type==='word' || type==='read') q.opts = shuffle([w].concat(others(2)));
   const dayPats = [...new Set(WD[w[0]].d.families.map(f=>f.pat).filter(Boolean))];
@@ -699,7 +702,7 @@ function sq(type, w){
   return q;
 }
 function shortQuiz(){
-  const ws = shuffle(dayWords());
+  const w0 = shuffle(dayWords()), ws = Array.from({length:7}, (_,i)=>w0[i % w0.length]);   // 단어가 7개보다 적은 날(긴 u)도
   const ss = shuffle(SD.sents);
   return shuffle([sq('word', ws[0]), sq('word', ws[1]), sq('read', ws[2]), sq('read', ws[3]),
                   sq('vowel', ws[4]), sq('first', ws[5]), sentQ('sent', ss[0], SD.sents), sentQ('hsent', ss[1], SD.sents)])
@@ -1099,7 +1102,7 @@ function board(){
       opts = shuffle([c.k].concat(shuffle(LET.filter(x=>x!==c.k)).concat(shuffle(ALL26)).filter((x,i,a)=>x!==c.k && a.indexOf(x)===i).slice(0,2)));
       isRight = x=>x===c.k; render = x=>x; guide = end ? '어떤 소리가 들어 있을까?' : '무슨 소리로 시작할까?';
     } else {
-      const fam = WD[c.w[0]].f.words;
+      const fam = famOf(c.w[0]);
       opts = shuffle([c.w].concat(shuffle(fam.filter(x=>x[0]!==c.w[0])).slice(0,2))).map(x=>x[0]);
       isRight = x=>x===c.w[0]; render = x=>x; guide = '그림에 맞는 단어는?';
     }
