@@ -94,10 +94,12 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 .map{display:flex;flex-direction:column;gap:12px;width:min(94vw,640px)}
 .lane{background:#fff;border-radius:22px;padding:12px 14px;box-shadow:0 5px 0 #e7dcc2;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .lane .lt{font-size:44px;width:64px;text-align:center;color:var(--navy);font-weight:700}
-.node{width:64px;height:64px;border-radius:18px;background:#f1e8d2;font-size:30px;position:relative}
+/* 이름표는 버튼 안에(원장 11/02 '글자가 작고 짤리고' — 아래로 삐져나와 줄 밖에서 잘렸다) */
+.node{width:84px;min-height:84px;border-radius:18px;background:#f1e8d2;font-size:30px;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px 4px}
 .node.done{background:#fff3c4;box-shadow:inset 0 0 0 3px var(--gold)}
 .node.next{background:var(--gold);animation:pulse .7s infinite alternate}
-.node span{position:absolute;left:0;right:0;bottom:-20px;font-size:13px;color:#8a7d60}
+.node span{font-size:15px;line-height:1.15;color:#5f5440;font-weight:600;word-break:keep-all}
+.lane .sents{flex-basis:100%;font-size:20px;line-height:1.5;color:#5f5440;padding:4px 4px 0}
 .tree{position:relative;width:min(80vw,340px);height:min(80vw,340px)}
 .tree .crown{position:absolute;left:5%;right:5%;top:0;height:72%;background:var(--leaf);border-radius:50%;box-shadow:inset -18px -18px 0 var(--leaf2)}
 .tree .trunk{position:absolute;left:43%;width:14%;bottom:0;height:34%;background:#8d6e63;border-radius:8px}
@@ -960,7 +962,7 @@ function goSight(nextI, node){
   const idx = f => STEPS.map((s,i)=>f(s)?i:-1).filter(i=>i>=0);
   let lanes = `<div class="lane"><div class="lt" style="font-size:24px">단어</div>${idx(s=>['sflash','sfind','sunscr','ssay'].includes(s.t)).map(node).join('')}</div>`;
   lanes += `<div class="lane"><div class="lt" style="font-size:24px">문장</div>${idx(s=>['sbuild','sread','quiz'].includes(s.t)).map(node).join('')}
-    <span class="en" style="font-size:16px;color:#8a7d60">${SD.sents.map(x=>x.en).join('  ')}</span></div>`;
+    <div class="en sents">${SD.sents.map(x=>x.en).join('<br>')}</div></div>`;
   h(`<p class="guide">${SNAME?SNAME+', ':''}사이트워즈 ${DAY}세트 <small>보자마자 읽는 단어예요</small></p>
      <div class="row" style="gap:10px;margin-bottom:10px">${SD.words.map(w=>`<span class="light en" style="font-size:30px"><b style="color:var(--navy)">${w[0]}</b></span>`).join('')}</div>
      <div class="map">${lanes}</div>
@@ -1173,16 +1175,16 @@ const E2 = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&l
 function goShort(nextI, node){
   const idx = f => STEPS.map((s,i)=>f(s)?i:-1).filter(i=>i>=0);
   let lanes = `<div class="lane"><div class="lt" style="font-size:24px">매일</div>${idx(s=>['review','wreview'].includes(s.t)).map(node).join('')}
-    <span style="font-size:16px;color:#8a7d60">26자 소리 녹음${DAY>1?' · 지난 단어':''}</span></div>`;
+    <span style="font-size:18px;color:#5f5440">26자 소리 녹음${DAY>1?' · 지난 단어':''}</span></div>`;
   if(!REVMODE) lanes += `<div class="lane"><div class="lt en" ${CONSMODE?'style="font-size:22px;width:auto;min-width:64px"':''}>${CONSMODE ? [...new Set(SD.families.map(f=>f.pat))].join(' ') : SD.vowel.toUpperCase()+SD.vowel}</div>${idx(s=>['meet','lmeet','cmeet'].includes(s.t)).map(node).join('')}
-    <span style="font-size:16px;color:#8a7d60">${CONSMODE ? SD.kind : LONGMODE ? `긴 소리 '${BK.snd[SD.snd]}'` : `짧은 소리 '${C.letters[SD.vowel].ko}'`}</span></div>`;
+    <span style="font-size:18px;color:#5f5440">${CONSMODE ? SD.kind : LONGMODE ? `긴 소리 '${BK.snd[SD.snd]}'` : `짧은 소리 '${C.letters[SD.vowel].ko}'`}</span></div>`;
   SD.families.forEach((f,fi)=>{
     lanes += `<div class="lane"><div class="lt en" style="font-size:22px;width:auto;min-width:64px">${f.name}</div>${idx(s=>s.f===fi).map(node).join('')}
       <span class="en" style="font-size:18px;color:#8a7d60">${f.words.map(w=>w[0]).join(' · ')}</span></div>`;
   });
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">섞어<br>놀기</div>${idx(s=>['unscr','listen','spell'].includes(s.t)).map(node).join('')}</div>`;
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">문장</div>${idx(s=>['sbuild','sread','quiz'].includes(s.t)).map(node).join('')}
-    <span class="en" style="font-size:16px;color:#8a7d60">${SD.sents.map(x=>x.en).join('  ')}</span></div>`;
+    <div class="en sents">${SD.sents.map(x=>x.en).join('<br>')}</div></div>`;
   h(`<p class="guide">${SNAME?SNAME+', ':''}${REVMODE ? `총복습 · ${SD.kind}<small>앞에서 배운 소리를 다시 읽어요</small>` : CONSMODE ? `오늘은 <span class="en" style="font-size:32px">${SD.families.map(f=>f.name).join(' · ')}</span> 소리를 읽어요!`
        : `오늘은 ${LONGMODE?'긴':'짧은'} <span class="en" style="font-size:32px">${SD.vowel}</span> 소리 단어를 읽어요!`}<small>반짝이는 칸을 눌러요</small></p>
      <div class="map">${lanes}</div>
