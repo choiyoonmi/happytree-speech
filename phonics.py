@@ -817,7 +817,7 @@ def _mastery(quiz_ok, quiz_n, exam_ok, exam_n, say):
 # 소리 하나(snd-·lv-)는 크기를 맞춘다(원장 2026-10-30 "day 에서 ㄷ 소리가 너무 작아").
 #   실측: 모음 '에이' 최대 -6dB 인데 ㄷ -21·ㅂ -26·ㄱ -26·ㅋ -25dB — 떼어 낸 자음은 4~8배 작게 나온다.
 #   모양은 그대로 두고 가장 큰 소리를 -2dB 로 끌어올린다(+24dB 까지). NORM_TAG 를 바꾸면 다시 만들어진다.
-NORM_TAG = "|mean-17x2"
+NORM_TAG = "|peak3-mean-17x2"
 
 
 def _needs_norm(aid):
@@ -844,6 +844,16 @@ def _normalize(data: bytes) -> bytes:
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
             f.write(data); src = f.name
         cur, out = src, None
+        # 0) 최고점부터 -3dB 로 — th·h·v 원본은 최고점 -40dB 라 무음 자르기(-45dB)에 통째로 잘려 평균을 못 쟀다
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-i", src, "-af", "volumedetect", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=30)
+        m = _re.search(r"max_volume: (-?[0-9.]+) dB", r.stderr or "")
+        if m and float(m.group(1)) < -3.5:
+            dst = f"{src}.p.mp3"
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-y", "-i", src, "-af", f"volume={min(45.0, -3.0 - float(m.group(1))):.1f}dB",
+                                "-codec:a", "libmp3lame", "-b:a", "64k", dst], capture_output=True, timeout=30)
+            if r.returncode == 0:
+                cur = out = dst
         for k in range(2):
             mv = mean_of(cur)
             if mv is None:
@@ -869,7 +879,7 @@ def _normalize(data: bytes) -> bytes:
         print("[phonics] 음량 맞추기 실패(원본 사용):", e)
         return data
     finally:
-        for x in (src, dst):
+        for x in (src, dst, f"{src}.p.mp3" if src else None, f"{src}.0.mp3" if src else None):
             if x:
                 try: _os.unlink(x)
                 except Exception: pass
