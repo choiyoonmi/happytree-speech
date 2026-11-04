@@ -5237,19 +5237,146 @@ function SkipDayBar({ reload }) {
   );
 }
 
+// ★단어급수 시험지(원장 2026-11-04 "시험지 출력할 수 있게") — 교재 달력에 들어가지 않고 급수·권·Day만 골라 뽑는다.
+// 교재 상세의 📝 는 그 교재 과제를 전부 넣어서, 학생별 사본·조각이 많은 권(LV2 1권 109개)은 같은 Day가 여러 장 나왔다.
+// 그래서 Day 번호로 묶어 한 Day 한 장으로 줄인다. 통째 과제가 없으면 (1/2)(2/2) 조각을 이어 붙인다.
+function gradeBooks(assignments) {
+  const books = {};
+  for (const a of assignments) {
+    const m = /^LV(\d+) (\d+)권$/.exec(a.book || "");
+    const d = /Day (\d+)/.exec(a.title || "");
+    if (!m || !d || a.type !== "word" || !(a.items || []).length) continue;
+    const b = (books[a.book] = books[a.book] || { book: a.book, lv: +m[1], vol: +m[2], days: {} });
+    (b.days[+d[1]] = b.days[+d[1]] || []).push(a);
+  }
+  const pieceOf = (a) => { const p = /\((\d+)\/\d+\)\s*$/.exec(a.title); return p ? +p[1] : 0; };
+  return Object.values(books).map(b => ({
+    ...b,
+    days: Object.keys(b.days).map(Number).sort((x, y) => x - y).map(n => {
+      const all = b.days[n];
+      const whole = all.filter(a => !pieceOf(a)).sort((x, y) => y.items.length - x.items.length)[0];
+      const parts = {};
+      all.filter(pieceOf).forEach(a => { parts[pieceOf(a)] = parts[pieceOf(a)] || a; });
+      const src = whole ? [whole] : Object.keys(parts).map(Number).sort((x, y) => x - y).map(k => parts[k]);
+      const title = src[0].title.replace(/\s*\(\d+\/\d+\)\s*$/, "").replace(/\s*\(\d+일차\)/, "");
+      const words = [];
+      src.forEach(a => a.items.forEach((w, i) => words.push({ no: words.length + 1, word: w, kor: (a.meanings && a.meanings[i]) || "" })));
+      return { n, title, words };
+    }),
+  })).sort((x, y) => x.lv - y.lv || x.vol - y.vol);
+}
+
+function GradeTestPanel({ assignments }) {
+  const books = gradeBooks(assignments);
+  const levels = [...new Set(books.map(b => b.lv))];
+  const [lv, setLv] = useState(levels[0]);
+  const [vol, setVol] = useState(1);
+  const [picked, setPicked] = useState([]);       // 고른 Day 번호
+  const [dir, setDir] = useState("kor_to_eng");
+  const [shuffle, setShuffle] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [pdf, setPdf] = useState(null);           // {url, name, pages}
+  const vols = books.filter(b => b.lv === lv);
+  const cur = vols.find(b => b.vol === vol) || vols[0];
+  const dropPdf = () => { if (pdf) URL.revokeObjectURL(pdf.url); setPdf(null); setErr(""); };
+  const pickBook = (l, v) => { setLv(l); setVol(v); setPicked([]); dropPdf(); };
+  const toggle = (n) => { setPicked(p => p.includes(n) ? p.filter(x => x !== n) : [...p, n]); dropPdf(); };
+  const chip = { fontSize: 13, padding: "6px 11px" };
+
+  const make = async () => {
+    const days = cur.days.filter(d => picked.includes(d.n));
+    setBusy(true); dropPdf();
+    try {
+      const res = await fetch("/api/vocab-test", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          book_title: cur.book, direction: dir, shuffle,
+          units: days.map(d => ({ unit_title: d.title, words: d.words })),
+        }),
+      });
+      if (!res.ok) {
+        let detail = "생성기 응답 오류 (" + res.status + ")";
+        try { const j = await res.json(); detail = j.detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const span = days.length === 1 ? `Day${days[0].n}` : `Day${days[0].n}-${days[days.length - 1].n}`;
+      setPdf({ url, pages: days.length, name: `${cur.book.replace(/\s+/g, "_")}_${span}_단어시험지.pdf` });
+    } catch (e) {
+      setErr("시험지를 못 만들었어요: " + e.message);
+    }
+    setBusy(false);
+  };
+
+  if (!cur) return <div className="card">등록된 단어급수 교재가 없어요.</div>;
+  return (
+    <div className="card">
+      <b style={{ fontSize: 15 }}>📝 단어급수 시험지</b>
+      <div style={{ fontSize: 12, color: "#777", margin: "4px 0 12px" }}>급수·권·Day를 고르면 Day마다 A4 한 장으로 만들어요.</div>
+      <div style={{ fontSize: 13, marginBottom: 6 }}>급수</div>
+      <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        {levels.map(l => (
+          <button key={l} className={l === lv ? "btn" : "btn-ghost"} style={chip} onClick={() => pickBook(l, 1)}>LV{l}</button>
+        ))}
+      </div>
+      <div style={{ fontSize: 13, marginBottom: 6 }}>권</div>
+      <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        {vols.map(b => (
+          <button key={b.vol} className={b.vol === cur.vol ? "btn" : "btn-ghost"} style={chip} onClick={() => pickBook(lv, b.vol)}>{b.vol}권</button>
+        ))}
+      </div>
+      <div className="row" style={{ gap: 8, alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 13 }}>Day ({picked.length}/{cur.days.length})</span>
+        <button className="btn-ghost" style={{ fontSize: 12, padding: "4px 9px" }} onClick={() => { setPicked(cur.days.map(d => d.n)); dropPdf(); }}>전체 선택</button>
+        <button className="btn-ghost" style={{ fontSize: 12, padding: "4px 9px" }} onClick={() => { setPicked([]); dropPdf(); }}>전체 해제</button>
+      </div>
+      <div style={{ maxHeight: 300, overflow: "auto", background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 10px", marginBottom: 12 }}>
+        {cur.days.map(d => (
+          <label key={d.n} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", fontSize: 14, cursor: "pointer" }}>
+            <input type="checkbox" checked={picked.includes(d.n)} onChange={() => toggle(d.n)} />
+            <span>{d.title.replace(cur.book + " · ", "")}</span>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#888" }}>{d.words.length}단어</span>
+          </label>
+        ))}
+      </div>
+      <div className="row" style={{ gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+        {[["kor_to_eng", "뜻 보고 영어 쓰기"], ["eng_to_kor", "영어 보고 뜻 쓰기"]].map(([k, l]) => (
+          <button key={k} className={dir === k ? "btn" : "btn-ghost"} style={chip} onClick={() => { setDir(k); dropPdf(); }}>{l}</button>
+        ))}
+        <label style={{ fontSize: 13, display: "flex", gap: 5, alignItems: "center", marginLeft: 6 }}>
+          <input type="checkbox" checked={shuffle} onChange={e => { setShuffle(e.target.checked); dropPdf(); }} /> 단어 순서 섞기
+        </label>
+      </div>
+      <button className="btn" disabled={busy || !picked.length} onClick={make}>
+        {busy ? "만드는 중… 서버가 자고 있으면 1분쯤 걸려요" : picked.length ? `시험지 만들기 (${picked.length}장)` : "Day를 골라 주세요"}
+      </button>
+      {err && <div style={{ color: "#C0392B", fontSize: 13, marginTop: 8 }}>{err}</div>}
+      {pdf && (
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+          <span style={{ fontSize: 13 }}>✅ {pdf.pages}장 완성</span>
+          <a className="btn" href={pdf.url} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>🖨 열어서 인쇄</a>
+          <a className="btn-ghost" href={pdf.url} download={pdf.name} style={{ textDecoration: "none" }}>⬇ 내려받기</a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HomePanel({ students, assignments, reload }) {
   const [sub, setSub] = useState("progress");   // 기본 = 진도(원장님이 가장 자주 찾는 화면)
   return (
     <>
       <SkipDayBar reload={reload} />
       <div className="tabs" style={{ marginBottom:14 }}>
-        {[["progress","📈 진도"],["dash","📊 학습현황"],["review","🎤 제출확인"]].map(([id,l]) => (
+        {[["progress","📈 진도"],["dash","📊 학습현황"],["review","🎤 제출확인"],["gradetest","📝 단어급수 시험지"]].map(([id,l]) => (
           <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
         ))}
       </div>
       {sub==="progress" && <AdminProgress students={students} assignments={assignments} reload={reload} />}
       {sub==="dash" && <AdminDashboard students={students} assignments={assignments} />}
       {sub==="review" && <AdminReview students={students} assignments={assignments} reload={reload} />}
+      {sub==="gradetest" && <GradeTestPanel assignments={assignments} />}
     </>
   );
 }
