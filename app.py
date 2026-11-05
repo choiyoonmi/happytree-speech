@@ -1149,6 +1149,22 @@ def delete_student(request: Request, student_id: str):
 
 
 # ---------- assignments ----------
+# ★관리자 첫 화면을 붙잡는 건 전체 과제 응답이다(2.7MB, 2~4초 — 원장 2026-11-05 "로그인 로딩이 길어").
+# 과제가 바뀌기 전까지는 만든 글자 그대로 다시 보낸다. 열쇠는 db.json 의 시각·크기.
+# db 객체를 잡아 두면 옛 사본이 메모리에 남으므로(트리톡 메모리 한도) 글자만 들고 있는다.
+_ASG_CACHE = {"file": None, "rows": {}}
+
+
+def _db_file_key():
+    if store.MODE == "d1":
+        return None
+    try:
+        st = DB_PATH.stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
 @app.get("/api/assignments")
 def get_assignments(request: Request):
     """★그 학원 과제만.
@@ -1157,9 +1173,15 @@ def get_assignments(request: Request):
     그러면 다른 학원 학생이 과제를 못 본다. 그래서 학생은 id 를 함께 보내고
     (프런트가 이미 학생 아이디를 갖고 있다) 그 학생의 학원 것을 준다.
     ★id 로 '남의 학원'을 볼 수는 없다 — 그 학생이 실제로 속한 학원만 나오기 때문이다."""
+    file_key = _db_file_key()       # db 를 읽기 전에 재야 낡은 글자가 새 열쇠로 남지 않는다
     db = load_db_ro()   # ★한 번만 읽는다(예전엔 학생 조회 때 load_db 를 두 번 불렀다)
     sid = str(request.query_params.get("student") or "").strip()
     admin = is_admin(request)
+    cache_key = None
+    if admin and file_key:
+        cache_key = (academy_of(request), request.query_params.get("archived") == "1")
+        if _ASG_CACHE["file"] == file_key and cache_key in _ASG_CACHE["rows"]:
+            return Response(content=_ASG_CACHE["rows"][cache_key], media_type="application/json")
     if admin:
         # ★관리자 열쇠가 있으면 그 열쇠의 학원만 본다. ?student= 는 무시한다.
         #   안 그러면 A학원 관리자가 ?student=<B학원 학생> 을 붙여 B학원 과제를 통째로 읽는다.
@@ -1181,6 +1203,12 @@ def get_assignments(request: Request):
     if sid and not admin:
         rows = [a for a in rows
                 if (not a.get("assignedIds")) or sid in [str(x) for x in a["assignedIds"]]]
+    if cache_key:
+        body = json.dumps(_light_assignments(rows), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if _ASG_CACHE["file"] != file_key:
+            _ASG_CACHE["file"], _ASG_CACHE["rows"] = file_key, {}
+        _ASG_CACHE["rows"][cache_key] = body
+        return Response(content=body, media_type="application/json")
     return _light_assignments(rows)
 
 
