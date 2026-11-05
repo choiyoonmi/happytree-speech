@@ -4269,7 +4269,7 @@ function StudentReview({ student, assignments, reload, onBack, startPp }) {
                 ? <>지울 과제를 달력에서 고르세요. <b>{student.name} 학생 것만</b> 빠지고, 빼면 ↩ 되돌리기로 살릴 수 있어요.</>
                 : <>이 달력은 <b>{student.name} 학생 것만</b> 바꿔요. 끈 과제의 <b>같은 교재</b> 뒤 과제가 같이 밀려요.</>}
             </div>
-            <BookCalendar key={ppOpen} startPick={ppOpen === "del"} list={mine.filter(a => a.dueDate)} onMove={studentMove} onReload={reload} busy={ppBusy}
+            <BookCalendar key={ppOpen} startPick={ppOpen === "del"} focusDate={todayIso} list={mine.filter(a => a.dueDate)} onMove={studentMove} onReload={reload} busy={ppBusy}
               deleteLabel={`${student.name} 학생에게서 빼기`}
               onDeleteMany={async (ids) => {
                 if (!confirm(`고른 과제 ${ids.length}개를 ${student.name} 학생에게서만 뺄까요?\n같이 받는 다른 학생들 과제는 그대로예요.\n잘못 뺐으면 위의 「↩ 되돌리기」로 한 번에 돌아와요.`)) return false;
