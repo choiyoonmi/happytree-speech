@@ -431,7 +431,45 @@ async def sync_shared_roster() -> list:
     data = await fetch_shared_accounts({"action": "rosterInfo"})
     if not data.get("ok") or not isinstance(data.get("students"), list):
         raise HTTPException(502, "공용 학생명단을 불러오지 못했어요.")
-    return _merge_shared_students(data["students"])
+    rows = _merge_shared_students(data["students"])
+    return _drop_withdrawn_students(data["students"]) or rows
+
+
+# 공용 명단(관리자 학생 명단)에서 지워진 학생을 트리톡에서도 뺀다.
+# 2026-11-05 원장 "관리자 포털에서 삭제된 학생은 어플에서도 모두 삭제해줘".
+# 퇴원 처리는 트리톡을 먼저 지우고 시트를 나중에 지운다. 그 사이(또는 60초 캐시)에 동기화가 돌면
+# 시트에 아직 있던 학생이 되살아났고, 동기화는 넣기만 하고 빼지 않아 그대로 남았다(김주원·홍희성·천승연·송시훈).
+# ★학원 계정 모양(ht001·htt012·test6598)만 뺀다. test0000(공용 시험 계정), 다른 학원, 트리톡 전용 시험 계정은 건드리지 않는다.
+# ★명단이 잘못 내려오면 전교생이 지워질 수 있어서, 명단이 너무 짧거나 한 번에 너무 많이 빠지면 아무것도 안 한다.
+# 제출·단어 기록 파일은 지우지 않는다(명단 줄만 뺀다).
+_ROSTER_ID_RE = re.compile(r"^(htt?\d+|test\d+)$")
+_ROSTER_KEEP_IDS = {"test0000"}
+_ROSTER_MIN = 20
+_ROSTER_MAX_DROP = 15
+
+
+def _drop_withdrawn_students(shared_list):
+    keep = {str((s or {}).get("id", "")).strip() for s in shared_list}
+    keep.discard("")
+    if len(keep) < _ROSTER_MIN:
+        return None
+    with _lock:
+        db = load_db()
+        gone = [s for s in db["students"]
+                if academy_of_student(s) == ACADEMY_DEFAULT
+                and str(s.get("id")) not in keep
+                and str(s.get("id")) not in _ROSTER_KEEP_IDS
+                and _ROSTER_ID_RE.match(str(s.get("id")))]
+        if not gone:
+            return None
+        if len(gone) > _ROSTER_MAX_DROP:
+            print("[student-sync] 빠질 학생이 너무 많아 멈춤:", len(gone))
+            return None
+        ids = {str(s.get("id")) for s in gone}
+        db["students"] = [s for s in db["students"] if str(s.get("id")) not in ids]
+        save_db(db)
+        print("[student-sync] 명단에서 지워진 학생 정리:", sorted(ids))
+        return db["students"]
 
 def migrate_submissions_if_needed():
     """예전 db.json 안에 있던 submissions를 학생별 파일로 옮긴다 (최초 1회)."""
@@ -470,6 +508,20 @@ def _repair_meanings_on_boot():
                 save_db(db)
     except Exception as e:
         print("[meanings] 부팅 보정 실패:", e)
+
+
+@app.on_event("startup")
+async def _sync_roster_on_boot():
+    """켜지고 30초 뒤 한 번: 관리자 화면을 안 열어도 지워진 학생이 정리되게. 실패해도 서버는 그대로."""
+    async def run():
+        await asyncio.sleep(30)
+        try:
+            await sync_shared_roster()
+        except Exception as exc:
+            print("[student-sync] 부팅 동기화 실패:", getattr(exc, "detail", exc))
+    asyncio.get_event_loop().create_task(run())
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://admin.happytreeacademy.com",
