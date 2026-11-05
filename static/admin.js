@@ -4024,6 +4024,150 @@ function PhonicsReportInline({ sid }) {
   );
 }
 
+// 시작일부터 수업 요일에 하나씩. 휴무일·그 반의 수업 없는 날은 건너뛴다.
+function spreadDates(startIso, weekdays, count, isOff) {
+  const out = [];
+  const [y, m, d] = startIso.split("-").map(Number);
+  const cur = new Date(y, m - 1, d);
+  for (let guard = 0; out.length < count && guard < 3000 && weekdays.length; guard++) {
+    const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
+    if (weekdays.includes(cur.getDay()) && !isOff(cur, iso)) out.push(iso);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+// ★학생 화면에서 바로 과제 넣기(원장 2026-11-05 "학생이름 검색하면 바로 과제넣기도").
+// 전에는 과제관리→교재→📤 과제 내기→개별→학생 고르기였다. 받던 교재는 다음 Day가 미리 골라진다.
+function StudentAddTask({ student, assignments, reload, todayIso, onDone }) {
+  const sid = student.id;
+  const mine = assignments.filter(a => a.published !== false && (a.assignedIds || []).includes(sid));
+  const myBooks = [...new Set(mine.map(a => a.book).filter(Boolean))];
+  const masters = {};
+  assignments.forEach(a => {
+    if (a.published === false && a.book && !a.deletedAt && a.type !== "exam") (masters[a.book] = masters[a.book] || []).push(a);
+  });
+  const names = Object.keys(masters).sort((x, y) =>
+    (myBooks.includes(y) - myBooks.includes(x)) || x.localeCompare(y, "ko", { numeric: true }));
+  const [q, setQ] = useState("");
+  const [book, setBook] = useState("");
+  const [from, setFrom] = useState(0);
+  const [to, setTo] = useState(0);
+  const [start, setStart] = useState(todayIso);
+  const [days, setDays] = useState([1, 2, 3, 4, 5]);
+  const [rep, setRep] = useState(1);
+  const [off, setOff] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    apiGet("/class-days").then(d => {
+      const wd = ((d && d.days) || {})[student.className];
+      if (wd && wd.length) setDays(wd.map(Number));
+      setOff(((d && d.offDays) || {})[student.className] || []);
+    }).catch(() => {});
+  }, [student.className]);
+
+  const seen = {};
+  const list = (masters[book] || []).filter(a => !seen[a.title] && (seen[a.title] = true))
+    .sort((x, y) => String(x.title).localeCompare(String(y.title), "ko", { numeric: true }));
+  const hadTitles = new Set(mine.filter(a => a.book === book).map(a => String(a.title).replace(/\s*\(\d+일차\)\s*$/, "")));
+  const pick = (b) => {
+    const seen2 = {};
+    const l = (masters[b] || []).filter(a => !seen2[a.title] && (seen2[a.title] = true))
+      .sort((x, y) => String(x.title).localeCompare(String(y.title), "ko", { numeric: true }));
+    const had = new Set(mine.filter(a => a.book === b).map(a => String(a.title).replace(/\s*\(\d+일차\)\s*$/, "")));
+    let last = -1;
+    l.forEach((a, i) => { if (had.has(a.title)) last = i; });
+    const next = Math.min(last + 1, Math.max(0, l.length - 1));
+    setBook(b); setFrom(next); setTo(l.length - 1);
+    setRep(l.some(a => a.type === "sentence") ? Math.max(1, days.length) : 1);
+    setErr("");
+  };
+  const chosen = list.slice(from, to + 1);
+  const dates = spreadDates(start || todayIso, days, chosen.length * rep, (dt, iso) => isClosedDay(dt) || off.includes(iso));
+  const word = q.trim();
+  const shownBooks = (word ? names.filter(n => n.includes(word)) : names).slice(0, word ? 40 : 12);
+  const short = (a) => String(a.title).replace(book + " ", "").replace(book, "");
+
+  const save = async () => {
+    if (!chosen.length) return setErr("Day를 골라 주세요.");
+    if (!days.length) return setErr("수업 요일을 골라 주세요.");
+    if (dates.length < chosen.length * rep) return setErr("날짜를 다 잡지 못했어요. 시작일과 요일을 확인해 주세요.");
+    const dup = chosen.filter(a => hadTitles.has(a.title));
+    if (dup.length && !confirm(`${student.name} 학생은 이 중 ${dup.length}개를 이미 받았어요.\n같은 Day가 한 번 더 들어가요.\n\n그래도 넣을까요?`)) return;
+    const payload = [];
+    chosen.forEach((a, ui) => {
+      for (let k = 0; k < rep; k++) {
+        payload.push({
+          title: rep > 1 ? `${a.title} (${k + 1}일차)` : a.title,
+          book: a.book, type: a.type || "word", items: a.items || [], meanings: a.meanings || [],
+          examples: a.examples || [], exampleKo: a.exampleKo || [], exampleAudio: a.exampleAudio || [],
+          recordMode: a.recordMode === "whole" ? "whole" : "each", rounds: a.rounds || 3, kind: a.kind || undefined,
+          spellMode: a.spellMode || undefined, spellDecoys: a.spellDecoys,
+          dueDate: dates[ui * rep + k], assignedIds: [sid], assignedClasses: [], published: true,
+        });
+      }
+    });
+    setBusy(true); setErr("");
+    try {
+      await apiPost("/assignments/bulk", { assignments: payload });
+      await reload();
+      onDone(payload.length);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const chip = { fontSize: 12, padding: "5px 9px" };
+  const names7 = ["일", "월", "화", "수", "목", "금", "토"];
+  return (
+    <div style={{ marginTop: 10 }}>
+      <label className="label">① 교재 <span className="muted" style={{ fontWeight: 400 }}>(받던 교재가 앞에 나와요)</span></label>
+      <input className="field" style={{ margin: "0 0 6px" }} placeholder="🔍 교재 이름으로 찾기" value={q} onChange={e => setQ(e.target.value)} />
+      <div className="row" style={{ gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+        {shownBooks.map(b => (
+          <button key={b} className={b === book ? "btn" : "btn-ghost"} style={chip} onClick={() => pick(b)}>
+            {myBooks.includes(b) ? "📘 " : ""}{b}
+          </button>
+        ))}
+        {!shownBooks.length && <span className="muted" style={{ fontSize: 12 }}>찾는 교재가 없어요.</span>}
+      </div>
+      {book && !list.length && <div className="muted">이 교재에는 낼 Day가 없어요.</div>}
+      {book && list.length > 0 && <>
+        <label className="label">② 어느 Day부터 어디까지</label>
+        <div className="row" style={{ gap: 6, alignItems: "center", marginBottom: 10 }}>
+          <select className="field" style={{ flex: 1, margin: 0 }} value={from}
+            onChange={e => { const v = Number(e.target.value); setFrom(v); if (to < v) setTo(v); }}>
+            {list.map((a, i) => <option key={i} value={i}>{hadTitles.has(a.title) ? "✓ " : ""}{short(a)}</option>)}
+          </select>
+          <span>~</span>
+          <select className="field" style={{ flex: 1, margin: 0 }} value={to} onChange={e => setTo(Number(e.target.value))}>
+            {list.map((a, i) => <option key={i} value={i} disabled={i < from}>{hadTitles.has(a.title) ? "✓ " : ""}{short(a)}</option>)}
+          </select>
+        </div>
+        <label className="label">③ 언제부터 <span className="muted" style={{ fontWeight: 400 }}>(수업 요일에 하나씩, 휴무일은 건너뛰어요)</span></label>
+        <input className="field" type="date" value={start} onChange={e => setStart(e.target.value)} style={{ margin: "0 0 6px", width: 170 }} />
+        <div className="row" style={{ gap: 4, marginBottom: 8 }}>
+          {names7.map((n, i) => (
+            <button key={i} className={days.includes(i) ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 8px" }}
+              onClick={() => setDays(d => d.includes(i) ? d.filter(x => x !== i) : [...d, i].sort())}>{n}</button>
+          ))}
+        </div>
+        <div className="row" style={{ gap: 5, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12 }}>같은 Day 반복</span>
+          {[1, 2, 3, 5].map(n => (
+            <button key={n} className={rep === n ? "btn" : "btn-ghost"} style={chip} onClick={() => setRep(n)}>{n === 1 ? "안 함" : n + "번"}</button>
+          ))}
+        </div>
+        <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>
+          {student.name} 학생에게 <b>{chosen.length * rep}개</b>{dates.length ? ` · ${dates[0].slice(5)} ~ ${dates[dates.length - 1].slice(5)}` : ""}
+        </div>
+        {err && <div className="err">{err}</div>}
+        <button className="btn" disabled={busy} onClick={save}>{busy ? "넣는 중…" : "➕ 과제 넣기"}</button>
+      </>}
+    </div>
+  );
+}
+
 function StudentReview({ student, assignments, reload, onBack, startPp }) {
   const [tab, setTab] = useState("word");
   const [subs, setSubs] = useState({});
@@ -4194,13 +4338,17 @@ function StudentReview({ student, assignments, reload, onBack, startPp }) {
 
       {/* ---- 이 학생만 미루기 (원장 2026-09-29: 여행·재시험 때 한 명만 밀기가 너무 불편) ---- */}
       <div className="card" style={{ padding:"10px 12px", marginBottom:12 }}>
-        <div style={{ fontWeight:700, color:"var(--navy)", fontSize:13, marginBottom:6 }}>📅 {student.name} 학생 일정만 바꾸기·지우기</div>
+        <div style={{ fontWeight:700, color:"var(--navy)", fontSize:13, marginBottom:6 }}>📅 {student.name} 학생 과제 넣기·일정 바꾸기·지우기</div>
         <div className="row" style={{ gap:6, flexWrap:"wrap" }}>
-          {[["trip","✈️ 여행·결석"],["sessions","⏭ 미루기"],["cal","🗓 달력에서 옮기기"],["del","🗑 과제 지우기"]].map(([k,l]) => (
+          {[["add","➕ 과제 넣기"],["trip","✈️ 여행·결석"],["sessions","⏭ 미루기"],["cal","🗓 달력에서 옮기기"],["del","🗑 과제 지우기"]].map(([k,l]) => (
             <button key={k} className={ppOpen===k ? "btn" : "btn-ghost"} style={{ fontSize:12, padding:"6px 10px" }}
               onClick={()=>{ setPpOpen(ppOpen===k ? null : k); setPpPrev(null); }}>{l}</button>
           ))}
         </div>
+        {ppOpen === "add" && (
+          <StudentAddTask student={student} assignments={assignments} reload={reload} todayIso={todayIso}
+            onDone={()=>setPpOpen("cal")} />
+        )}
         {(ppOpen === "trip" || ppOpen === "sessions") && (
           <div style={{ marginTop:10 }}>
             {ppOpen === "trip" ? (

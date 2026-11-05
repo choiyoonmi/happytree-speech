@@ -1384,6 +1384,7 @@ def add_assignments_bulk(request: Request, payload: dict = Body(...)):
     created = []
     with _lock:
         db = load_db()
+        before = _snap(db)
         for p in items:
             title = str(p.get("title", "")).strip()
             words = p.get("items") or []
@@ -1414,6 +1415,10 @@ def add_assignments_bulk(request: Request, payload: dict = Body(...)):
                 a["kind"] = str(p.get("kind"))
             db["assignments"].insert(0, a)
             created.append(a)
+        if created:                 # 넣은 것도 이력에 — 잘못 넣으면 ↩ 되돌리기로 뺀다
+            names = {x.get("id"): x.get("name") for x in db.get("students", [])}
+            to = ",".join(str(names.get(i, i)) for i in (created[0].get("assignedIds") or [])[:3]) or "전체"
+            _hist_push_snap(db, f"{to} 과제 넣기", before, len(created))
         save_db(db)
     return {"created": len(created), "assignments": created}
 
