@@ -12,6 +12,14 @@ const TAKES = 3;
 let ADMIN_KEY = "";
 try { ADMIN_KEY = sessionStorage.getItem("tt_admin") || ""; } catch (e) {}
 
+// 선생님들이 비밀번호를 같이 쓰므로, 누가 했는지는 로그인 때 받은 이름으로 남긴다(2026-11-05).
+let ADMIN_WHO = "";
+try { ADMIN_WHO = sessionStorage.getItem("tt_who") || ""; } catch (e) {}
+function setAdminWho(name) {
+  ADMIN_WHO = name || "";
+  try { name ? sessionStorage.setItem("tt_who", name) : sessionStorage.removeItem("tt_who"); } catch (e) {}
+}
+
 function setAdminKey(pw) {
   ADMIN_KEY = pw || "";
   try { pw ? sessionStorage.setItem("tt_admin", pw) : sessionStorage.removeItem("tt_admin"); } catch (e) {}
@@ -28,6 +36,7 @@ window.fetch = function (input, init) {
     if (ADMIN_KEY && u.indexOf("/api") === 0) {
       init = { ...(init || {}) };
       init.headers = { ...(init.headers || {}), "x-ht-admin": ADMIN_KEY };
+      if (ADMIN_WHO) init.headers["x-tt-who"] = encodeURIComponent(ADMIN_WHO);   // 헤더엔 한글을 못 싣는다
     }
   } catch (e) {}
   return _fetch(input, init);
