@@ -2436,38 +2436,23 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
     setTestBusy(false);
   };
 
-  // 같은 과제가 두 번 등록된 것(제목+마감+문항수 동일)을 정리한다.
+  // 같은 학생이 같은 날 똑같이 받은 과제만 정리한다.
   // 학생 제출(녹음)이 있는 복사본은 남기고, 비어 있는 복사본만 삭제.
   // 중복인데 여러 복사본에 제출이 있으면 안전하게 그대로 둔다.
   const cleanDupes = async () => {
-    // 같은 Day(제목)가 여러 번 배정된 경우 정리 — 마감일이 서로 달라도 중복으로 본다.
-    // (같은 교재를 두 번 숙제내기 해서 진도 흐름이 겹친 경우까지 잡음)
+    // ★제목·날짜·받는 학생이 다 같아야 중복이다(2026-11-05). 전엔 제목만 같으면 날짜가 달라도 지워서,
+    // 한 Unit을 일부러 두 번 받는 학생(한서율 Word Up 1200)의 앞날 과제가 지워질 수 있었다.
+    // 받는 학생이 조금이라도 다르면 지우지 않는다 — 공용 과제를 지우면 다른 학생 것까지 없어진다.
     const groups = {};
+    const whoKey = (a) => [...(a.assignedIds || [])].map(String).sort().join(",") + "|" + [...(a.assignedClasses || [])].sort().join(",");
     list.forEach(a => {
-      const k = (a.title||"");
+      const k = [a.title || "", a.dueDate || "", whoKey(a)].join("\n");
       (groups[k] = groups[k] || []).push(a);
     });
-    /* ★제목이 같아도 받는 학생이 겹치지 않으면 중복이 아니다 — 학생별 나누기·합치기로 만든
-       개인 사본(예: 반 공용 "Day 3" 과 한 학생 전용 "Day 3")을 지우면 안 된다(2026-09-28).
-       받는 학생이 겹치는 것끼리만 한 묶음으로 본다(비어 있으면 전체 = 누구와도 겹침). */
-    const overlap = (x, y) => {
-      const a = x.assignedIds || [], b = y.assignedIds || [];
-      return !a.length || !b.length || a.some(id => b.includes(id));
-    };
-    const dupGroups = [];
-    Object.values(groups).forEach(g => {
-      const left = g.slice();
-      while (left.length) {
-        const cl = [left.shift()];
-        for (let k = 0; k < left.length; ) {
-          if (cl.some(c => overlap(c, left[k]))) { cl.push(left.splice(k, 1)[0]); k = 0; } else k++;
-        }
-        if (cl.length > 1) dupGroups.push(cl);
-      }
-    });
+    const dupGroups = Object.values(groups).filter(g => g.length > 1);
     if (!dupGroups.length) { alert("중복된 과제가 없어요. 👍"); return; }
     const dupCount = dupGroups.reduce((s,g)=>s+(g.length-1), 0);
-    if (!confirm(`같은 Day가 두 번 이상 들어간 게 ${dupGroups.length}종류 있어요.\n중복 ${dupCount}개를 지워서 Day마다 하나씩만 남길까요?\n(학생 녹음이 있는 것을 우선 남기고, 없으면 마감일이 이른 것을 남겨요.)\n\n정리 후 "🗓 일정 다시 짜기"로 날짜를 맞춰주세요.`)) return;
+    if (!confirm(`같은 학생이 같은 날 똑같이 받은 과제가 ${dupGroups.length}종류 있어요.\n중복 ${dupCount}개를 지워서 하나씩만 남길까요?\n(학생 녹음이 있는 것을 남겨요. 지운 뒤 ↩ 되돌리기로 살릴 수 있어요.)`)) return;
     setDupBusy(true); setErr("");
     try {
       const toDelete = [];
@@ -2493,10 +2478,9 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
         alert("중복이 있지만 모두 학생 제출이 있어서 자동으로 지우지 않았어요.\n직접 확인 후 삭제해주세요.");
         setDupBusy(false); return;
       }
-      await Promise.all(toDelete.map(a =>
-        fetch("/api/assignments/" + a.id, { method:"DELETE" })));
+      await apiPost("/assignments/delete-many", { ids: toDelete.map(a => a.id) });   // 한 번에 지워야 이력·되돌리기가 남는다
       await reload();
-      let msg = `중복 ${toDelete.length}개를 정리했어요. ✅\n이제 "🗓 일정 다시 짜기"로 날짜를 맞춰주세요.`;
+      let msg = `중복 ${toDelete.length}개를 정리했어요. ✅`;
       if (keptConflict) msg += `\n(제출이 여러 개인 중복 ${keptConflict}건은 안전하게 그대로 뒀어요.)`;
       alert(msg);
     } catch (e) { setErr(e.message); }
@@ -4969,7 +4953,7 @@ function AdminSettings({ students, assignments, reload }) {
     try {
       const pre = await apiPost("/assignments/dedupe", { dryRun: true });
       if (!pre.wouldDelete) { setMsg("정리할 중복 과제가 없어요. 👍"); setDupBusy(false); return; }
-      let m = `모든 책에서 중복(같은 책·제목·마감·문항수) 빈 복사본 ${pre.wouldDelete}개를 정리할까요?\n학생 녹음이 있는 과제는 그대로 둬요.`;
+      let m = `모든 책에서 중복(같은 책·제목·마감·문항수·받는 학생) 빈 복사본 ${pre.wouldDelete}개를 정리할까요?\n학생 녹음이 있는 과제는 그대로 두고, 지운 뒤 ↩ 되돌리기로 살릴 수 있어요.`;
       if (pre.keptConflict) m += `\n(제출이 여러 개인 중복 ${pre.keptConflict}건은 안전하게 그대로 둡니다.)`;
       if (!confirm(m)) { setDupBusy(false); return; }
       const r = await apiPost("/assignments/dedupe", {});
@@ -5114,7 +5098,7 @@ function AdminSettings({ students, assignments, reload }) {
       <div className="card">
         <div style={{ fontWeight:700, color:"var(--navy)", marginBottom:6 }}>🧹 중복 과제 정리 (전체)</div>
         <div className="muted" style={{ marginBottom:12 }}>
-          같은 책·제목·마감·문항수로 <b>두 번 이상 등록된 빈 복사본</b>을 모든 책에서 한 번에 정리해요.
+          같은 책·제목·마감·문항수에 <b>받는 학생까지 같은 빈 복사본</b>을 모든 책에서 한 번에 정리해요.
           <b>학생 녹음이 있는 과제는 그대로</b> 두니 안전해요.
         </div>
         <button className="btn" onClick={dedupe} disabled={dupBusy}>

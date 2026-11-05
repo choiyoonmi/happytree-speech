@@ -1200,7 +1200,9 @@ def delete_assignment(request: Request, assignment_id: str):
         target = next((a for a in db["assignments"] if a["id"] == assignment_id), None)
         if target is None or academy_of_student(target) != ac:
             raise HTTPException(404, "과제를 찾을 수 없어요.")
+        before = _snap(db)
         _drop_assignments(db, {assignment_id})
+        _hist_push_snap(db, "과제 삭제", before, 1)      # 전엔 이력이 안 남아 누가 지웠는지도, 되돌리기도 안 됐다
         save_db(db)
     return {"ok": True}
 
@@ -1318,7 +1320,9 @@ def _has_recording(sub) -> bool:
 
 @app.post("/api/assignments/dedupe", dependencies=ADMIN_ONLY)
 def dedupe_assignments(request: Request, payload: dict = Body(...)):
-    """중복 과제(같은 책·제목·마감·문항수) 정리. 학생 녹음이 있는 건 보존하고 빈 복사본만 삭제.
+    """중복 과제(같은 책·제목·마감·문항수·받는 학생) 정리. 학생 녹음이 있는 건 보존하고 빈 복사본만 삭제.
+    ★받는 학생까지 같아야 중복이다(2026-11-05). 전엔 학생을 안 봐서 학생별로 떼어 낸 개인 과제가
+    같은 날이면 서로 중복으로 몰려 남의 과제가 지워졌다(그 시점 159개가 대상).
     dryRun=true면 삭제하지 않고 몇 개 지울지만 알려준다."""
     dry = bool(payload.get("dryRun"))
     # 녹음이 있는 과제 id 모으기 (학생 제출 파일 전체 1회 스캔)
@@ -1339,9 +1343,11 @@ def dedupe_assignments(request: Request, payload: dict = Body(...)):
         for a in db["assignments"]:
             # ★내 학원 과제끼리만 묶는다. 안 그러면 제목이 같다는 이유로
             #   남의 학원 과제가 '중복'으로 몰려 지워진다.
-            if academy_of_student(a) != _dd_ac:
+            if academy_of_student(a) != _dd_ac or a.get("deletedAt"):
                 continue
-            key = (a.get("book", ""), a.get("title", ""), a.get("dueDate") or "", len(a.get("items") or []))
+            key = (a.get("book", ""), a.get("title", ""), a.get("dueDate") or "", len(a.get("items") or []),
+                   tuple(sorted(str(x) for x in a.get("assignedIds") or [])),
+                   tuple(sorted(str(x) for x in a.get("assignedClasses") or [])))
             groups[key].append(a)
         to_delete = set()
         kept_conflict = 0
@@ -1360,7 +1366,9 @@ def dedupe_assignments(request: Request, payload: dict = Body(...)):
                     kept_conflict += 1
         if dry:
             return {"wouldDelete": len(to_delete), "keptConflict": kept_conflict}
+        before = _snap(db)
         deleted = _drop_assignments(db, to_delete)
+        _hist_push_snap(db, "중복 정리(전체)", before, len(to_delete))
         save_db(db)
     return {"deleted": deleted, "keptConflict": kept_conflict}
 
