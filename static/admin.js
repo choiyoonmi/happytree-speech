@@ -4040,7 +4040,7 @@ function PhonicsReportInline({ sid }) {
   );
 }
 
-function StudentReview({ student, assignments, reload, onBack }) {
+function StudentReview({ student, assignments, reload, onBack, startPp }) {
   const [tab, setTab] = useState("word");
   const [subs, setSubs] = useState({});
   const [voc, setVoc] = useState({});
@@ -4050,7 +4050,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
   const [delBusy, setDelBusy] = useState(null);
   /* 학생 한 명만 미루기(원장 2026-09-29). 반 친구들·보관함 원본은 그대로. */
   const todayIso = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
-  const [ppOpen, setPpOpen] = useState(null);        // trip | sessions | cal | del
+  const [ppOpen, setPpOpen] = useState(startPp || null);   // trip | sessions | cal | del
   const [ppFrom, setPpFrom] = useState(todayIso);
   const [ppUntil, setPpUntil] = useState(todayIso);
   const [ppN, setPpN] = useState(1);
@@ -5400,10 +5400,61 @@ function SettingsPanel({ students, assignments, reload }) {
   );
 }
 
+// ★학생 찾기(원장 2026-11-05 "학습을 찾아서 수정하기까지 굉장히 어렵네", "학년 선택하면 학생 이름이 보였으면").
+// 전에는 현황→진도→반 고르기→목록에서 찾기였다. 맨 위에서 이름을 치거나 학년을 누르면 바로 그 학생 달력으로 간다.
+const GRADE_ORDER = ["유치부", "파닉스", "초1", "초2", "초3", "초4", "초5", "초6", "중1", "중2", "중3", "고1", "고2", "고3", "기타"];
+function gradeOf(s) {
+  const c = String(s.className || "");
+  if (/유치/.test(c)) return "유치부";
+  if (/파닉스/.test(c)) return "파닉스";
+  const m = /(초|중|고)등?\s*(\d)/.exec(c);
+  return m ? m[1] + m[2] : "기타";
+}
+const isTestStudent = (s) => /^__/.test(s.id || "") || /^__|테스트/.test(s.name || "") || /테스트/.test(s.className || "");
+
+function StudentFinder({ students, active, onPick }) {
+  const [q, setQ] = useState("");
+  const [grade, setGrade] = useState("");
+  const real = students.filter(s => !isTestStudent(s));
+  const grades = GRADE_ORDER.filter(g => real.some(s => gradeOf(s) === g));
+  const word = q.trim();
+  const shown = word ? real.filter(s => (s.name || "").includes(word))
+    : grade ? real.filter(s => gradeOf(s) === grade) : [];
+  shown.sort((x, y) => String(x.className || "").localeCompare(String(y.className || ""), "ko") || String(x.name).localeCompare(String(y.name), "ko"));
+  const pick = (id) => { setQ(""); setGrade(""); onPick(id); };
+  return (
+    <div className="card" style={{ padding: "10px 12px", marginBottom: 12 }}>
+      <div className="row" style={{ gap: 6, alignItems: "center" }}>
+        <input className="field" style={{ flex: 1, margin: 0 }} placeholder="🔍 학생 이름으로 찾기" value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && shown.length === 1) pick(shown[0].id); }} />
+        {(q || grade) && <button className="btn-ghost" style={{ fontSize: 12, padding: "6px 10px" }} onClick={() => { setQ(""); setGrade(""); }}>✕ 닫기</button>}
+      </div>
+      <div className="row" style={{ gap: 5, flexWrap: "wrap", marginTop: 8 }}>
+        {grades.map(g => (
+          <button key={g} className={g === grade && !word ? "btn" : "btn-ghost"} style={{ fontSize: 12, padding: "5px 9px" }}
+            onClick={() => { setQ(""); setGrade(g === grade ? "" : g); }}>{g}</button>
+        ))}
+      </div>
+      {(word || grade) && (
+        <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+          {shown.map(s => (
+            <button key={s.id} className={s.id === active ? "btn" : "btn-ghost"} style={{ fontSize: 13, padding: "6px 10px" }} onClick={() => pick(s.id)}>
+              {s.name} <span style={{ opacity: .6, fontWeight: 400, fontSize: 11 }}>{s.className || ""}</span>
+            </button>
+          ))}
+          {!shown.length && <span className="muted" style={{ fontSize: 13 }}>찾는 학생이 없어요.</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminView({ onLogout }) {
   // 7탭 → 4탭 재구성. 기존 화면(컴포넌트)은 그대로 두고 묶기만 한다.
   //  현황 = 학습현황 + 제출확인 / 과제 / 학생·성적 = 학생관리 + 성적표 / 설정 = 설정 + 배틀
   const [tab, setTab] = useState("home");
+  const [found, setFound] = useState(null);   // 맨 위 학생 찾기로 연 학생
   const [students, setStudents] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -5427,17 +5478,24 @@ function AdminView({ onLogout }) {
       </div>
       <div className="tabs">
         {[["home","📊 현황"],["task","📚 과제"],["people","👥 학생·성적"],["settings","⚙️ 설정"]].map(([id,l]) => (
-          <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>setTab(id)}>{l}</button>
+          <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>{ setTab(id); setFound(null); }}>{l}</button>
         ))}
       </div>
 
-      {tab==="home" && <HomePanel students={students} assignments={assignments} reload={reload} />}
+      <StudentFinder students={students} active={found} onPick={setFound} />
 
-      {tab==="task" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
+      {found && students.some(s => s.id === found) && (
+        <StudentReview key={found} student={students.find(s => s.id === found)} assignments={assignments} reload={reload}
+          startPp="cal" onBack={() => setFound(null)} />
+      )}
 
-      {tab==="people" && <PeoplePanel students={students} reload={reload} />}
+      {!found && tab==="home" && <HomePanel students={students} assignments={assignments} reload={reload} />}
 
-      {tab==="settings" && <SettingsPanel students={students} assignments={assignments} reload={reload} />}
+      {!found && tab==="task" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
+
+      {!found && tab==="people" && <PeoplePanel students={students} reload={reload} />}
+
+      {!found && tab==="settings" && <SettingsPanel students={students} assignments={assignments} reload={reload} />}
     </div>
   );
 }
