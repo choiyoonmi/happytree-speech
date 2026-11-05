@@ -5920,15 +5920,22 @@ function Login({ onAdmin }) {
   const [apw, setApw] = useState(""); const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [who, setWho] = useState(() => { try { return localStorage.getItem("tt_who_last") || ""; } catch (e) { return ""; } });
+  const [shared, setShared] = useState(false);   // 예비: 공용 비밀번호로 들어가기
 
   const go = async () => {
     const name = who.trim();
     if (name.length < 2) { setErr("선생님 이름을 적어 주세요."); return; }
     setErr(""); setBusy(true);
     try {
-      await apiPost("/login/admin", { pw: apw, who: name });
-      setAdminKey(apw);   // 이후 관리자 API 호출에 열쇠로 쓴다
-      setAdminWho(name);
+      if (shared) {
+        await apiPost("/login/admin", { pw: apw, who: name });
+        setAdminKey(apw);   // 이후 관리자 API 호출에 열쇠로 쓴다
+        setAdminWho(name);
+      } else {
+        const r = await apiPost("/login/teacher", { name, tail: apw });
+        setAdminKey(r.token);   // 선생님 출입증이 공용 비밀번호 자리에 들어간다
+        setAdminWho(r.name);
+      }
       try { localStorage.setItem("tt_who_last", name); } catch (e) {}
       onAdmin();
     } catch (e) { setErr(e.message); }
@@ -5948,12 +5955,14 @@ function Login({ onAdmin }) {
           <input className="field" value={who} onChange={e=>setWho(e.target.value)} maxLength={20}
             onKeyDown={e=>e.key==="Enter"&&go()} placeholder="이름 (작업 기록에 남아요)" autoFocus={!who} />
           <div style={{height:10}} />
-          <label className="label">관리자 비밀번호</label>
+          <label className="label">{shared ? "공용 비밀번호" : "비밀번호 (관리자 포털과 같아요)"}</label>
           <input className="field" type="password" value={apw} onChange={e=>setApw(e.target.value)}
             onKeyDown={e=>e.key==="Enter"&&go()} placeholder="비밀번호" autoFocus={!!who} />
           {err && <div className="err">{err}</div>}
           <div style={{height:14}} />
           <button className="btn full" onClick={go} disabled={busy}>{busy ? "확인 중..." : "로그인"}</button>
+          <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px", marginTop:10 }}
+            onClick={()=>{ setShared(!shared); setApw(""); setErr(""); }}>{shared ? "‹ 선생님 비밀번호로 로그인" : "로그인이 안 되면: 공용 비밀번호로 들어가기"}</button>
         </div>
       </div>
     </div>

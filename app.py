@@ -561,6 +561,10 @@ app.add_middleware(WhoMiddleware)
 
 def _who() -> str:
     r = _REQ.get()
+    if r is not None:
+        t = _tt_read(_admin_got(r))       # 선생님 출입증이면 거기 적힌 이름이 진짜다
+        if t:
+            return t[0]
     raw = r.headers.get("x-tt-who") if r is not None else ""
     try:
         return _unquote(raw or "").strip()[:20]
@@ -639,9 +643,76 @@ def _pw_same(got: str, want: str) -> bool:
         return False
 
 
+# ---------- 선생님 출입증 (원장 2026-11-05 "관리자포털과 같게") ----------
+# 로그인은 관리자 포털과 같은 이름+개인 번호. 맞으면 트리톡이 서명한 출입증을 주고, 화면은 그걸
+# 공용 비밀번호 자리(x-ht-admin)에 싣는다. 그래서 관리자 API 들은 고칠 곳이 없다.
+# 공용 비밀번호는 포털·서버끼리 호출과 예비 로그인에 그대로 쓴다.
+TT_TOKEN_HOURS = 12
+TEACHER_LOGIN_URL = "https://admin.happytreeacademy.com/api/teacherLogin"
+
+
+def _admin_got(request) -> str:
+    return (request.headers.get("x-ht-admin") or request.query_params.get("pw") or "").strip()
+
+
+def _tt_sign(body: str) -> str:
+    key = ("tt-session|" + ADMIN_PASSCODE).encode("utf-8")
+    sig = hmac.new(key, body.encode("ascii"), "sha256").digest()
+    return base64.urlsafe_b64encode(sig).decode("ascii").rstrip("=")
+
+
+def _tt_make(name: str, ac: str) -> str:
+    import time as _t
+    row = json.dumps([name, ac, int(_t.time()) + TT_TOKEN_HOURS * 3600], ensure_ascii=False)
+    body = base64.urlsafe_b64encode(row.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"tt1.{body}.{_tt_sign(body)}"
+
+
+def _tt_read(tok: str):
+    """출입증이 진짜이고 기한 안이면 (이름, 학원), 아니면 None."""
+    import time as _t
+    if not ADMIN_PASSCODE or not str(tok or "").startswith("tt1."):
+        return None
+    try:
+        _, body, sig = tok.split(".")
+        if not hmac.compare_digest(sig, _tt_sign(body)):
+            return None
+        name, ac, exp = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8"))
+        return (name, ac) if exp > _t.time() else None
+    except Exception:
+        return None
+
+
+async def _check_teacher(name: str, tail: str):
+    """관리자 포털과 같은 순서로 확인한다: 포털 워커 먼저, 모르면 공용 계정 서버가 최종 판정.
+    돌려주는 값 = (이름, 학원). 틀리면 None. 둘 다 연결이 안 되면 503."""
+    fast_ok = False
+    try:
+        async with httpx.AsyncClient(timeout=6.0, headers={"user-agent": "happytree-treetalk"}) as client:
+            res = await client.post(TEACHER_LOGIN_URL, json={"name": name, "tail": tail})
+            r = res.json()
+            fast_ok = True
+        if r.get("ok") and r.get("name"):
+            return r["name"], (r.get("academy") or ACADEMY_DEFAULT)
+    except Exception as exc:
+        print("[teacher-login] 포털 워커 오류:", exc)
+    try:
+        r = await fetch_shared_accounts({"action": "teacherLogin", "name": name, "tail": tail})
+    except HTTPException:
+        if fast_ok:
+            return None
+        raise
+    if r.get("ok") and r.get("token"):
+        return name, (str(r["token"]).split(".")[0] or ACADEMY_DEFAULT)
+    return None
+
+
 def academy_of(request: Request) -> str:
     """이 요청을 보낸 관리자가 어느 학원인지. 학생 화면 요청에는 쓰지 않는다."""
-    got = (request.headers.get("x-ht-admin") or request.query_params.get("pw") or "").strip()
+    got = _admin_got(request)
+    t = _tt_read(got)
+    if t:
+        return t[1]
     for pw, ac in _admin_secrets().items():
         if got and _pw_same(got, pw):
             return ac
@@ -660,9 +731,11 @@ def only_academy(rows, ac):
 
 
 def is_admin(request: Request) -> bool:
-    got = (request.headers.get("x-ht-admin") or request.query_params.get("pw") or "").strip()
+    got = _admin_got(request)
     if not got:
         return False
+    if _tt_read(got):
+        return True
     # compare_digest: 맞는 글자 수만큼 시간이 더 걸리는 것으로 비밀번호를 알아내는 수법을 막는다.
     return any(_pw_same(got, s) for s in _admin_secrets().keys())
 
@@ -760,6 +833,22 @@ async def login_student(payload: dict = Body(...)):
     shared["pw"] = pw
     student = upsert_shared_student(shared)
     return {"ok": True, "student": student}
+
+
+@app.post("/api/login/teacher")
+async def login_teacher(payload: dict = Body(...)):
+    """선생님 이름+개인 번호 로그인. 관리자 포털과 같은 번호다."""
+    name = str(payload.get("name") or "").strip()
+    tail = str(payload.get("tail") or "").strip()
+    if not name or not tail:
+        raise HTTPException(400, "이름과 번호를 적어 주세요.")
+    if not ADMIN_PASSCODE:
+        raise HTTPException(503, "서버에 ADMIN_PASSCODE 가 설정되지 않았어요.")
+    hit = await _check_teacher(name, tail)
+    if not hit:
+        raise HTTPException(401, "이름이나 번호가 맞지 않아요. 관리자 포털과 같은 번호예요.")
+    _audit("로그인", who=hit[0], ac=hit[1])
+    return {"ok": True, "name": hit[0], "token": _tt_make(hit[0], hit[1])}
 
 
 @app.post("/api/login/admin")
