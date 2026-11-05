@@ -1583,7 +1583,7 @@ function AssignmentBrowser({ students, assignments, reload }) {
    전에는 '며칠 미루기' 숫자만 넣는 방식이라 어느 날이 비었는지 보이지 않았다.
    ★마우스·태블릿 둘 다 되게 포인터 이벤트로 직접 만든다(HTML5 drag 는 터치에서 안 먹는다).
      touch-action:none 은 칩에만 준다 — 달력 전체에 주면 페이지 스크롤이 막힌다. */
-function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel, focusDate, offDays, onToggleOff, offLabel, chipActions }) {
+function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDays, group, busy , onTrash, onDeleteMany, deleteLabel, startPick, focusDate, offDays, onToggleOff, offLabel, chipActions }) {
   /* ★Day 를 톡 누르면 메뉴(원장 2026-10-01 "모든 기능을 달력 들어가서 할 수 있게").
      옮기기·재시험·지우기/빼기·자세히 — 학생 화면·카드로 따로 찾아가지 않아도 된다.
      chipActions(a) = [{label, onClick, sub:[{label,onClick}], danger}] — 화면(반/학생)이 정해 준다. */
@@ -1592,7 +1592,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
   const dated = list.filter(a => a.dueDate);   // dueOf() 로 날짜를 읽는다(낙관적 반영 포함)
   /* ★골라서 지우기(원장 2026-10-01 "필요 없는 과제를 선택하면 바로 삭제").
      켜 두면 칩을 톡톡 눌러 여러 개 고르고(날짜 숫자를 누르면 그날 것 전부), 한 번에 지운다. 끌기는 잠시 멈춘다. */
-  const [pickMode, setPickMode] = useState(false);
+  const [pickMode, setPickMode] = useState(!!startPick);
   const [picked, setPicked] = useState(() => new Set());
   const togglePick = (ids) => setPicked(prev => {
     const n = new Set(prev);
@@ -4050,7 +4050,7 @@ function StudentReview({ student, assignments, reload, onBack }) {
   const [delBusy, setDelBusy] = useState(null);
   /* 학생 한 명만 미루기(원장 2026-09-29). 반 친구들·보관함 원본은 그대로. */
   const todayIso = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
-  const [ppOpen, setPpOpen] = useState(null);        // trip | sessions | cal
+  const [ppOpen, setPpOpen] = useState(null);        // trip | sessions | cal | del
   const [ppFrom, setPpFrom] = useState(todayIso);
   const [ppUntil, setPpUntil] = useState(todayIso);
   const [ppN, setPpN] = useState(1);
@@ -4210,9 +4210,9 @@ function StudentReview({ student, assignments, reload, onBack }) {
 
       {/* ---- 이 학생만 미루기 (원장 2026-09-29: 여행·재시험 때 한 명만 밀기가 너무 불편) ---- */}
       <div className="card" style={{ padding:"10px 12px", marginBottom:12 }}>
-        <div style={{ fontWeight:700, color:"var(--navy)", fontSize:13, marginBottom:6 }}>📅 {student.name} 학생 일정만 바꾸기</div>
+        <div style={{ fontWeight:700, color:"var(--navy)", fontSize:13, marginBottom:6 }}>📅 {student.name} 학생 일정만 바꾸기·지우기</div>
         <div className="row" style={{ gap:6, flexWrap:"wrap" }}>
-          {[["trip","✈️ 여행·결석"],["sessions","⏭ 미루기"],["cal","🗓 달력에서 옮기기"]].map(([k,l]) => (
+          {[["trip","✈️ 여행·결석"],["sessions","⏭ 미루기"],["cal","🗓 달력에서 옮기기"],["del","🗑 과제 지우기"]].map(([k,l]) => (
             <button key={k} className={ppOpen===k ? "btn" : "btn-ghost"} style={{ fontSize:12, padding:"6px 10px" }}
               onClick={()=>{ setPpOpen(ppOpen===k ? null : k); setPpPrev(null); }}>{l}</button>
           ))}
@@ -4262,12 +4262,14 @@ function StudentReview({ student, assignments, reload, onBack }) {
             </div>
           </div>
         )}
-        {ppOpen === "cal" && (
+        {(ppOpen === "cal" || ppOpen === "del") && (
           <div style={{ marginTop:10 }}>
             <div className="muted" style={{ fontSize:11, marginBottom:6 }}>
-              이 달력은 <b>{student.name} 학생 것만</b> 바꿔요. 끈 과제의 <b>같은 교재</b> 뒤 과제가 같이 밀려요.
+              {ppOpen === "del"
+                ? <>지울 과제를 달력에서 고르세요. <b>{student.name} 학생 것만</b> 빠지고, 빼면 ↩ 되돌리기로 살릴 수 있어요.</>
+                : <>이 달력은 <b>{student.name} 학생 것만</b> 바꿔요. 끈 과제의 <b>같은 교재</b> 뒤 과제가 같이 밀려요.</>}
             </div>
-            <BookCalendar list={mine.filter(a => a.dueDate)} onMove={studentMove} onReload={reload} busy={ppBusy}
+            <BookCalendar key={ppOpen} startPick={ppOpen === "del"} list={mine.filter(a => a.dueDate)} onMove={studentMove} onReload={reload} busy={ppBusy}
               deleteLabel={`${student.name} 학생에게서 빼기`}
               onDeleteMany={async (ids) => {
                 if (!confirm(`고른 과제 ${ids.length}개를 ${student.name} 학생에게서만 뺄까요?\n같이 받는 다른 학생들 과제는 그대로예요.\n잘못 뺐으면 위의 「↩ 되돌리기」로 한 번에 돌아와요.`)) return false;
