@@ -534,6 +534,52 @@ app.add_middleware(
 )
 
 
+# ---------- 누가 했나 (원장 2026-11-05 "중복정리는 누가 한 건지") ----------
+# 트리톡은 선생님들이 같은 비밀번호를 쓴다. 그래서 로그인할 때 이름을 받아 x-tt-who 헤더로 싣고,
+# 지우기·미루기·되돌리기마다 admin_log.jsonl 에 남긴다. 일정 이력(20건)과 달리 밀려 사라지지 않고,
+# 되돌려도 지워지지 않는다. 이름은 한글이라 encodeURIComponent 로 싸서 온다(헤더는 latin-1 뿐).
+import contextvars
+from urllib.parse import unquote as _unquote
+
+ADMIN_LOG_PATH = DATA_DIR / "admin_log.jsonl"
+_REQ = contextvars.ContextVar("tt_request", default=None)
+
+
+class WhoMiddleware:
+    """요청 하나마다 Request 를 기억해 둔다. 저장 함수들까지 request 를 넘기지 않아도 되게."""
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            _REQ.set(Request(scope))
+        await self.inner(scope, receive, send)
+
+
+app.add_middleware(WhoMiddleware)
+
+
+def _who() -> str:
+    r = _REQ.get()
+    raw = r.headers.get("x-tt-who") if r is not None else ""
+    try:
+        return _unquote(raw or "").strip()[:20]
+    except Exception:
+        return ""
+
+
+def _audit(op, n=None, detail="", who=None, ac=None):
+    """작업 기록 한 줄. 기록이 실패해도 본래 작업은 막지 않는다."""
+    try:
+        r = _REQ.get()
+        row = {"at": _now_kr(), "who": who or _who() or "이름 없음", "op": str(op), "n": n,
+               "detail": str(detail)[:500], "ac": ac or (academy_of(r) if r is not None else ACADEMY_DEFAULT)}
+        with open(ADMIN_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        print("[audit] 기록 실패:", exc)
+
+
 # ---------- 관리자 게이트 ----------
 # 왜 필요한가: 이 서버의 API 54개는 여태 아무 검사도 하지 않았다.
 # 특히 `GET /api/backup` 은 전교생 명단·과제·제출기록 전부를 아무나 받아갈 수 있었고
@@ -723,6 +769,8 @@ def login_admin(payload: dict = Body(...)):
     got = str(payload.get("pw", ""))
     if not any(_pw_same(got, s) for s in _admin_secrets()):
         raise HTTPException(401, "비밀번호가 올바르지 않아요.")
+    who = str(payload.get("who") or "").strip()[:20]
+    _audit("로그인", who=who, ac=next((ac for pw, ac in _admin_secrets().items() if _pw_same(got, pw)), None))
     # 화면을 여는 것뿐 아니라, 이 비밀번호가 관리자 API 를 여는 열쇠이기도 하다.
     # 프런트는 이걸 x-ht-admin 헤더로 다시 보낸다(static/index.html 의 api()).
     return {"ok": True}
@@ -1178,6 +1226,10 @@ def _drop_assignments(db, gone) -> int:
     if not gone:
         return 0
     keep_ids, now, out = _recorded_ids(db, gone), _now_kr(), []
+    names = {x.get("id"): x.get("name") for x in db.get("students", [])}
+    what = [f'{",".join(str(names.get(i, i)) for i in (a.get("assignedIds") or [])[:3]) or "전체"} {a.get("title")} {a.get("dueDate") or ""}'
+            for a in db["assignments"] if a.get("id") in gone]
+    _audit("과제 지움", len(what), " / ".join(what[:6]) + (f" 외 {len(what) - 6}개" if len(what) > 6 else ""))
     for a in db["assignments"]:
         aid = a.get("id")
         if aid not in gone:
@@ -2256,8 +2308,9 @@ def _hist_push(db, op, changes):
         return
     import uuid
     h = db.setdefault("scheduleHistory", [])
-    h.append({"id": uuid.uuid4().hex[:10], "op": op, "at": _now_kr(),
+    h.append({"id": uuid.uuid4().hex[:10], "op": op, "at": _now_kr(), "who": _who(),
               "n": len(changes), "changes": changes})
+    _audit(op, len(changes))
     del h[:-SCHEDULE_HISTORY_MAX]
 
 
@@ -2283,7 +2336,8 @@ def _hist_push_snap(db, op, before, n=None):
         return
     import uuid
     h = db.setdefault("scheduleHistory", [])
-    h.append({"id": uuid.uuid4().hex[:10], "op": op, "at": _now_kr(), "n": n or len(diff), "snap": diff})
+    h.append({"id": uuid.uuid4().hex[:10], "op": op, "at": _now_kr(), "who": _who(), "n": n or len(diff), "snap": diff})
+    _audit(op, n or len(diff))
     del h[:-SCHEDULE_HISTORY_MAX]
 
 
@@ -2485,8 +2539,30 @@ def schedule_undo(payload: dict = Body(default=None)):
                 a["dueDate"] = c.get("from")
                 back += 1
         del h[idx]
+        _audit(f"되돌리기: {rec.get('op')} ({rec.get('at')})", back)   # 이력에서는 지워지므로 여기엔 남긴다
         save_db(db)
     return {"ok": True, "restored": back, "op": rec.get("op"), "at": rec.get("at")}
+
+
+@app.get("/api/admin-log", dependencies=ADMIN_ONLY)
+def admin_log(request: Request, limit: int = 300):
+    """작업 기록(최신순). 내 학원 것만."""
+    ac = academy_of(request)
+    try:
+        lines = ADMIN_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    out = []
+    for ln in reversed(lines):
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            continue
+        if row.get("ac") == ac:
+            out.append({k: v for k, v in row.items() if k != "ac"})
+            if len(out) >= max(1, min(limit, 1000)):
+                break
+    return {"ok": True, "items": out}
 
 
 @app.post("/api/assignments/reschedule", dependencies=ADMIN_ONLY)
