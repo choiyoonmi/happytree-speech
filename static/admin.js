@@ -5503,14 +5503,13 @@ function HomePanel({ students, assignments, reload }) {
     <>
       <SkipDayBar reload={reload} />
       <div className="tabs" style={{ marginBottom:14 }}>
-        {[["progress","📈 진도"],["dash","📊 학습현황"],["review","🎤 제출확인"],["gradetest","📝 단어급수 시험지"]].map(([id,l]) => (
+        {[["progress","📈 진도"],["dash","📊 학습현황"],["review","🎤 제출확인"]].map(([id,l]) => (
           <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
         ))}
       </div>
       {sub==="progress" && <AdminProgress students={students} assignments={assignments} reload={reload} />}
       {sub==="dash" && <AdminDashboard students={students} assignments={assignments} />}
       {sub==="review" && <AdminReview students={students} assignments={assignments} reload={reload} />}
-      {sub==="gradetest" && <GradeTestPanel assignments={assignments} />}
     </>
   );
 }
@@ -5638,7 +5637,7 @@ function AdminView({ onLogout }) {
         <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
       </div>
       <div className="tabs">
-        {[["home","📊 현황"],["task","📚 과제"],["people","👥 학생·성적"],["settings","⚙️ 설정"]].map(([id,l]) => (
+        {[["home","📊 현황"],["task","📚 과제"],["test","📝 시험지"],["people","👥 학생·성적"],["settings","⚙️ 설정"]].map(([id,l]) => (
           <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>{ setTab(id); setFound(null); }}>{l}</button>
         ))}
       </div>
@@ -5653,6 +5652,9 @@ function AdminView({ onLogout }) {
       {!found && tab==="home" && <HomePanel students={students} assignments={assignments} reload={reload} />}
 
       {!found && tab==="task" && <AdminAssignments students={students} assignments={assignments} reload={reload} voice={voice} />}
+
+      {/* 원장 2026-11-05 "못 찾겠어" — 현황 안 소탭이라 안 보여서 맨 위 탭으로 꺼냈다 */}
+      {!found && tab==="test" && <GradeTestPanel assignments={assignments} />}
 
       {!found && tab==="people" && <PeoplePanel students={students} reload={reload} />}
 
