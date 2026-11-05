@@ -1841,7 +1841,7 @@ function BookCalendar({ list, onMove, onRespread, onReload, onClassDays, savedDa
         <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8,
           background: "#FFF3F0", border: "1px solid #F0C9BF", borderRadius: 8, padding: "6px 9px" }}>
           <span style={{ fontSize: 12, color: "#9A4B36" }}>
-            방금: <b>{hist[0].op}</b> · {hist[0].n}개 · {hist[0].at}{hist[0].who ? " · " + hist[0].who : ""}
+            방금: <b>{hist[0].op}</b> · {hist[0].n}개 · {hist[0].at}
           </span>
           <button className="btn-ghost" style={{ fontSize: 12, padding: "4px 10px", marginLeft: "auto" }}
             disabled={busy}
@@ -3997,7 +3997,7 @@ function UndoBar({ reload, stamp }) {
   return (
     <div className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10,
       background: "#FFF3F0", border: "1px solid #F0C9BF", borderRadius: 8, padding: "6px 9px" }}>
-      <span style={{ fontSize: 12, color: "#9A4B36" }}>최근: <b>{h.op}</b> · {h.n}개 · {h.at}{h.who ? " · " + h.who : ""}</span>
+      <span style={{ fontSize: 12, color: "#9A4B36" }}>최근: <b>{h.op}</b> · {h.n}개 · {h.at}</span>
       <button className="btn-ghost" style={{ fontSize: 12, padding: "4px 10px", marginLeft: "auto" }}
         onClick={async () => {
           if (!confirm(`'${h.op}' 를 통째로 되돌릴까요?`)) return;
@@ -5369,46 +5369,17 @@ function HomePanel({ students, assignments, reload }) {
 
 // 설정 탭: 설정과 배틀을 소탭으로 (배틀이 설정 아래 묻히지 않게)
 
-// ★작업 기록(2026-11-05) — 누가 언제 지우고 미루고 되돌렸는지. 일정 이력과 달리 20건에서 안 사라진다.
-function WorkLog() {
-  const [rows, setRows] = useState(null);
-  const [err, setErr] = useState("");
-  const [q, setQ] = useState("");
-  useEffect(() => { apiGet("/admin-log?limit=500").then(d => setRows(d.items || [])).catch(e => setErr(e.message)); }, []);
-  if (err) return <div className="card"><div className="err">{err}</div></div>;
-  if (!rows) return <div className="card muted">불러오는 중…</div>;
-  const word = q.trim();
-  const shown = word ? rows.filter(r => [r.who, r.op, r.detail].join(" ").includes(word)) : rows;
-  return (
-    <div className="card">
-      <b style={{ fontSize: 15 }}>🧾 작업 기록</b>
-      <div className="muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>누가 언제 로그인하고 과제를 지우고 미루고 되돌렸는지 남아요. 2026-11-05부터 쌓여요.</div>
-      <input className="field" placeholder="🔍 이름·학생·작업으로 찾기" value={q} onChange={e => setQ(e.target.value)} />
-      <div style={{ marginTop: 10 }}>
-        {shown.map((r, i) => (
-          <div key={i} style={{ padding: "7px 0", borderBottom: "1px solid #eee", fontSize: 13 }}>
-            <span className="muted" style={{ fontSize: 12 }}>{r.at}</span> · <b>{r.who}</b> · {r.op}{r.n != null ? ` ${r.n}개` : ""}
-            {r.detail && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{r.detail}</div>}
-          </div>
-        ))}
-        {!shown.length && <div className="muted" style={{ fontSize: 13 }}>기록이 없어요.</div>}
-      </div>
-    </div>
-  );
-}
-
 function SettingsPanel({ students, assignments, reload }) {
   const [sub, setSub] = useState("settings");
   return (
     <>
       <div className="tabs" style={{ marginBottom:14 }}>
-        {[["settings","⚙️ 설정"],["battle","🥊 단어 배틀"],["worklog","🧾 작업 기록"]].map(([id,l]) => (
+        {[["settings","⚙️ 설정"],["battle","🥊 단어 배틀"]].map(([id,l]) => (
           <button key={id} className={"tab" + (sub===id?" on":"")} onClick={()=>setSub(id)}>{l}</button>
         ))}
       </div>
       {sub==="settings" && <AdminSettings students={students} assignments={assignments} reload={reload} />}
       {sub==="battle" && <BattleHost assignments={assignments} />}
-      {sub==="worklog" && <WorkLog />}
     </>
   );
 }
@@ -5919,17 +5890,12 @@ function BattleHost({ assignments }) {
 function Login({ onAdmin }) {
   const [apw, setApw] = useState(""); const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [who, setWho] = useState(() => { try { return localStorage.getItem("tt_who_last") || ""; } catch (e) { return ""; } });
 
   const go = async () => {
-    const name = who.trim();
-    if (name.length < 2) { setErr("선생님 이름을 적어 주세요."); return; }
     setErr(""); setBusy(true);
     try {
-      await apiPost("/login/admin", { pw: apw, who: name });
+      await apiPost("/login/admin", { pw: apw });
       setAdminKey(apw);   // 이후 관리자 API 호출에 열쇠로 쓴다
-      setAdminWho(name);
-      try { localStorage.setItem("tt_who_last", name); } catch (e) {}
       onAdmin();
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -5944,13 +5910,9 @@ function Login({ onAdmin }) {
           <div className="muted" style={{ marginTop:6 }}>선생님 화면</div>
         </div>
         <div className="card">
-          <label className="label">선생님 이름</label>
-          <input className="field" value={who} onChange={e=>setWho(e.target.value)} maxLength={20}
-            onKeyDown={e=>e.key==="Enter"&&go()} placeholder="이름 (작업 기록에 남아요)" autoFocus={!who} />
-          <div style={{height:10}} />
           <label className="label">관리자 비밀번호</label>
           <input className="field" type="password" value={apw} onChange={e=>setApw(e.target.value)}
-            onKeyDown={e=>e.key==="Enter"&&go()} placeholder="비밀번호" autoFocus={!!who} />
+            onKeyDown={e=>e.key==="Enter"&&go()} placeholder="비밀번호" autoFocus />
           {err && <div className="err">{err}</div>}
           <div style={{height:14}} />
           <button className="btn full" onClick={go} disabled={busy}>{busy ? "확인 중..." : "로그인"}</button>
@@ -5963,7 +5925,7 @@ function Login({ onAdmin }) {
 function App() {
   const [ok, setOk] = useState(false);
   if (!ok) return <Login onAdmin={()=>setOk(true)} />;
-  return <AdminView onLogout={()=>{ setAdminKey(""); setAdminWho(""); setOk(false); }} />;
+  return <AdminView onLogout={()=>{ setAdminKey(""); setOk(false); }} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
