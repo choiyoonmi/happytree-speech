@@ -3299,9 +3299,11 @@ def treetalk_points(ym: str = "", days: str = ""):
     #   점수를 주고, 지난 주 마감 과제를 이번 주에 늦게 완료하면 이번 주엔 안 준다(그 과제의 마감주로 감).
     #   → dueDate 의 M/d 가 이번 주(days) 안이면 인정. 제출/완료 시각은 따로 안 본다(마감 지나도 그 주면 OK).
     out = {}
+    counts = {}   # 학생별 점수 받은 과제 수(녹음+익힘을 해도 과제 하나=1회) — 주간 명예의 전당 시상 기준
     ids = set(all_student_ids()) | set(all_vocab_student_ids())
     for sid in ids:
         p = 0
+        done_aids = set()
         # 녹음(단어/문장)
         try:
             subs = load_student_subs(sid) or {}
@@ -3323,6 +3325,7 @@ def treetalk_points(ym: str = "", days: str = ""):
             if avg is None:
                 continue
             p += pts(avg)
+            done_aids.add(aid)
         # 익힘(단어/문장)
         try:
             vocab = load_vocab(sid) or {}
@@ -3348,9 +3351,11 @@ def treetalk_points(ym: str = "", days: str = ""):
                 if isinstance(b, (int, float)):
                     best = b if best is None else max(best, b)
             p += pts(best)
+            done_aids.add(aid)
         if p:
             out[sid] = p
-    return {"ok": True, "ym": cur_ym, "points": out}
+            counts[sid] = len(done_aids)
+    return {"ok": True, "ym": cur_ym, "points": out, "counts": counts}
 
 
 def _notify_treetalk(student_id, lesson="", due="", score=None):
