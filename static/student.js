@@ -1860,6 +1860,19 @@ function PortalOnly({ failed, onBattle }) {
   );
 }
 
+/* 학생 포털 입장권 확인(JSONP — 포털은 다른 주소라서) */
+function ticketOk(sid, t, cb) {
+  if (!sid || !t) { cb(false); return; }
+  const n = "__httk" + Date.now() + Math.floor(Math.random() * 10000), sc = document.createElement("script");
+  let done = false;
+  const fin = v => { if (done) return; done = true; clearTimeout(to); try { delete window[n]; } catch (e) {} sc.remove(); cb(v); };
+  const to = setTimeout(() => fin(false), 10000);
+  window[n] = d => fin(!!(d && d.ok));
+  sc.onerror = () => fin(false);
+  sc.src = "https://student.happytreeacademy.com/api/ticketcheck?id=" + encodeURIComponent(sid) + "&t=" + encodeURIComponent(t) + "&callback=" + n;
+  document.head.appendChild(sc);
+}
+
 function App() {
   const params = new URLSearchParams(location.search);
   const battleParam = params.get("battle") || "";
@@ -1871,17 +1884,31 @@ function App() {
   // ★ 포털에서 넘어온 학생 아이디로 자동 로그인 (?sid=아이디, 아이디=비번). 실패하면 일반 로그인 화면.
   useEffect(() => {
     if (autoSid && role === "autologin") {
-      const pw = params.get("spw") || autoSid;
-      apiPost("/login/student", { id: autoSid, pw })
-        .then(r => { setStudent(r.student); setRole("student"); })
-        .catch(() => { setAutoFail(true); setRole(null); });
+      /* ★입장권(2026-11-09): 주소에 ?sid=아이디 만 있으면 친구 아이디로도 들어가졌다(배소이 아이디로 다른 아이가 트리톡 6개).
+         포털이 그 기기의 로그인으로 받아 붙인 &t= 입장권이 맞을 때만 로그인한다(확인은 학생 포털 서버).
+         같은 창에서 새로고침하면 입장권이 지났을 수 있어서, 이 탭에서 한 번 들어온 학생은 sessionStorage 로 이어 쓴다. */
+      try {
+        const kept = JSON.parse(sessionStorage.getItem("tt_student") || "null");
+        if (kept && kept.id === autoSid) { setStudent(kept); setRole("student"); return; }
+      } catch (e) {}
+      const fail = () => { setAutoFail(true); setRole(null); };
+      ticketOk(autoSid, (params.get("t") || "").trim(), ok => {
+        if (!ok) { fail(); return; }
+        const pw = params.get("spw") || autoSid;
+        apiPost("/login/student", { id: autoSid, pw })
+          .then(r => {
+            try { sessionStorage.setItem("tt_student", JSON.stringify(r.student)); } catch (e) {}
+            setStudent(r.student); setRole("student");
+          })
+          .catch(fail);
+      });
     }
   }, []);
 
   if (role === "autologin") return <div style={{ minHeight: "70vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#7a8a92", fontSize: 15 }}>로그인 중…</div>;
   if (role === "battle") return <BattlePlayer initialCode={battleParam} onExit={()=>setRole(null)} />;
   if (!role) return <PortalOnly failed={autoFail} onBattle={()=>setRole("battle")} />;
-  return <StudentView student={student} onLogout={()=>{setRole(null); setStudent(null);}} />;
+  return <StudentView student={student} onLogout={()=>{ try { sessionStorage.removeItem("tt_student"); } catch (e) {} setRole(null); setStudent(null);}} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
