@@ -1829,12 +1829,44 @@ function Login({ onStudent, onBattle }) {
   );
 }
 
+/* ★포털에서만 들어오기(2026-11-09 원장 "학생포털에서 트리톡 연결할 때 로그인 화면 안 나오게, 이런 일이 다시 안 생기게").
+   배소이 아이디로 다른 아이가 집에서 트리톡 6개를 했다. 학생이 여기서 아이디를 직접 칠 수 있으면 친구 아이디로도 들어간다.
+   그래서 학생 로그인 칸을 없애고, 포털이 넘겨 준 ?sid= 로만 들어온다. 실패하면 칸 대신 포털로 돌려보낸다.
+   (예전 Login 화면은 남겨 두되 쓰지 않는다 — 선생님은 /admin.html 로 따로 들어간다.) */
+function PortalOnly({ failed, onBattle }) {
+  return (
+    <div className="wrap" style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div style={{ width:"100%", maxWidth:360, textAlign:"center" }}>
+        <div style={{ fontSize:32, fontWeight:800, color:"var(--navy)", letterSpacing:"-0.02em" }}>트리톡</div>
+        <div className="muted" style={{ marginTop:6, marginBottom:24 }}>해피트리 낭독 · 단어 녹음</div>
+        <div className="card" style={{ padding:"22px 18px" }}>
+          <div style={{ fontSize:17, fontWeight:800, color:"var(--navy)", lineHeight:1.5 }}>
+            {failed ? "로그인이 안 됐어요." : "트리톡은 학생 포털에서 들어와요."}
+          </div>
+          <div className="muted" style={{ marginTop:8, lineHeight:1.6 }}>학생 포털에서 내 이름을 확인하고<br/>트리톡을 눌러 다시 들어와 주세요.</div>
+          <div style={{height:16}} />
+          <a className="btn full" href={STUDENT_PORTAL} style={{ display:"block", textDecoration:"none", textAlign:"center" }}>학생 포털로 가기</a>
+        </div>
+        <button onClick={onBattle}
+          style={{ width:"100%", marginTop:12, padding:"12px", borderRadius:12, fontWeight:800, fontSize:15,
+            color:"#fff", background:"linear-gradient(135deg,#9B5DE5,#F15BB5,#F4A259)" }}>
+          🎮 단어 배틀 참가하기
+        </button>
+        <div style={{ marginTop:16 }}>
+          <a href="/admin.html" className="muted" style={{ fontSize:13, textDecoration:"none" }}>선생님이신가요? →</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const params = new URLSearchParams(location.search);
   const battleParam = params.get("battle") || "";
   const autoSid = (params.get("sid") || "").trim();
   const [role, setRole] = useState(battleParam ? "battle" : (autoSid ? "autologin" : null));
   const [student, setStudent] = useState(null);
+  const [autoFail, setAutoFail] = useState(false);
 
   // ★ 포털에서 넘어온 학생 아이디로 자동 로그인 (?sid=아이디, 아이디=비번). 실패하면 일반 로그인 화면.
   useEffect(() => {
@@ -1842,13 +1874,13 @@ function App() {
       const pw = params.get("spw") || autoSid;
       apiPost("/login/student", { id: autoSid, pw })
         .then(r => { setStudent(r.student); setRole("student"); })
-        .catch(() => setRole(null));
+        .catch(() => { setAutoFail(true); setRole(null); });
     }
   }, []);
 
   if (role === "autologin") return <div style={{ minHeight: "70vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#7a8a92", fontSize: 15 }}>로그인 중…</div>;
   if (role === "battle") return <BattlePlayer initialCode={battleParam} onExit={()=>setRole(null)} />;
-  if (!role) return <Login onStudent={s=>{setStudent(s); setRole("student");}} onBattle={()=>setRole("battle")} />;
+  if (!role) return <PortalOnly failed={autoFail} onBattle={()=>setRole("battle")} />;
   return <StudentView student={student} onLogout={()=>{setRole(null); setStudent(null);}} />;
 }
 
