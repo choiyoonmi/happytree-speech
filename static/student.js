@@ -1087,6 +1087,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const [rec, setRec] = useState(null);
   const [savedMsg, setSavedMsg] = useState("");
   const [doneMsg, setDoneMsg] = useState(false);   // 4단계 완료 축하 메시지
+  const [classic, setClassic] = useState(false);   // 게임 말고 예전 방식(차분하게 풀기)
 
   const reloadProgress = () => apiGet(`/vocab/${student.id}`).then(d => setRec(d[cur.id] || null)).catch(()=>{});
   useEffect(() => { reloadProgress(); }, []);
@@ -1108,7 +1109,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
   const quizPairs = pairs.filter(p => usableKor(p.kor));
   const dropped = pairs.length - quizPairs.length;
 
-  const backToModes = () => { setMode(null); };
+  const backToModes = () => { setMode(null); setClassic(false); };
   // 결과 저장 후, 이번 저장으로 4단계가 처음 완성되면 완료 메시지
   const persist = async (body) => {
     const wasComplete = !!(rec && rec.complete);
@@ -1142,16 +1143,25 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
     </>
   );
   if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} label="카드 암기" voice={voice} onBack={backToModes} onDone={saveFlash} />;
-  if (mode === "choice") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="뜻 고르기" onBack={backToModes} onDone={saveResult} limit={studyCount(quizPairs.length)} /> : needMeaning("뜻 고르기");
-  if (mode === "spell") return quizPairs.length >= 1 ? <SpellQuiz pairs={quizPairs} title={cur.title} label="스펠링" onBack={backToModes} onDone={saveResult} /> : needMeaning("스펠링");
+  /* 뜻 고르기·스펠링은 게임판(games.js)이 기본(원장 2026-11-10 "게임하듯이").
+     서버에 남는 값(맞은 수/문제 수)·단계 키(choice·spell)는 그대로라 완료 규칙·관리자 화면은 안 바뀐다.
+     게임이 버거운 아이는 시작 화면의 '차분하게 풀기'로 예전 화면을 쓴다. */
+  if (mode === "choice") return quizPairs.length >= 4
+    ? (classic ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="뜻 고르기" onBack={backToModes} onDone={saveResult} limit={studyCount(quizPairs.length)} />
+               : <WordRainGame pairs={quizPairs} title={cur.title} label="단어 비" voice={voice} uid={student.id} onBack={backToModes} onDone={saveResult} onClassic={()=>setClassic(true)} limit={studyCount(quizPairs.length)} />)
+    : needMeaning("뜻 고르기");
+  if (mode === "spell") return quizPairs.length >= 1
+    ? (classic ? <SpellQuiz pairs={quizPairs} title={cur.title} label="스펠링" onBack={backToModes} onDone={saveResult} />
+               : <SpellShooterGame pairs={quizPairs} title={cur.title} label="스펠링 슈터" voice={voice} uid={student.id} onBack={backToModes} onDone={saveResult} onClassic={()=>setClassic(true)} />)
+    : needMeaning("스펠링");
   if (mode === "test") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="미니 테스트" onBack={backToModes} onDone={saveResult} limit={Math.min(20, studyCount(quizPairs.length))} /> : needMeaning("미니 테스트");
 
   const bm = (rec && rec.byMode) || {};
   const doneCount = ["flash","choice","spell","test"].filter(k => bm[k]).length;
   const modes = [
     ["flash", "🃏 카드 암기", "단어와 뜻을 넘기며 외워요 (발음 자동재생)"],
-    ["choice", "✅ 뜻 고르기", "4개 중 맞는 뜻 고르기"],
-    ["spell", "⌨️ 스펠링", "뜻을 보고 영어 단어 쓰기"],
+    ["choice", "🌧️ 뜻 고르기 · 단어 비 게임", "떨어지는 단어의 뜻을 골라 팡! 터뜨려요"],
+    ["spell", "🚀 스펠링 · 슈터 게임", "글자를 순서대로 쏴서 단어를 완성해요"],
     ["test", "📝 미니 테스트", isKin() ? "섞어서 풀어 봐요" : "섞어서 시험 · 점수 기록"],
   ];
   return <>
