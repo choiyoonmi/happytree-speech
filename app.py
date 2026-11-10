@@ -5770,6 +5770,33 @@ def admin_html():
     return FileResponse(STATIC_DIR / "admin.html", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/kinder/{name}")
+def kinder_media(name: str, request: Request):
+    """킨더클래스 홍보 영상. ★아이폰 사파리는 Range(206) 응답이 없으면 영상을 못 튼다.
+    지금 starlette(0.38) StaticFiles 는 Range 를 무시하고 통째 200 이라 여기서 직접 잘라 준다."""
+    if not re.fullmatch(r"[a-z0-9-]+\.(mp4|jpg)", name):
+        raise HTTPException(404)
+    f = STATIC_DIR / "kinder" / name
+    if not f.is_file():
+        raise HTTPException(404)
+    size = f.stat().st_size
+    ctype = "video/mp4" if name.endswith(".mp4") else "image/jpeg"
+    base = {"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"}
+    m = re.match(r"bytes=(\d*)-(\d*)", request.headers.get("range", ""))
+    if not m or (m.group(1) == "" and m.group(2) == ""):
+        return FileResponse(f, media_type=ctype, headers=base)
+    if m.group(1) == "":
+        start, end = max(0, size - int(m.group(2))), size - 1
+    else:
+        start = int(m.group(1)); end = min(size - 1, int(m.group(2)) if m.group(2) else size - 1)
+    if start >= size or start > end:
+        return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+    with open(f, "rb") as fh:
+        fh.seek(start); data = fh.read(end - start + 1)
+    return Response(data, status_code=206, media_type=ctype,
+                    headers={**base, "Content-Range": f"bytes {start}-{end}/{size}"})
+
+
 class FreshStatic(StaticFiles):
     """화면 코드는 '매번 최신인지 물어보게' 한다(no-cache).
 
