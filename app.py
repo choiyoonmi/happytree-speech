@@ -482,6 +482,60 @@ def _drop_withdrawn_students(shared_list):
         print("[student-sync] 명단에서 지워진 학생 정리:", sorted(ids))
         return db["students"]
 
+# ── 다른 학원 명단 맞추기(2026-11-11) ─────────────────────────────
+# 학원 데스크(hq/desk)에서 학생을 고치거나 지우면 학생계정 서버가 여기로 그 선생님 쪽지(tk)만 넘긴다.
+# 우리는 그 쪽지로 학생계정 서버에 그 학원 명단(rosterInfo)을 다시 물어 맞춘다 — 쪽지가 가짜면
+# 학생계정 서버가 해피트리 명단을 주므로(academy=happytree) 아무것도 안 한다. 해피트리는 3분 동기화가 맡는다.
+# ★로그인은 원래 학생계정 서버가 판정하므로 지워진 학생은 이미 못 들어온다. 이건 관리자 명단에 남는 줄을 치우는 것.
+_ACAD_RESYNC_LAST = {}
+
+
+def _resync_academy_rows(ac, shared_list):
+    keep = {str((s or {}).get("id", "")).strip() for s in shared_list}
+    keep.discard("")
+    with _lock:
+        db = load_db()
+        mine = [s for s in db["students"] if academy_of_student(s) == ac]
+        gone = {str(s.get("id")) for s in mine
+                if str(s.get("id")) not in keep and str(s.get("id")) not in _ROSTER_KEEP_IDS}
+        # 남의 학원 줄로 이미 있는 아이디는 건드리지 않는다
+        other = {str(s.get("id")) for s in db["students"] if academy_of_student(s) != ac}
+    if len(gone) > _ROSTER_MAX_DROP:
+        print("[academy-sync] 빠질 학생이 너무 많아 멈춤:", ac, len(gone))
+        gone = set()
+    items = []
+    for s in shared_list:
+        s = dict(s or {})
+        if str(s.get("id", "")).strip() in other:
+            continue
+        s["academy"] = ac
+        s.pop("pw", None)
+        items.append(s)
+    if items:
+        _merge_shared_students(items)
+    if gone:
+        with _lock:
+            db = load_db()
+            db["students"] = [s for s in db["students"]
+                              if not (str(s.get("id")) in gone and academy_of_student(s) == ac)]
+            save_db(db)
+        print("[academy-sync] 명단에서 지워진 학생 정리:", ac, sorted(gone))
+    return len(items), len(gone)
+
+
+async def _resync_academy(tk):
+    data = await fetch_shared_accounts({"action": "rosterInfo", "tk": tk})
+    ac = str(data.get("academy") or "").strip()
+    if not data.get("ok") or not isinstance(data.get("students"), list) or not ac or ac == ACADEMY_DEFAULT:
+        return
+    import time as _t
+    now = _t.time()
+    if now - _ACAD_RESYNC_LAST.get(ac, 0) < 3:
+        await asyncio.sleep(3)
+    _ACAD_RESYNC_LAST[ac] = _t.time()
+    print("[academy-sync]", ac, _resync_academy_rows(ac, data["students"]))
+
+
 def migrate_submissions_if_needed():
     """예전 db.json 안에 있던 submissions를 학생별 파일로 옮긴다 (최초 1회)."""
     db = load_db()
@@ -1085,6 +1139,21 @@ def add_student(payload: dict = Body(...)):
         db["students"].append(student)
         save_db(db)
     return student
+
+
+@app.post("/api/students/resync")
+async def resync_academy_students(payload: dict = Body(...)):
+    tk = str((payload or {}).get("tk") or "").strip()
+    if not tk or len(tk) > 400 or "." not in tk:
+        raise HTTPException(400, "쪽지가 없어요.")
+
+    async def run():
+        try:
+            await _resync_academy(tk)
+        except Exception as exc:
+            print("[academy-sync] 실패:", exc)
+    asyncio.get_event_loop().create_task(run())
+    return {"ok": True}
 
 
 @app.post("/api/students/bulk", dependencies=ADMIN_ONLY)
