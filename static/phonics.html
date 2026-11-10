@@ -186,6 +186,10 @@ canvas.trace{background:#fff;border-radius:24px;box-shadow:0 6px 0 #e7dcc2;touch
 const QS = new URLSearchParams(location.search);
 const AID = QS.get('aid') || '', SID = QS.get('sid') || '', SNAME = QS.get('name') || '';
 const EMBED = !!(AID && SID);
+// ★유치부(7세, 트리톡이 &kin=1 을 붙인다): 점수·별 개수 차등·신호등·상위%·등급·합불을 안 보인다(학원법 유아 평가 금지, 2026-11-10).
+//   서버 기록(score·phonicsScore·시험)은 그대로 남아 선생님 성적표에서 본다.
+const KIN = QS.get('kin') === '1';
+const stars3 = n => KIN ? '⭐⭐⭐' : '⭐'.repeat(n)+'☆'.repeat(3-n);
 let C = null;             // /api/phonics/content
 let A = null;             // 이 과제(트리톡)
 let LET = [], DAY = 1, STEPS = [], cur = -1;
@@ -424,7 +428,7 @@ function go(where){
      <div class="map">${lanes}</div>
      <div class="row">
        ${nextI<0?'<button class="btn" onclick="go(\'end\')">🌳 내 나무 보기</button>':''}
-       ${EMBED?'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button><button class="btn ghost" onclick="leave()">↩ 나가기</button>'
+       ${EMBED?(KIN?'':'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button>')+'<button class="btn ghost" onclick="leave()">↩ 나가기</button>'
               :'<button class="btn ghost" style="font-size:16px;padding:8px 18px" onclick="if(confirm(\'처음부터 다시 할까요? (열매도 0개로)\')){S={fruits:0,done:{},takes:{},parrot:{},quiz:null};save();go(\'map\')}">처음부터 다시</button>'}
      </div>`);
   stage().querySelectorAll('.node').forEach(b=>b.onclick=()=>run(+b.dataset.i));
@@ -457,10 +461,11 @@ async function scoreTake(w, r, onLights){
   const up = upload(r.blob);
   let res = null;
   try{ res = await assess(w[0], r.blob) }catch(e){}
-  if(!res || !res.ok){ return {stars:1, note:(res&&res.note) || '잘 들었어요! (채점은 잠시 쉬는 중)'} }
+  if(!res || !res.ok){ return {stars:KIN?3:1, note:KIN ? '잘 들었어요! 🌟' : ((res&&res.note) || '잘 들었어요! (채점은 잠시 쉬는 중)')} }
   const sc = res.score, n = sc>=80?3:sc>=55?2:1;
   const prev = S.takes[w[0]];
   up.then(url=>{ if(!prev || prev.score==null || sc>=prev.score){ S.takes[w[0]] = {k:w[0], score:sc, url, at:nowStr()}; save() } });
+  if(KIN){ play('fb-0'); return {stars:3, note:'잘 읽었어요! 🌟'} }
   onLights && onLights(((res.words||[])[0]||{}).phonemes||[]);
   if(n===3) play('fb-0');
   return {stars:n, note: n===3?'완벽해요!':n===2?'잘했어요!':'괜찮아요, 한 번 더 해 볼까요?'};
@@ -507,7 +512,7 @@ function wreview(){
       if(r.error){ $('#msg').textContent = r.error; beep('no'); return }
       $('#msg').textContent = '듣고 있어요… 👂';
       const o = await scoreTake(w, r);
-      $('#st').textContent = '⭐'.repeat(o.stars)+'☆'.repeat(3-o.stars); $('#msg').textContent = o.note; beep('ok');
+      $('#st').textContent = stars3(o.stars); $('#msg').textContent = o.note; beep('ok');
       $('#nx').classList.remove('hide');
     }});
     $('#nx').onclick = ()=>{ $('#nx').onclick = null; wi++; wi<list.length ? one() : (fruit(2), finish()) };
@@ -564,7 +569,7 @@ function train(fi){
           if(acc.length) c.style.background = lightCol(Math.min(...acc));
         });
       });
-      $('#st').textContent = '⭐'.repeat(o.stars)+'☆'.repeat(3-o.stars);
+      $('#st').textContent = stars3(o.stars);
       $('#msg').textContent = o.note + (o.stars<3 ? ' (빨간 칸 소리를 또박또박!)' : ''); beep('ok');
       if($('#nx').classList.contains('hide')){ fruit(); $('#nx').classList.remove('hide') }
     }});
@@ -829,15 +834,15 @@ function sread(){
       $('#msg').textContent = '듣고 있어요… 👂';
       const up = upload(rec.blob);
       let res = null; try{ res = await assess(x.en, rec.blob) }catch(e){}
-      if(!res || !res.ok){ $('#st').textContent='⭐'; $('#msg').textContent = (res&&res.note) || '잘 들었어요! (채점은 잠시 쉬는 중)' }
+      if(!res || !res.ok){ $('#st').textContent=KIN?'⭐⭐⭐':'⭐'; $('#msg').textContent = KIN ? '잘 들었어요! 🌟' : ((res&&res.note) || '잘 들었어요! (채점은 잠시 쉬는 중)') }
       else {
         const sc = res.score, n = sc>=80?3:sc>=55?2:1;
-        $('#st').textContent = '⭐'.repeat(n)+'☆'.repeat(3-n);
+        $('#st').textContent = stars3(n);
         // 낱말 신호등: 빠뜨린 낱말(Omission)은 빨강
-        (res.words||[]).forEach((wd,i)=>{ if(!spans[i]) return;
+        if(!KIN) (res.words||[]).forEach((wd,i)=>{ if(!spans[i]) return;
           const a = wd.errorType==='Omission' ? 0 : (wd.accuracy ?? 0);
           spans[i].style.background = lightCol(a); spans[i].style.color = '#fff' });
-        $('#msg').textContent = n===3 ? '술술 읽었어요!' : '빨간 낱말을 한 번 더 또박또박!';
+        $('#msg').textContent = KIN ? '술술 읽었어요! 🌟' : n===3 ? '술술 읽었어요!' : '빨간 낱말을 한 번 더 또박또박!';
         if(n===3) play('fb-0');
         S.sents = S.sents || {};
         const prev = S.sents[x.id];
@@ -939,7 +944,7 @@ function ssay(){
       if(r.error){ $('#msg').textContent = r.error; beep('no'); return }
       $('#msg').textContent = '듣고 있어요… 👂';
       const o = await scoreTake(tw, r);
-      $('#st').textContent = '⭐'.repeat(o.stars)+'☆'.repeat(3-o.stars); $('#msg').textContent = o.note; beep('ok');
+      $('#st').textContent = stars3(o.stars); $('#msg').textContent = o.note; beep('ok');
       if($('#nx').classList.contains('hide')){ fruit(); $('#nx').classList.remove('hide') }
     }});
     $('#nx').onclick = ()=>{ $('#nx').onclick = null; wi++; wi<list.length ? one() : finish() };
@@ -982,7 +987,7 @@ function goSight(nextI, node){
      <div class="map">${lanes}</div>
      <div class="row">
        ${nextI<0?'<button class="btn" onclick="go(\'end\')">🌳 내 나무 보기</button>':''}
-       ${EMBED?'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button><button class="btn ghost" onclick="leave()">↩ 나가기</button>':''}
+       ${EMBED?(KIN?'':'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button>')+'<button class="btn ghost" onclick="leave()">↩ 나가기</button>':''}
      </div>`);
   stage().querySelectorAll('.node').forEach(b=>b.onclick=()=>run(+b.dataset.i));
 }
@@ -1165,7 +1170,7 @@ function canread(){
       if(r.error){ $('#msg').textContent = r.error; beep('no'); return }
       $('#msg').textContent = '듣고 있어요… 👂';
       const o = await scoreTake(tw, r);
-      $('#st').textContent = '⭐'.repeat(o.stars)+'☆'.repeat(3-o.stars); $('#msg').textContent = o.note; beep('ok');
+      $('#st').textContent = stars3(o.stars); $('#msg').textContent = o.note; beep('ok');
       if($('#nx').classList.contains('hide')){ fruit(); $('#nx').classList.remove('hide') }
     }});
     $('#nx').onclick = ()=>{ $('#nx').onclick = null; i++; i<list.length ? one() : finish() };
@@ -1180,7 +1185,7 @@ function goSimple(nextI, node){
      <div class="map"><div class="lane">${STEPS.map((s,i)=>node(i)).join('')}</div></div>
      <div class="row">
        ${nextI<0?'<button class="btn" onclick="go(\'end\')">🌳 내 나무 보기</button>':''}
-       ${EMBED?'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button><button class="btn ghost" onclick="leave()">↩ 나가기</button>':''}
+       ${EMBED?(KIN?'':'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button>')+'<button class="btn ghost" onclick="leave()">↩ 나가기</button>':''}
      </div>`);
   stage().querySelectorAll('.node').forEach(b=>b.onclick=()=>run(+b.dataset.i));
 }
@@ -1204,7 +1209,7 @@ function goShort(nextI, node){
      <div class="map">${lanes}</div>
      <div class="row">
        ${nextI<0?'<button class="btn" onclick="go(\'end\')">🌳 내 나무 보기</button>':''}
-       ${EMBED?'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button><button class="btn ghost" onclick="leave()">↩ 나가기</button>'
+       ${EMBED?(KIN?'':'<button class="btn ghost" onclick="openReport()">📊 내 성적표</button>')+'<button class="btn ghost" onclick="leave()">↩ 나가기</button>'
               :'<button class="btn ghost" style="font-size:16px;padding:8px 18px" onclick="if(confirm(\'처음부터 다시 할까요? (열매도 0개로)\')){S={fruits:0,done:{},takes:{},parrot:{},quiz:null};save();go(\'map\')}">처음부터 다시</button>'}
      </div>`);
   stage().querySelectorAll('.node').forEach(b=>b.onclick=()=>run(+b.dataset.i));
@@ -1392,6 +1397,7 @@ function trace(k){
 
 // ── 4. 단어 말하기 ── 3단어. 녹음 → 서버 채점(소리별). 별 1~3 + 첫소리 신호등.
 function firstLight(res, k, w){
+  if(KIN) return '잘 읽었어요! 🌟';
   // 초점 글자의 소리 점수 — 보통 첫 음소, x 처럼 끝소리 글자는 마지막 음소
   const phs = ((res.words||[])[0]||{}).phonemes||[];
   const ph = C.letters[k].pos==='end' ? phs[phs.length-1] : phs[0];
@@ -1421,12 +1427,12 @@ function words(k){
       try{ res = await assess(w[0], r.blob) }catch(e){}
       if(!res || !res.ok){
         // 채점이 안 돼도 해낸 건 해낸 것 — 별 하나는 준다(성적표엔 점수 없이)
-        $('#st').textContent='⭐'; $('#msg').innerHTML = (res&&res.note) || '잘 들었어요! (채점은 잠시 쉬는 중)';
+        $('#st').textContent=KIN?'⭐⭐⭐':'⭐'; $('#msg').innerHTML = KIN ? '잘 들었어요! 🌟' : ((res&&res.note) || '잘 들었어요! (채점은 잠시 쉬는 중)');
       } else {
         const sc = res.score, n = sc>=80?3:sc>=55?2:1;
-        $('#st').textContent = '⭐'.repeat(n) + '☆'.repeat(3-n);
+        $('#st').textContent = stars3(n);
         $('#msg').innerHTML = firstLight(res, k, w) || (n===3?'완벽해요!':'잘했어요!');
-        if(n===3) play('fb-0');
+        if(n===3 || KIN) play('fb-0');
         // 같은 단어를 여러 번 하면 가장 잘한 것을 남긴다
         const prev = S.takes[w[0]];
         up.then(url=>{ if(!prev || prev.score==null || sc>=prev.score){ S.takes[w[0]] = {k, score:sc, url, at:nowStr()}; save() } });
@@ -1557,7 +1563,7 @@ function runQuestions(qs, title, onDone){
     stage().querySelectorAll('.qc').forEach(b=>b.onclick=()=>{
       if(picked) return; picked = true;
       const ok = isRight(opts[+b.dataset.i]);
-      b.style.background = ok ? '#c8e6c9' : '#ffcdd2';
+      b.style.background = ok ? '#c8e6c9' : (KIN ? '#eee6d3' : '#ffcdd2');   // 유치부는 빨간 '틀림' 없이 정답만 초록으로
       if(!ok) stage().querySelectorAll('.qc').forEach(x=>{ if(isRight(opts[+x.dataset.i])) x.style.background='#c8e6c9' });
       next(ok);
     });
@@ -1646,7 +1652,7 @@ function runQuestions(qs, title, onDone){
         let res=null; try{ res = await assess(q.w[0], r.blob) }catch(e){}
         // 채점이 안 되면 점수 없이 '말하기 함'으로만 남기고 정답 처리하지 않는다(성적이 거짓말을 하면 안 됨)
         q.score = res && res.ok ? res.score : null;
-        $('#msg').textContent = q.score==null ? '잘 들었어요!' : q.score>=55 ? '좋아요! 👍' : '괜찮아요, 다음엔 더 크게!';
+        $('#msg').textContent = (q.score==null || KIN) ? '잘 들었어요! 🌟' : q.score>=55 ? '좋아요! 👍' : '괜찮아요, 다음엔 더 크게!';
         next(q.score!=null && q.score>=55);
       }});
     }
@@ -1685,7 +1691,7 @@ function quiz(){
   runQuestions(qs, '🏆 오늘의 퀴즈', async (ans, sec)=>{
     const {by, lt, n} = tally(ans), score = Math.round(n/ans.length*100);
     S.quiz = {at:nowStr(), score, sec, byType:by, letters:lt, answers:ans};
-    S.fruits += n;
+    S.fruits += KIN ? ans.length : n;   // 유치부는 맞힌 수와 상관없이 같은 열매
     S.done[key(cur)] = 1;
     // 오늘 할 일이 다 끝났으면 제출(랭킹·알림·진급시험 열림이 여기서 시작된다)
     const all = STEPS.every((s,i)=>S.done[key(i)]);
@@ -1694,15 +1700,16 @@ function quiz(){
     const weak = Object.entries(lt).filter(([k,v])=>v.ok<v.n).map(([k])=>SHORTMODE ? k : k.toUpperCase());
     h(`<p class="guide">🏆 퀴즈 끝!</p>
        <div class="card" style="min-width:min(90vw,460px)">
-         <div style="font-size:64px;color:var(--navy)">${score}<span style="font-size:28px">점</span></div>
+         ${KIN ? `<div style="font-size:56px">🌟</div><div style="font-size:26px;color:var(--navy);font-weight:700">끝까지 다 했어요!</div>`
+               : `<div style="font-size:64px;color:var(--navy)">${score}<span style="font-size:28px">점</span></div>
          <div class="stars">${'⭐'.repeat(n)}${'☆'.repeat(ans.length-n)}</div>
-         <div style="text-align:left;font-size:19px;line-height:1.9;margin-top:6px">${areaList(by)}</div>
-         <div class="msg">${weak.length ? `조금 더 연습할 ${SHORTMODE?'단어':'글자'}: <b class="en" style="color:var(--gold)">${weak.join(' · ')}</b>` : '모두 완벽해요! 🎉'}</div>
+         <div style="text-align:left;font-size:19px;line-height:1.9;margin-top:6px">${areaList(by)}</div>`}
+         <div class="msg">${weak.length ? `${KIN?'한 번 더 볼':'조금 더 연습할'} ${SHORTMODE?'단어':'글자'}: <b class="en" style="color:var(--gold)">${weak.join(' · ')}</b>` : (KIN ? '정말 멋져요! 🎉' : '모두 완벽해요! 🎉')}</div>
          ${saveErr ? `<div class="msg" style="color:var(--red);font-size:17px">⚠ 저장이 안 됐어요: ${saveErr}</div>` : ''}
          ${EMBED && !all ? `<div class="msg" style="font-size:17px">아직 안 한 칸이 있어요 — 다 하면 '완료'가 돼요</div>` : ''}
        </div>
        <button class="btn" id="nx">🌳 내 나무 보기</button>`);
-    if(n===ans.length) play('fb-0');
+    if(n===ans.length || KIN) play('fb-0');
     $('#nx').onclick = ()=>{ doneLock = true; go('end') };
   });
 }
@@ -1715,7 +1722,7 @@ function end(){
   for(let i=0;i<n;i++){ const a=i*2.4, rr=0.18+0.22*((i*37)%10)/10; ap += `<span class="ap" style="left:${46+Math.cos(a)*rr*100}%;top:${34+Math.sin(a)*rr*80}%;animation-delay:${i*0.05}s">🍎</span>` }
   h(`<p class="guide">🌳 내 나무에 열매가 <b style="color:var(--gold)">${S.fruits}개</b>!</p>
      <div class="tree"><div class="trunk"></div><div class="crown"></div>${ap}</div>
-     <div class="row">${EMBED ? '<button class="btn" onclick="leave()">↩ 트리톡으로</button><button class="btn ghost" onclick="openReport()">📊 내 성적표</button>'
+     <div class="row">${EMBED ? '<button class="btn" onclick="leave()">↩ 트리톡으로</button>' + (KIN ? '' : '<button class="btn ghost" onclick="openReport()">📊 내 성적표</button>')
                               : '<button class="btn" onclick="go(\'map\')">🏠 처음 화면</button>'}</div>
      ${EMBED ? '' : '<p class="note">시연 화면이에요 — 기록은 이 기기에만 남아요.</p>'}`);
   play('fb-0');
@@ -1724,11 +1731,11 @@ function end(){
 // ── 진급시험 ── 알파벳 26자 30문항: 소리→글자 10 · 그림→첫소리 6 · 대→소문자 6 · 단어→그림 4 · 말하기 4.
 //    점수는 /api/exam 에 쌓여 단어급수 진급시험과 같은 성적표(전체·동학년 상위%·9등급·70점 진급)가 나온다.
 function examIntro(){
-  $('#title').textContent = A.title; $('#dots').innerHTML='';
-  h(`<p class="guide">🎯 ${REVMODE?'LV1 파닉스 졸업':SIGHTMODE?'사이트워즈 마무리':BK&&BK.dv?'이중모음':CONSMODE?'이중자음':LONGMODE?'장모음':SHORTMODE?'단모음':'알파벳'} 진급시험</p>
+  $('#title').textContent = KIN ? String(A.title||'').replace(/진급\s*시험|졸업\s*시험|마무리\s*시험|시험/g,'책 마무리') : A.title; $('#dots').innerHTML='';
+  h(`<p class="guide">${KIN?'🎉':'🎯'} ${REVMODE?'LV1 파닉스 졸업':SIGHTMODE?'사이트워즈 마무리':BK&&BK.dv?'이중모음':CONSMODE?'이중자음':LONGMODE?'장모음':SHORTMODE?'단모음':'알파벳'} ${KIN?'책 마무리':'진급시험'}</p>
      <div class="card" style="font-size:20px;line-height:1.8;text-align:left">
        ${SIGHTMODE ? '🔊 듣고 단어 찾기 20개 · 📖 문장 빈칸 6개' : SHORTMODE ? '🔊 듣고·📖 읽고 고르는 문제 26개(문장 4개 포함)' : '🔊 소리를 듣고 고르는 문제 26개'}<br>🎤 그림 이름을 말하는 문제 4개<br>
-       <span style="color:#8a7d60">70점을 넘으면 다음 책으로 올라가요!</span></div>
+       <span style="color:#8a7d60">${KIN ? '끝까지 하면 책 한 권 끝! 🌟' : '70점을 넘으면 다음 책으로 올라가요!'}</span></div>
      <button class="btn" id="go">시작하기 ▶</button>
      <button class="btn ghost" onclick="leave()">↩ 나가기</button>`);
   $('#go').onclick = examRun;
@@ -1754,9 +1761,9 @@ function examRun(){
     ...shuffle(firsts).slice(0,4).map(k=>fsndQ(k, all)),
     ...shuffle(all).slice(0,4).map(k=>makeQ('word', k, all)),
   ]).concat(shuffle(firsts).slice(0,4).map(k=>makeQ('say', k, all)));
-  runQuestions(qs, SIGHTMODE ? '🎯 마무리 시험' : REVMODE ? '🎓 졸업 시험' : '🎯 진급시험', async (ans, sec)=>{
+  runQuestions(qs, KIN ? (REVMODE ? '🎓 책 마무리' : '🎉 책 마무리') : SIGHTMODE ? '🎯 마무리 시험' : REVMODE ? '🎓 졸업 시험' : '🎯 진급시험', async (ans, sec)=>{
     const {by, lt, n} = tally(ans);
-    h(`<p class="guide">🎯 채점하는 중…</p>`);
+    h(`<p class="guide">${KIN ? '🎉 저장하는 중…' : '🎯 채점하는 중…'}</p>`);
     let rep = null, err = '';
     if(EMBED){
       try{
@@ -1768,6 +1775,18 @@ function examRun(){
       }catch(e){ err = e.message }
     }
     const score = Math.round(n/ans.length*100), pass = score >= ((rep&&rep.passScore)||70);
+    if(KIN){   // 점수·합불·상위%·등급 없이 축하만 — 다음 책은 선생님이 관찰해서 정한다
+      h(`<p class="guide">🎉 책 한 권 끝!</p>
+         <div class="card" style="min-width:min(90vw,480px)">
+           <div style="font-size:64px">🌟</div>
+           <div style="font-size:26px;color:var(--navy);font-weight:700">끝까지 다 했어요! 정말 멋져요</div>
+           <div class="msg">다음 책은 선생님이 알려 줄게요</div>
+           ${err ? `<div class="msg" style="color:var(--red);font-size:17px">⚠ ${err}</div>` : ''}
+         </div>
+         <div class="row">${EMBED ? '<button class="btn" onclick="leave()">↩ 트리톡으로</button>' : '<button class="btn" onclick="examIntro()">다시 보기</button>'}</div>`);
+      play('fb-0');
+      return;
+    }
     h(`<p class="guide">${pass?'🎉 진급 성공!':'💪 조금만 더!'}</p>
        <div class="card" style="min-width:min(90vw,480px)">
          <div style="font-size:64px;color:var(--navy)">${score}<span style="font-size:28px">점</span></div>

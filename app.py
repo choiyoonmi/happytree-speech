@@ -358,6 +358,15 @@ def _norm_class(cls: str) -> str:
     return head.strip() or cls
 
 
+def _is_kinder_cls(cls: str) -> bool:
+    """유치부(7세)인가 — _norm_class 가 영어 반만 남기면 '유치'가 빠질 수 있어 원래 반 이름 전체로 본다.
+    유치부는 학생 화면에 점수·등급·순위·합불을 안 보인다(학원법 유아 평가 금지, 2026-11-10)."""
+    return bool(R_KIN.search(str(cls or "")))
+
+
+R_KIN = re.compile(r"유치|7세")
+
+
 def upsert_shared_student(shared: dict) -> dict:
     """공용 명단 학생을 트리톡 DB에 반영하고 기존 학습 기록은 보존한다."""
     sid = str(shared.get("id", "")).strip()
@@ -375,6 +384,7 @@ def upsert_shared_student(shared: dict) -> dict:
 
         student["name"] = name
         student["className"] = _norm_class(shared.get("cls", ""))
+        student["kinder"] = _is_kinder_cls(shared.get("cls", ""))
         # 학원은 공용 학생계정(Apps Script)이 알려 준 값만 쓴다. 학생이 못 정한다.
         # 옛 배포는 academy 를 안 보내므로, 그때는 기존 값을 지우지 않고 그대로 둔다.
         ac = str(shared.get("academy") or "").strip()
@@ -415,6 +425,7 @@ def _merge_shared_students(shared_list) -> list:
                 by_id[sid] = student
             student["name"] = name
             student["className"] = _norm_class(shared.get("cls", ""))
+            student["kinder"] = _is_kinder_cls(shared.get("cls", ""))
             ac = str(shared.get("academy") or "").strip()
             if ac:
                 student["academy"] = ac

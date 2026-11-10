@@ -145,11 +145,17 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
         <div style={{ marginTop:10, background:"var(--cream)", borderRadius:9, padding:"9px 12px",
           fontSize:12.5, color:"var(--navy)", display:"flex", alignItems:"center", gap:8 }}>
           <span className="spin" style={{ width:14, height:14, borderWidth:2, flexShrink:0 }} />
-          <span>발음 채점 중이에요… <b>통문장은 길면 1분까지</b> 걸려요. 화면을 닫지 말고 잠깐 기다려 주세요!</span>
+          <span>{isKin() ? "잘 듣고 있어요… 잠깐만 기다려 주세요!" : <>발음 채점 중이에요… <b>통문장은 길면 1분까지</b> 걸려요. 화면을 닫지 말고 잠깐 기다려 주세요!</>}</span>
         </div>
       )}
 
-      {take && take.score != null && (
+      {take && take.audio && isKin() && (
+        <div style={{ marginTop:12, background:"var(--cream)", borderRadius:10, padding:12, textAlign:"center",
+          fontSize:16, fontWeight:700, color:"var(--navy)" }}>
+          🌟 잘 들었어요! 내 목소리를 다시 들어 보세요
+        </div>
+      )}
+      {take && take.score != null && !isKin() && (
         <div style={{ marginTop:12, background:"var(--cream)", borderRadius:10, padding:12 }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
             <div style={{ textAlign:"center", minWidth:70 }}>
@@ -178,7 +184,7 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
             : <AlignedFallback recognized={take.recognized} />}
         </div>
       )}
-      {take && take.score == null && take.scoring && (
+      {take && take.score == null && take.scoring && !isKin() && (
         <div style={{ marginTop:10, background:"var(--cream)", borderRadius:9, padding:"9px 12px",
           fontSize:12.5, color:"var(--navy)", display:"flex", alignItems:"center", gap:8 }}>
           <span className="spin" style={{ width:14, height:14, borderWidth:2, flexShrink:0 }} />
@@ -244,6 +250,11 @@ function PushBell({ studentId }) {
 /* ---------- 파닉스 Lv1 (static/phonics.html) ----------
    하루치(type=phonics)와 권말 진급시험(type=exam, kind=phonics). 학생 로그인이 이 화면의 상태에만 있으므로
    다른 페이지로 넘기지 않고 같은 출처 iframe 으로 띄운다(마이크 허용 포함). */
+/* ★유치부(7세)는 점수·등급·순위·합불을 화면에 안 보인다(학원법 유아 평가 금지, 원장 2026-11-10).
+   서버 기록(score 등)은 그대로 남기고 관리자 화면에서만 본다. 판별 = 원래 반 이름에 '유치'·'7세'. */
+function isKin() { return !!window.__HT_KIN; }
+// 유치부 화면에선 '시험'이란 말 대신 '책 마무리'(제목 원본은 그대로 둔다)
+function kinTitle(t) { return isKin() ? String(t || "").replace(/권말\s*진급\s*시험|진급\s*시험|시험/g, "책 마무리") : t; }
 const PHONICS_BOOK = /^LV1 (\d권|사이트워즈)$/;   // LV1 = 파닉스(1권 알파벳, 2권 단모음 …)
 function isPhonics(a) {
   return a.type === "phonics" || a.kind === "phonics" || (a.type === "exam" && PHONICS_BOOK.test(a.book || ""));
@@ -255,12 +266,14 @@ function PhonicsFrame({ a, student, onClose }) {
     return () => window.removeEventListener("message", on);
   }, []);
   const who = `sid=${encodeURIComponent(student.id)}&name=${encodeURIComponent(student.name || "")}`;
-  const src = a.course ? `/phonics-course.html?${who}` : `/phonics.html?aid=${encodeURIComponent(a.id)}&${who}`;
+  const who2 = who + (isKin() ? "&kin=1" : "");
+  const src = a.course ? `/phonics-course.html?${who2}` : `/phonics.html?aid=${encodeURIComponent(a.id)}&${who2}`;
   return <iframe src={src} allow="microphone; autoplay" title="파닉스"
     style={{ position:"fixed", inset:0, width:"100%", height:"100%", border:0, zIndex:50, background:"#fff8e7" }} />;
 }
 
 function StudentView({ student, onLogout }) {
+  window.__HT_KIN = !!(student && (student.kinder || /유치|7세/.test(student.className || "")));
   const voice = useVoice();
   const [assignments, setAssignments] = useState([]);
   const [statusMap, setStatusMap] = useState({});
@@ -317,7 +330,7 @@ function StudentView({ student, onLogout }) {
     // 재학습(완료한 과제 다시 열기): 완료 메시지 — 점수는 더 오르지 않음(다른 앱과 동일)
     const _st = statusMap[a.id];
     if ((_st === "submitted" || _st === "reviewed") &&
-        !confirm("✅ 이 학습을 완료했어요!\n\n다시 하면 복습이에요. 점수는 더 오르지 않아요.\n복습할까요?")) return;
+        !confirm(isKin() ? "✅ 이 학습을 다 했어요!\n\n한 번 더 해 볼까요?" : "✅ 이 학습을 완료했어요!\n\n다시 하면 복습이에요. 점수는 더 오르지 않아요.\n복습할까요?")) return;
     setOpen(a);
     pingActivity(student.id, "record", a.title);
     const s = await apiGet(`/submission/${a.id}/${student.id}`);
@@ -558,8 +571,8 @@ function StudentView({ student, onLogout }) {
           <div className="row" style={{ gap:12 }}>
             <button onClick={()=>{ setOpenExam(null); }} style={{ background:"none", color:"var(--cream)", fontSize:22 }}>‹</button>
             <div>
-              <div style={{ fontWeight:700, fontSize:15 }}>{openExam.title}</div>
-              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>권말 진급 시험</div>
+              <div style={{ fontWeight:700, fontSize:15 }}>{kinTitle(openExam.title)}</div>
+              <div style={{ fontSize:11, color:"var(--gold-soft)" }}>{isKin() ? "책 마무리" : "권말 진급 시험"}</div>
             </div>
           </div>
         </div>
@@ -714,10 +727,10 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
           border: exam ? "1.5px solid var(--gold)" : undefined, background: exam ? "var(--cream-deep, #fbf6ea)" : undefined }}>
         <div style={{ minWidth:0 }}>
           <div className="row" style={{ marginBottom:5 }}>
-            <Badge tone="b-gold">{exam ? "파닉스 진급시험" : "파닉스"}</Badge>
+            <Badge tone="b-gold">{exam ? (isKin() ? "파닉스 책 마무리" : "파닉스 진급시험") : "파닉스"}</Badge>
             <span className="muted">{exam ? "듣기·읽기·말하기 30문항" : (a.items||[]).length > 3 ? `단어 ${(a.items||[]).length}개` : `${(a.items||[]).map(x=>String(x).toUpperCase()).join(" · ")}`}</span>
           </div>
-          <div style={{ fontWeight:700, fontSize:15 }}>{exam ? "🎯 " : "🔤 "}{a.title}</div>
+          <div style={{ fontWeight:700, fontSize:15 }}>{exam ? (isKin() ? "🎉 " : "🎯 ") : "🔤 "}{kinTitle(a.title)}</div>
         </div>
         {exam ? <span style={{ color:"var(--navy)", fontSize:20 }}>›</span>
           : <Badge tone={st==="none"?"b-gray":"b-navy"}>{st==="none"?"시작":"완료"}</Badge>}
@@ -942,7 +955,7 @@ function SentenceStudy({ assignment, student, voice, onClose }) {
   const bm = (rec && rec.byMode) || {};
   const modes = [
     ["meaning", "smeaning", "🃏 뜻 확인하기", "문장을 넘기며 한글 뜻을 확인해요 (발음 자동재생)"],
-    ["scramble", "unscramble", "🧩 문장 배열", "섞인 단어를 순서대로 배열해요 · 점수 기록"],
+    ["scramble", "unscramble", "🧩 문장 배열", "섞인 단어를 순서대로 배열해요" + (isKin() ? "" : " · 점수 기록")],
   ];
   return <>
     <div className="muted" style={{ marginBottom:12 }}>{pairs.length}문장{rec && rec.best!=null ? ` · 배열 최고 ${rec.best}점` : ""}</div>
@@ -1029,7 +1042,7 @@ function Unscramble({ pairs, title, voice, onBack, onDone }) {
     <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
     <div className="row" style={{ justifyContent:"space-between", marginBottom:8 }}>
       <span className="muted">{title} · {i+1}/{order.length}</span>
-      <span style={{ fontWeight:700, color:"var(--navy)", fontSize:13 }}>맞힘 {scoreView}</span>
+      {!isKin() && <span style={{ fontWeight:700, color:"var(--navy)", fontSize:13 }}>맞힘 {scoreView}</span>}
     </div>
     <div className="card" style={{ background:"var(--cream)", padding:"12px 14px", marginBottom:10 }}>
       <div style={{ fontSize:11, fontWeight:700, color:"var(--navy-soft)", marginBottom:4 }}>이 뜻이 되도록 단어를 순서대로 놓아요</div>
@@ -1139,7 +1152,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
     ["flash", "🃏 카드 암기", "단어와 뜻을 넘기며 외워요 (발음 자동재생)"],
     ["choice", "✅ 뜻 고르기", "4개 중 맞는 뜻 고르기"],
     ["spell", "⌨️ 스펠링", "뜻을 보고 영어 단어 쓰기"],
-    ["test", "📝 미니 테스트", "섞어서 시험 · 점수 기록"],
+    ["test", "📝 미니 테스트", isKin() ? "섞어서 풀어 봐요" : "섞어서 시험 · 점수 기록"],
   ];
   return <>
     <div className="muted" style={{ marginBottom:6 }}>{pairs.length}단어{rec ? ` · 최고 ${rec.best}점 · ${rec.attempts}회` : ""}</div>
@@ -1247,7 +1260,7 @@ function ChoiceQuiz({ pairs, title, onBack, onDone, limit, label }) {
 
   return <>
     <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
-    <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{qs.length} · 맞음 {score}</div>
+    <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{qs.length}{isKin() ? "" : ` · 맞음 ${score}`}</div>
     <div className="card" style={{ padding:22, textAlign:"center" }}>
       <div style={{ fontSize:24, fontWeight:800, color:"var(--navy)" }}>{q.word}</div>
     </div>
@@ -1297,7 +1310,7 @@ function SpellQuiz({ pairs, title, onBack, onDone, label }) {
 
   return <>
     <button onClick={onBack} style={{ background:"none", color:"var(--navy)", fontWeight:700, marginBottom:10 }}>‹ 모드 선택</button>
-    <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{qs.length} · 맞음 {score}</div>
+    <div className="muted" style={{ marginBottom:8 }}>{title} · {i+1}/{qs.length}{isKin() ? "" : ` · 맞음 ${score}`}</div>
     <div className="card" style={{ padding:22, textAlign:"center" }}>
       <div style={{ fontSize:20, fontWeight:800, color:"var(--navy)" }}>{q.kor}</div>
       <div className="muted" style={{ marginTop:4 }}>영어로 쓰기</div>
@@ -1323,11 +1336,15 @@ function QuizResult({ title, score, total, wrong, onBack, label }) {
       <div style={{ fontSize:44, lineHeight:1 }}>🎉</div>
       <div style={{ fontSize:20, fontWeight:800, color:"var(--good,#2E7D5B)", marginTop:6 }}>{label ? label + " 완료!" : "완료!"}</div>
       <div style={{ fontSize:12, color:"var(--navy-soft)", marginTop:6 }}>{title}</div>
-      <div style={{ fontSize:40, fontWeight:800, color:"var(--navy)", marginTop:6 }}>{pct}점</div>
-      <div className="muted" style={{ marginTop:2 }}>{total}문제 중 {score}개 정답</div>
+      {isKin()
+        ? <div style={{ fontSize:20, fontWeight:800, color:"var(--navy)", marginTop:10 }}>🌟 끝까지 다 했어요!</div>
+        : <>
+          <div style={{ fontSize:40, fontWeight:800, color:"var(--navy)", marginTop:6 }}>{pct}점</div>
+          <div className="muted" style={{ marginTop:2 }}>{total}문제 중 {score}개 정답</div>
+        </>}
     </div>
     {wrong.length > 0 && <>
-      <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:14 }}>틀린 단어 {wrong.length}개</div>
+      <div style={{ fontWeight:700, color:"var(--navy)", margin:"14px 4px 8px", fontSize:14 }}>{isKin() ? "한 번 더 볼 단어" : `틀린 단어 ${wrong.length}개`}</div>
       {wrong.map((p, k) => (
         <div key={k} className="card" style={{ display:"flex", justifyContent:"space-between", padding:"10px 14px" }}>
           <b style={{ color:"var(--navy)" }}>{p.word}</b><span className="muted">{p.kor}</span>
@@ -1530,6 +1547,16 @@ function ExamReport({ report, title, pass, wrong, onClose }) {
   const r = report;
   if (!r) return <div className="card">결과를 불러오지 못했어요.<button className="btn full" style={{ marginTop: 12 }} onClick={onClose}>돌아가기</button></div>;
   const passed = r.pass != null ? r.pass : (r.score >= pass);
+  // 유치부: 점수·합불·상위%·등급 없이 '책 한 권 끝' 축하만. 다음 권은 선생님이 관찰해서 정한다.
+  if (isKin()) return <>
+    <div className="card" style={{ textAlign: "center", padding: 26, background: "var(--green-bg,#E7F1EA)", borderColor: "#BFE0CC" }}>
+      <div style={{ fontSize: 52, lineHeight: 1 }}>🎉</div>
+      <div style={{ fontSize: 13, color: "var(--navy-soft)", fontWeight: 700, marginTop: 8 }}>{title}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: "var(--navy)", marginTop: 8 }}>책 한 권을 끝까지 다 했어요!</div>
+      <div className="muted" style={{ marginTop: 6 }}>정말 멋져요 🌟 다음 책은 선생님이 알려 줄게요</div>
+    </div>
+    <button className="btn full" style={{ marginTop: 14 }} onClick={onClose}>완료</button>
+  </>;
   const metric = (label, obj, isTime) => {
     if (!obj || obj.top == null) return (
       <div className="card" style={{ padding: 14 }}>
@@ -1740,7 +1767,7 @@ function BattlePlayer({ initialCode, onExit }) {
       <div>
         <div style={{ fontSize:64 }}>{result.correct ? "🎉" : "😅"}</div>
         <div style={{ fontSize:26, fontWeight:800, marginTop:8 }}>{result.correct ? "정답!" : "아쉬워요"}</div>
-        <div style={{ marginTop:8, opacity:.9 }}>내 점수 {result.score}점</div>
+        {!isKin() && <div style={{ marginTop:8, opacity:.9 }}>내 점수 {result.score}점</div>}
         <div style={{ marginTop:16, opacity:.7, fontSize:13 }}>다음 문제를 기다려요…</div>
       </div>
     </div>;
@@ -1751,6 +1778,11 @@ function BattlePlayer({ initialCode, onExit }) {
         <div style={{ opacity:.8, fontSize:14, marginBottom:8 }}>정답</div>
         <div style={{ fontSize:34, fontWeight:800, color:"#F4D06F" }}>{reveal.answer}</div>
       </div>
+    </div>;
+  }
+  if (phase === "standings" && isKin()) {
+    return <div style={{ ...wrapStyle, display:"flex", alignItems:"center", justifyContent:"center", textAlign:"center" }}>{musicBtn}
+      <div style={{ fontSize:24, fontWeight:800 }}>🌟 모두 잘하고 있어요!<div style={{ marginTop:12, opacity:.7, fontSize:13, fontWeight:500 }}>다음 문제를 기다려요…</div></div>
     </div>;
   }
   if (phase === "standings") {
@@ -1767,6 +1799,10 @@ function BattlePlayer({ initialCode, onExit }) {
     </div>;
   }
   // end
+  if (isKin()) return <div style={{ ...wrapStyle, textAlign:"center" }}>{musicBtn}
+    <div style={{ fontSize:30, fontWeight:800, marginTop:60 }}>🎉 끝까지 다 했어요!</div>
+    <div style={{ marginTop:10, fontSize:17 }}>{name} 정말 멋져요 🌟</div>
+  </div>;
   return <div style={{ ...wrapStyle, textAlign:"center" }}>{musicBtn}
     <div style={{ fontSize:30, fontWeight:800, marginTop:40 }}>🏆 배틀 종료!</div>
     {myRank >= 0 && <div style={{ marginTop:8, fontSize:17 }}>{name}님 최종 {myRank + 1}등 · {board[myRank].score}점</div>}

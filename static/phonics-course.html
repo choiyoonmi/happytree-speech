@@ -52,6 +52,9 @@ h2{font-size:22px;color:var(--navy);text-align:center;margin:18px 0 12px}
 <script>
 'use strict';
 const QS = new URLSearchParams(location.search), SID = QS.get('sid')||'', SNAME = QS.get('name')||'';
+// ★유치부(&kin=1): '시험' 대신 '책 마무리', 하위 화면에도 kin 을 넘긴다(학원법 유아 평가 금지, 2026-11-10)
+const KIN = QS.get('kin') === '1';
+const kinT = t => KIN ? String(t).replace(/진급\s*시험|졸업\s*시험|마무리\s*시험|시험/g, '책 마무리') : t;
 const store = { get(k,d){ try{ return localStorage.getItem(k) ?? d }catch(e){ return d } }, set(k,v){ try{ localStorage.setItem(k,v) }catch(e){} } };
 let TRACK = store.get('ht_ph_track', 'k');   // k = 유치부 주2, e = 초등부 주4
 // 한 Day 를 몇 번 도는지(관리자 배정의 'Day를 며칠씩 반복'). 원장 일정에 맞춘 값(2026-10-30 정리).
@@ -89,7 +92,7 @@ const E = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt
   const dayEmoji = (bk, d) => d.kind && d.kind!=='unit' ? KIND_E[d.kind] : bk==1 ? C.letters[d.letters[0]].words[0][2] : bk==='s' ? '👀' : (d.families[0].words[0][2]);
   const daysOf = bk => bk==1 ? C.days : BOOKS[bk].days;
   const cell = (bk, d) => ({bk, day:d.day, key:bk+'|'+d.day, e:dayEmoji(bk,d), t:`${bk==='s'?'사이트워즈 '+d.day+'세트':'Day '+d.day} · ${dayLabel(bk,d)}`, rep:REP[TRACK][bk]});
-  const exam = (bk, t) => ({bk, day:'exam', key:bk+'|exam', e:bk==='s'?'🏅':bk==6?'🎓':'🎯', t, rep:1, exam:true});
+  const exam = (bk, t) => ({bk, day:'exam', key:bk+'|exam', e:bk==='s'?'🏅':bk==6?'🎓':KIN?'🎉':'🎯', t:kinT(t), rep:1, exam:true});
   const sightRange = (a,b) => C.sight.days.filter(d=>d.day>=a && d.day<=b).map(d=>Object.assign(cell('s',d),{sight:true}));
   const PLAN = [
     {m:'1달', title:'알파벳', cells:[...C.days.map(d=>cell(1,d)), exam(1,'알파벳 진급시험')]},
@@ -103,7 +106,7 @@ const E = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt
   const got = c => Math.min(done[c.key]||0, c.rep);
   const finished = all.reduce((n,c)=>n+got(c),0);
   const next = all.find(c=>got(c) < c.rep) || all[all.length-1];
-  const href = c => open[c.key] ? `/phonics.html?aid=${encodeURIComponent(open[c.key].id)}&sid=${encodeURIComponent(SID)}&name=${encodeURIComponent(SNAME)}`
+  const href = c => open[c.key] ? `/phonics.html?aid=${encodeURIComponent(open[c.key].id)}&sid=${encodeURIComponent(SID)}&name=${encodeURIComponent(SNAME)}${KIN?'&kin=1':''}`
     : c.exam ? null : `/phonics.html?book=${c.bk}&day=${c.day}`;
   const dots = c => c.exam ? (got(c) ? '<b>🏆</b>' : '🏆') : '<b>'+'●'.repeat(got(c))+'</b>'+'○'.repeat(c.rep-got(c));
 
@@ -114,7 +117,7 @@ const E = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt
       <div class="today"><div class="s">오늘의 학습</div><div class="e">${next.e}</div>
         <div class="t ${next.bk==='s'?'en':''}">${E(next.t)}</div>
         <div class="s">${E(PLAN.find(p=>p.cells.includes(next)).m)} · ${E(PLAN.find(p=>p.cells.includes(next)).title)}</div>
-        ${href(next) ? `<a class="go" href="${href(next)}">시작하기 ▶</a>` : '<div class="s" style="margin-top:8px">선생님이 시험을 열어 주면 시작해요</div>'}</div>
+        ${href(next) ? `<a class="go" href="${href(next)}">시작하기 ▶</a>` : `<div class="s" style="margin-top:8px">${KIN?'선생님이 열어 주면 시작해요':'선생님이 시험을 열어 주면 시작해요'}</div>`}</div>
     </div>
     <div class="seg"><button data-t="k" class="${TRACK==='k'?'on':''}">유치부 (주 2회)</button><button data-t="e" class="${TRACK==='e'?'on':''}">초등부 (주 4회)</button></div>
     <h2>🌱 트리톡 파닉스 10개월 과정</h2>
@@ -123,7 +126,7 @@ const E = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt
         const inner = `<div class="e">${c.e}</div><div><div class="t">${E(c.t).replace(/([A-Za-z][A-Za-z_ ·'-]*)/g,'<span class="en">$1</span>')}</div><div class="dots">${dots(c)}</div></div>`;
         return h ? `<a class="${cls}" href="${h}">${inner}</a>` : `<div class="${cls}">${inner}</div>` }).join('')}</div></div>`).join('')}
     <p class="note">칸마다 ○ 는 그 날을 몇 번 하는지예요(유치부·초등부에 따라 달라요). 다 하면 ●로 바뀌어요.<br>
-      🎯 진급시험은 그 책 마지막 날을 끝내면 저절로 열려요. 🔊 와 글자를 누르면 읽어 줘요.</p>`;
+      ${KIN ? '🎉 책 마무리는' : '🎯 진급시험은'} 그 책 마지막 날을 끝내면 저절로 열려요. 🔊 와 글자를 누르면 읽어 줘요.</p>`;
   document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{ store.set('ht_ph_track', b.dataset.t); location.reload() });
 })();
 </script>
