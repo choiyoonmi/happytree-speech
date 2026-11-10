@@ -101,6 +101,14 @@
   .scen .a{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
   .scen .ic{font-size:18px;margin-right:4px}
   .sub{border-top:1px dashed var(--line);margin-top:22px;padding-top:4px;scroll-margin-top:12px}
+  .kvids{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}
+  .kvids figure{margin:0;background:var(--tint);border:1px solid var(--line);border-radius:14px;padding:8px}
+  .kvids video{width:100%;aspect-ratio:9/16;border-radius:10px;background:#000;display:block}
+  .kvids figcaption{font-size:13px;margin-top:6px;line-height:1.45}
+  .kvids figcaption b{display:block;font-size:14.5px}
+  .kvids a{color:var(--gold);font-weight:700;font-size:12.5px;text-decoration:none}
+  @media (max-width:640px){.kvids{grid-template-columns:1fr 1fr}}
+  @media print{.kvids video{display:none}.kvids figure::before{content:"영상: happytree-speech.onrender.com/manual.html#s11k";font-size:11px;color:#555}}
   footer{color:var(--muted);text-align:center;font-size:13px;padding:30px 20px 50px}
   a.link{color:var(--gold);font-weight:700;text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--gold) 40%,transparent)}
 
@@ -152,6 +160,7 @@
     <a href="#s9"><span class="n">9</span><span class="t">단어 배틀</span></a>
     <a href="#s10"><span class="n">10</span><span class="t">성적표</span></a>
     <a href="#s11"><span class="n">11</span><span class="t">학생 화면</span></a>
+    <a href="#s11k"><span class="n">🌱</span><span class="t">유치부 킨더클래스 영상</span></a>
     <a href="#s12"><span class="n">?</span><span class="t">자주 묻는 것</span></a>
   </nav>
 
@@ -447,6 +456,27 @@
       <tr><td><b>📚 단어익힘</b></td><td>배정된 단어장으로 <b>카드암기 · 뜻고르기 · 스펠링 · 미니테스트</b></td></tr>
     </table></div>
     <p>카드 암기는 넘길 때마다 발음이 자동 재생되고(선생님 음원이 있으면 그 소리), 익힘 점수는 자동 저장돼 <b>학습현황·성적표</b>에 반영됩니다.</p>
+  </section>
+
+  <section id="s11k">
+    <h2><span class="n">🌱</span>유치부 킨더클래스 · 학습 영상</h2>
+    <p class="lead">7세 아이들이 <b>문해숨 · 수학숨 · 트리톡</b>으로 실제 학습하는 모습이에요(각 20초, 앞뒤에 ‘해피트리 킨더클래스’ 표지). 학부모 상담·홍보에 그대로 쓰셔도 됩니다.</p>
+    <div class="kvids">
+      <figure><video src="/kinder/kinder-lit.mp4" poster="/kinder/poster-lit.jpg" controls playsinline preload="none"></video>
+        <figcaption><b>문해숨 · 한글</b>글자 만들기 → 따라 쓰기 → 그림과 낱말 잇기 → 첫 글자 고르기<br><a href="/kinder/kinder-lit.mp4" download="문해숨_킨더클래스.mp4">⬇ 내려받기</a></figcaption></figure>
+      <figure><video src="/kinder/kinder-math.mp4" poster="/kinder/poster-math.jpg" controls playsinline preload="none"></video>
+        <figcaption><b>수학숨 · 셈</b>이야기 듣기 → 더하기/빼기 고르기 → 식 고르기 → 답<br><a href="/kinder/kinder-math.mp4" download="수학숨_킨더클래스.mp4">⬇ 내려받기</a></figcaption></figure>
+      <figure><video src="/kinder/kinder-tt.mp4" poster="/kinder/poster-tt.jpg" controls playsinline preload="none"></video>
+        <figcaption><b>트리톡 · 파닉스</b>글자 만나기 → 따라 쓰기 → 소리 버블 → 첫소리 낚시<br><a href="/kinder/kinder-tt.mp4" download="트리톡_킨더클래스.mp4">⬇ 내려받기</a></figcaption></figure>
+    </div>
+    <h3>유치부 화면은 점수가 없어요</h3>
+    <ul class="plain">
+      <li>반 이름에 <b>유치</b> 또는 <b>7세</b>가 들어간 학생은 자동으로 유치부 화면이 돼요.</li>
+      <li>녹음·퀴즈 뒤에 점수 대신 <b>🌟 잘 들었어요! / 끝까지 다 했어요!</b> 같은 칭찬이 나와요. 틀린 답도 빨간색으로 표시하지 않아요.</li>
+      <li>권말 진급시험은 <b>‘책 마무리’</b>로 이름이 바뀌고, 결과는 축하 화면만 보여요.</li>
+      <li>점수는 화면에만 안 보일 뿐 서버에는 남아서, 선생님 화면(학습현황·성적표)에서는 그대로 확인할 수 있어요.</li>
+    </ul>
+    <div class="callout tip"><b>왜 점수를 빼나요?</b>유아 대상 평가·서열화를 금지하는 학원법 취지에 맞춘 거예요. 아이에겐 “다 했다”는 경험만 남깁니다.</div>
   </section>
 
   <section id="s12">
