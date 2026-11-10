@@ -147,6 +147,28 @@ function nowStr() {
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
 }
 
+/* 발음이 '로봇 같다'(원장 2026-11-10). 예전엔 목록의 첫 en-US 를 썼는데, 윈도우 크롬은 그게
+   옛 Microsoft David/Zira(기계음)이고 더 좋은 목소리가 뒤에 있어도 안 골랐다.
+   자연스러운 순서: 엣지 신경망(… Online (Natural)) > Google US English > 애플 고급(Premium/Enhanced·Samantha 등)
+   > 그 밖의 en-US > 영국·호주 영어. 옛 기계음(David·Zira·Mark·Hazel·Fred 등)은 맨 뒤. */
+function bestEnglishVoice(vs) {
+  const en = vs.filter(v => /^en[-_]/i.test(v.lang || ""));
+  if (!en.length) return vs[0] || null;
+  const score = (v) => {
+    const n = (v.name || "") + " " + (v.voiceURI || "");
+    let s = 0;
+    if (/natural/i.test(n)) s += 100;
+    if (/online/i.test(n)) s += 20;
+    if (/google/i.test(n)) s += 60;
+    if (/premium|enhanced|neural|siri/i.test(n)) s += 50;
+    if (/samantha|ava|allison|susan|nicky|joelle|aria|jenny|emma|michelle/i.test(n)) s += 25;
+    if (/^en[-_]us/i.test(v.lang)) s += 15;
+    if (/david|zira|mark|hazel|george|fred|albert|bad news|bells|boing|bubbles|cellos|whisper|zarvox|trinoids|junior|ralph|kathy|bahh|jester|organ|superstar|wobble|grandma|grandpa|eddy|flo|reed|rocko|sandy|shelley/i.test(n)) s -= 80;
+    return s;
+  };
+  return en.slice().sort((a, b) => score(b) - score(a))[0];
+}
+
 function useVoice() {
   const [voice, setVoice] = useState(null);
   useEffect(() => {
@@ -154,7 +176,7 @@ function useVoice() {
     const pick = () => {
       const vs = speechSynthesis.getVoices();
       if (!vs.length) return;
-      setVoice(vs.find(v => v.lang === "en-US") || vs.find(v => v.lang && v.lang.startsWith("en")) || vs[0]);
+      setVoice(bestEnglishVoice(vs));
     };
     pick();
     speechSynthesis.onvoiceschanged = pick;
@@ -175,8 +197,9 @@ function speak(text, voice, rate) {
   const u = new SpeechSynthesisUtterance(/[.!?…]["')\]]*$/.test(s) ? s : s + ".");
   if (voice) u.voice = voice;
   u.lang = "en-US";
-  u.rate = rate || 0.7;
-  u.pitch = 1.05;
+  // 0.7 은 늘어져서 오히려 기계음처럼 들렸다. 보통 속도에 가깝게(천천히 듣기 버튼은 따로 0.45 를 넘긴다).
+  u.rate = rate || 0.9;
+  u.pitch = 1;
   window._ttsUtter = u;
   clearTimeout(_speakT);
   if (speechSynthesis.speaking || speechSynthesis.pending) {
