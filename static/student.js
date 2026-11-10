@@ -1142,27 +1142,37 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
       </div>
     </>
   );
-  if (mode === "flash") return <Flashcards pairs={pairs} title={cur.title} label="카드 암기" voice={voice} onBack={backToModes} onDone={saveFlash} />;
-  /* 뜻 고르기·스펠링은 게임판(games.js)이 기본(원장 2026-11-10 "게임하듯이").
-     서버에 남는 값(맞은 수/문제 수)·단계 키(choice·spell)는 그대로라 완료 규칙·관리자 화면은 안 바뀐다.
-     게임이 버거운 아이는 시작 화면의 '차분하게 풀기'로 예전 화면을 쓴다. */
+  /* 네 단계 모두 게임판(games.js)이 기본(원장 2026-11-10 "게임하듯이" → "여러 게임을 랜덤하게, 매일 지루하지 않게").
+     단계마다 게임 묶음에서 '오늘의 게임'이 정해지고(날짜·학생·단어장으로), 시작 화면에서 🎲 로 바꿀 수 있다.
+     서버에 남는 값(맞은 수/문제 수)·단계 키(flash·choice·spell·test)는 그대로라 완료 규칙·관리자 화면은 안 바뀐다.
+     게임이 버거운 아이는 시작 화면의 '차분하게 풀기'로 예전 화면을 쓴다. 뜻이 모자라면 예전 화면/안내로. */
+  const game = (stage, limit, onDone) => <GameStage stage={stage} pairs={quizPairs} title={cur.title} voice={voice} uid={student.id} aid={cur.id}
+    limit={limit} onBack={backToModes} onDone={onDone} onClassic={()=>setClassic(true)} />;
+  if (mode === "flash") return (!classic && quizPairs.length >= 2)
+    ? game("flash", null, () => saveFlash())
+    : <Flashcards pairs={pairs} title={cur.title} label="카드 암기" voice={voice} onBack={backToModes} onDone={saveFlash} />;
   if (mode === "choice") return quizPairs.length >= 4
     ? (classic ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="뜻 고르기" onBack={backToModes} onDone={saveResult} limit={studyCount(quizPairs.length)} />
-               : <WordRainGame pairs={quizPairs} title={cur.title} label="단어 비" voice={voice} uid={student.id} onBack={backToModes} onDone={saveResult} onClassic={()=>setClassic(true)} limit={studyCount(quizPairs.length)} />)
+               : game("choice", studyCount(quizPairs.length), saveResult))
     : needMeaning("뜻 고르기");
   if (mode === "spell") return quizPairs.length >= 1
     ? (classic ? <SpellQuiz pairs={quizPairs} title={cur.title} label="스펠링" onBack={backToModes} onDone={saveResult} />
-               : <SpellShooterGame pairs={quizPairs} title={cur.title} label="스펠링 슈터" voice={voice} uid={student.id} onBack={backToModes} onDone={saveResult} onClassic={()=>setClassic(true)} />)
+               : game("spell", null, saveResult))
     : needMeaning("스펠링");
-  if (mode === "test") return quizPairs.length >= 4 ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="미니 테스트" onBack={backToModes} onDone={saveResult} limit={Math.min(20, studyCount(quizPairs.length))} /> : needMeaning("미니 테스트");
+  if (mode === "test") return quizPairs.length >= 4
+    ? (classic ? <ChoiceQuiz pairs={quizPairs} title={cur.title} label="미니 테스트" onBack={backToModes} onDone={saveResult} limit={Math.min(20, studyCount(quizPairs.length))} />
+               : game("test", Math.min(20, studyCount(quizPairs.length)), saveResult))
+    : needMeaning("미니 테스트");
 
   const bm = (rec && rec.byMode) || {};
   const doneCount = ["flash","choice","spell","test"].filter(k => bm[k]).length;
+  // 단계 이름 옆에 '오늘의 게임'을 보여 준다(날마다 바뀜)
+  const tg = (st) => todayGame(st, student.id, cur.id);
   const modes = [
-    ["flash", "🃏 카드 암기", "단어와 뜻을 넘기며 외워요 (발음 자동재생)"],
-    ["choice", "🌧️ 뜻 고르기 · 단어 비 게임", "떨어지는 단어의 뜻을 골라 팡! 터뜨려요"],
-    ["spell", "🚀 스펠링 · 슈터 게임", "글자를 순서대로 쏴서 단어를 완성해요"],
-    ["test", "📝 미니 테스트", isKin() ? "섞어서 풀어 봐요" : "섞어서 시험 · 점수 기록"],
+    ["flash", `${tg("flash").icon} 카드 암기`, `오늘의 게임: ${tg("flash").name} — ${tg("flash").short}`],
+    ["choice", `${tg("choice").icon} 뜻 고르기`, `오늘의 게임: ${tg("choice").name} — ${tg("choice").short}`],
+    ["spell", `${tg("spell").icon} 스펠링`, `오늘의 게임: ${tg("spell").name} — ${tg("spell").short}`],
+    ["test", `${tg("test").icon} 미니 테스트`, `오늘의 게임: ${tg("test").name}` + (isKin() ? "" : " · 점수 기록")],
   ];
   return <>
     <div className="muted" style={{ marginBottom:6 }}>{pairs.length}단어{rec ? ` · 최고 ${rec.best}점 · ${rec.attempts}회` : ""}</div>
