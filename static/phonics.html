@@ -357,7 +357,8 @@ let REVIEW = [];
 function build(){
   STEPS = [];
   if(SIGHTMODE){
-    ['sflash','sfind','sunscr','ssay','sbuild','sread','quiz'].forEach(t=>STEPS.push({t}));
+    // ★유치부 사이트워즈 7칸 → 4칸(원장 2026-11-11): 글자 섞기·문장 만들기·문장 읽기 없이 보고 듣기·듣고 찾기·빨리 읽기·퀴즈
+    (KIN ? ['sflash','sfind','ssay','quiz'] : ['sflash','sfind','sunscr','ssay','sbuild','sread','quiz']).forEach(t=>STEPS.push({t}));
     return;
   }
   if(SHORTMODE){
@@ -955,7 +956,7 @@ function sunscr(){
 
 // 🎤 빨리 읽기 — 이번 세트 4개 + 앞 세트 2개를 보고 바로 읽고 녹음(채점)
 function ssay(){
-  const list = setWords().concat(shuffle(prevSight()).slice(0,2)); let wi = 0;
+  const list = setWords().concat(KIN ? [] : shuffle(prevSight()).slice(0,2)); let wi = 0;   // 유치부는 오늘 세트만(녹음 6 → 4번)
   function one(){
     const w = list[wi], tw = [w[0], w[1], ''];
     h(`<p class="guide">🎤 보고 바로 읽어요 <small>${wi+1} / ${list.length}</small></p>
@@ -996,6 +997,7 @@ function blankQ(x, pool){
 }
 function sightQuiz(){
   const w0 = shuffle(setWords()), ws = Array.from({length:4}, (_,i)=>w0[i % w0.length]), pool = setWords().concat(prevSight()), ss = shuffle(SD.sents);   // 3개짜리 세트(78·79)도 4문항
+  if(KIN) return shuffle(ws.map(w=>sightQ('sfind', w, pool))).concat([Object.assign(sightQ('say', ws[0], pool), {type:'say'})]);   // 유치부 5문항, 문장 문제 없이
   return shuffle([sightQ('sfind', ws[0], pool), sightQ('sfind', ws[1], pool), sightQ('sfind', ws[2], pool),
                   blankQ(ss[0], pool), blankQ(ss[1], pool), sentQ('sent', ss[0], BK.days.flatMap(d=>d.sents))])
          .concat([Object.assign(sightQ('say', ws[3], pool), {type:'say'})]);
@@ -1004,7 +1006,7 @@ function sightQuiz(){
 function goSight(nextI, node){
   const idx = f => STEPS.map((s,i)=>f(s)?i:-1).filter(i=>i>=0);
   let lanes = `<div class="lane"><div class="lt" style="font-size:24px">단어</div>${idx(s=>['sflash','sfind','sunscr','ssay'].includes(s.t)).map(node).join('')}</div>`;
-  lanes += `<div class="lane"><div class="lt" style="font-size:24px">문장</div>${idx(s=>['sbuild','sread','quiz'].includes(s.t)).map(node).join('')}
+  lanes += KIN ? `<div class="lane"><div class="lt" style="font-size:24px">퀴즈</div>${idx(s=>s.t==='quiz').map(node).join('')}</div>` : `<div class="lane"><div class="lt" style="font-size:24px">문장</div>${idx(s=>['sbuild','sread','quiz'].includes(s.t)).map(node).join('')}
     <div class="en sents">${SD.sents.map(x=>x.en).join('<br>')}</div></div>`;
   h(`<p class="guide">${SNAME?SNAME+', ':''}사이트워즈 ${DAY}세트 <small>보자마자 읽는 단어예요</small></p>
      <div class="row" style="gap:10px;margin-bottom:10px">${SD.words.map(w=>`<span class="light en" style="font-size:30px"><b style="color:var(--navy)">${w[0]}</b></span>`).join('')}</div>
