@@ -221,11 +221,42 @@ function speak(text, voice, rate) {
     speechSynthesis.speak(u);
   }
 }
-// 선생님이 올린 음원(url)이 있으면 그걸 재생, 없으면 TTS로 읽기
+/* 자연스러운 문장 소리(원장 2026-11-11 "문장 읽어주는 음원이 자연스러웠으면" → 견본 A 선택).
+   두 낱말 이상(문장)은 우리 음성 워커(happytree-ttvoice, Workers AI Aura-2 thalia)에서 받는다.
+   한 번 만든 소리는 워커에 저장돼 다시 만들지 않고, 새로 만드는 건 하루 무료 한도 안에서만.
+   한도를 넘었거나·느리거나·막히면 예전처럼 기기 음성으로 읽는다(소리가 안 나는 일은 없게).
+   낱말 하나는 기기 음성 그대로(무료 한도를 문장에 쓰려고). */
+const NATURAL_TTS = "https://happytree-ttvoice.white21040.workers.dev/s?t=";
+let _curAudio = null;
+function _stopSounds() {
+  try { if (_curAudio) _curAudio.pause(); } catch (e) {}
+  try { if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel(); } catch (e) {}
+}
+function _playUrl(url, rate, onFail) {
+  _stopSounds();
+  const a = new Audio(url);
+  _curAudio = a;
+  const pr = rate ? Math.max(0.5, Math.min(1.2, rate / 0.9)) : 1;
+  const setRate = () => { try { a.preservesPitch = true; a.playbackRate = pr; } catch (e) {} };
+  setRate(); a.addEventListener("loadedmetadata", setRate);
+  let gone = false;
+  const fail = () => { if (gone) return; gone = true; clearTimeout(t); try { a.pause(); } catch (e) {} if (_curAudio === a && onFail) onFail(); };
+  const t = setTimeout(() => { if (!a.ended && a.currentTime === 0) fail(); }, 6000);   // 6초 안에 소리가 안 나면 기기 음성
+  a.addEventListener("playing", () => clearTimeout(t));
+  a.addEventListener("error", fail);
+  try { const p = a.play(); if (p && p.catch) p.catch(fail); } catch (e) { fail(); }
+}
+function speakNatural(text, voice, rate) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (!s) return;
+  if (s.indexOf(" ") < 0 || s.length > 300) return speak(s, voice, rate);
+  _playUrl(NATURAL_TTS + encodeURIComponent(s), rate, () => speak(s, voice, rate));
+}
 
+// 선생님이 올린 음원(url)이 있으면 그걸, 없으면 문장은 자연스러운 목소리, 낱말은 기기 음성
 function playModel(url, text, voice, rate) {
-  if (url) { try { const a = new Audio(url); a.play(); return; } catch (e) {} }
-  speak(text, voice, rate);
+  if (url) { _playUrl(url, null, text ? () => speakNatural(text, voice, rate) : null); return; }
+  speakNatural(text, voice, rate);
 }
 
 function Badge({ tone, children }) {

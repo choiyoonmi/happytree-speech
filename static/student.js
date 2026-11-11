@@ -123,7 +123,7 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
             style={{ background:"var(--cream-deep)", color:"var(--navy)", borderRadius:9, padding:"8px 12px", fontSize:13, fontWeight:600, whiteSpace:"nowrap" }}>
             {audioUrl ? "🔊 선생님 발음" : "🔊 듣기"}
           </button>
-          <button onClick={()=> audioUrl ? playModel(audioUrl, text, voice) : speak(text, voice, 0.45)}
+          <button onClick={()=> audioUrl ? playModel(audioUrl, text, voice) : playModel(null, text, voice, 0.45)}
             style={{ background:"#fff", color:"var(--navy)", border:"1px solid var(--line)", borderRadius:9, padding:"7px 12px", fontSize:12, whiteSpace:"nowrap" }}>
             {audioUrl ? "🔁 다시" : "🐢 천천히"}
           </button>
