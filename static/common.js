@@ -29,6 +29,15 @@ function setAdminKey(pw) {
    (과제 삭제·수정 등). 한 곳씩 고치면 빠뜨리기 쉬워서, /api 로 나가는 요청 전부에
    여기서 열쇠를 붙인다. 학생 화면은 ADMIN_KEY 가 비어 있으니 아무것도 붙지 않는다. */
 
+/* 학생 출입증(2026-11-11) — 학생이 로그인하면 서버가 준다. 학생 아이디가 든 주소를 그 학생만 열게.
+   sessionStorage 라 탭을 닫으면 사라진다(학생 정보 tt_student 와 같은 수명). */
+let STU_KEY = "";
+try { STU_KEY = sessionStorage.getItem("tt_stk") || ""; } catch (e) {}
+function setStuKey(k) {
+  STU_KEY = k || "";
+  try { k ? sessionStorage.setItem("tt_stk", k) : sessionStorage.removeItem("tt_stk"); } catch (e) {}
+}
+
 const _fetch = window.fetch.bind(window);
 window.fetch = function (input, init) {
   try {
@@ -37,6 +46,9 @@ window.fetch = function (input, init) {
       init = { ...(init || {}) };
       init.headers = { ...(init.headers || {}), "x-ht-admin": ADMIN_KEY };
       if (ADMIN_WHO) init.headers["x-tt-who"] = encodeURIComponent(ADMIN_WHO);   // 헤더엔 한글을 못 싣는다
+    } else if (STU_KEY && u.indexOf("/api") === 0) {
+      init = { ...(init || {}) };
+      init.headers = { ...(init.headers || {}), "x-tt-stk": STU_KEY };
     }
   } catch (e) {}
   return _fetch(input, init);

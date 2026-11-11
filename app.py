@@ -610,6 +610,102 @@ ADMIN_LOG_PATH = DATA_DIR / "admin_log.jsonl"
 _REQ = contextvars.ContextVar("tt_request", default=None)
 
 
+# ---------- ⑤ 학생 출입증(2026-11-11) ----------
+# 학생 아이디가 주소에 들어가는 길(제출·삭제·단어·시험·보고서·푸시)이 아이디만 알면 누구 것이든 열렸다.
+# 로그인할 때 서명한 학생 출입증(stk)을 주고, 화면은 x-tt-stk 헤더로 싣는다(common.js).
+# 그 학생 본인 출입증이거나 선생님(관리자 열쇠·선생님 출입증)이면 통과.
+# 스위치 TT_STUAUTH = shadow(기본: 막지 않고 셈만, /api/health?detail=1 의 stuauth) | on(막음) | off
+STU_AUTH = (os.environ.get("TT_STUAUTH") or "shadow").strip().lower()
+STU_TOKEN_DAYS = 7
+
+
+def _stk_sign(body: str) -> str:
+    key = ("tt-student|" + ADMIN_PASSCODE).encode("utf-8")
+    sig = hmac.new(key, body.encode("ascii"), "sha256").digest()
+    return base64.urlsafe_b64encode(sig).decode("ascii").rstrip("=")
+
+
+def _stk_make(sid: str, ac: str) -> str:
+    import time as _t
+    if not ADMIN_PASSCODE:
+        return ""
+    row = json.dumps([str(sid), str(ac or ACADEMY_DEFAULT), int(_t.time()) + STU_TOKEN_DAYS * 86400])
+    body = base64.urlsafe_b64encode(row.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"ts1.{body}.{_stk_sign(body)}"
+
+
+def _stk_read(tok: str):
+    import time as _t
+    if not ADMIN_PASSCODE or not str(tok or "").startswith("ts1."):
+        return None
+    try:
+        _, body, sig = tok.split(".")
+        if not hmac.compare_digest(sig, _stk_sign(body)):
+            return None
+        sid, ac, exp = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8"))
+        return (str(sid), str(ac)) if exp > _t.time() else None
+    except Exception:
+        return None
+
+
+# (경로 이름, 정규식) — 학생 아이디는 마지막 묶음. None 이면 '아무 학생 출입증이나'(과제 하나의 전체 제출).
+_STU_ROUTES = [
+    ("student-submissions", re.compile(r"^/api/student-submissions/([^/]+)/?$")),
+    ("submission", re.compile(r"^/api/submission/[^/]+/([^/]+)/?$")),
+    ("score-take", re.compile(r"^/api/score-take/[^/]+/([^/]+)/?$")),
+    ("suggest-comment", re.compile(r"^/api/suggest-comment/[^/]+/([^/]+)/?$")),
+    ("report", re.compile(r"^/api/report/([^/]+)/?$")),
+    ("vocab", re.compile(r"^/api/vocab/[^/]+/([^/]+)/?$")),
+    ("vocab-all", re.compile(r"^/api/vocab/([^/]+)/?$")),
+    ("exam", re.compile(r"^/api/exam/[^/]+/([^/]+)/?$")),
+    ("exam-report", re.compile(r"^/api/exam-report/[^/]+/([^/]+)/?$")),
+    ("activity", re.compile(r"^/api/activity/([^/]+)/?$")),
+    ("push", re.compile(r"^/api/push/(?:subscribe|unsubscribe|test)/([^/]+)/?$")),
+    ("submissions-all", re.compile(r"^/api/submissions/[^/]+/?$")),
+]
+_STU_LOG = {}
+
+
+def _stu_verdict(request):
+    """None=검사 대상 아님/통과, 아니면 (경로이름, 이유)."""
+    path = request.url.path
+    hit = None
+    for name, rx in _STU_ROUTES:
+        m = rx.match(path)
+        if m:
+            hit = (name, (m.group(1) if m.groups() else None))
+            break
+    if not hit:
+        return None
+    try:
+        if is_admin(request):
+            return None
+    except Exception:
+        pass
+    tok = (request.headers.get("x-tt-stk") or request.query_params.get("stk") or "").strip()
+    if not tok:
+        return (hit[0], "none")
+    got = _stk_read(tok)
+    if not got:
+        return (hit[0], "bad")
+    from urllib.parse import unquote as _uq
+    if hit[1] is not None and _uq(hit[1]) != got[0]:
+        return (hit[0], "other")
+    return None
+
+
+def _stu_note(request, route, why):
+    import time as _t
+    o = request.headers.get("origin") or request.headers.get("referer") or ""
+    host = re.sub(r"^https?://([^/]+).*$", r"\1", o)[:60] if o else ("ua:" + (request.headers.get("user-agent") or "")[:24])
+    k = f"{route}|{why}|{request.method}|{host}"
+    v = _STU_LOG.get(k) or [0, 0]
+    v[0] += 1; v[1] = int(_t.time())
+    _STU_LOG[k] = v
+    if v[0] in (1, 10, 100) or v[0] % 1000 == 0:
+        print("[stuauth]", STU_AUTH, k, v[0])
+
+
 class WhoMiddleware:
     """요청 하나마다 Request 를 기억해 둔다. 저장 함수들까지 request 를 넘기지 않아도 되게."""
     def __init__(self, app):
@@ -617,7 +713,21 @@ class WhoMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            _REQ.set(Request(scope))
+            req = Request(scope)
+            _REQ.set(req)
+            if STU_AUTH != "off" and scope.get("method") != "OPTIONS":
+                try:
+                    bad = _stu_verdict(req)
+                except Exception:
+                    bad = None
+                if bad:
+                    _stu_note(req, bad[0], bad[1])
+                    if STU_AUTH == "on":
+                        body = json.dumps({"detail": "다시 로그인해 주세요.", "code": "NEED_LOGIN"}, ensure_ascii=False).encode("utf-8")
+                        await send({"type": "http.response.start", "status": 401,
+                                    "headers": [(b"content-type", b"application/json; charset=utf-8")]})
+                        await send({"type": "http.response.body", "body": body})
+                        return
         await self.inner(scope, receive, send)
 
 
@@ -834,6 +944,8 @@ def health(detail: str = ""):
         "students": len(db["students"]),
         "assignments": len(db["assignments"]),
     }
+    if request_detail:
+        out["stuauth"] = {"mode": STU_AUTH, "log": {k: v for k, v in sorted(_STU_LOG.items())}}
     # ★저장이 전부 500 이 날 때 Render 로그 없이도 디스크가 찼는지 보려고(2026-10-06)
     try:
         import shutil
@@ -884,7 +996,7 @@ async def login_student(payload: dict = Body(...)):
         if pw != test["pw"]:
             raise HTTPException(401, "아이디 또는 비밀번호가 일치하지 않아요.")
         student = upsert_shared_student({"id": sid, "pw": pw, "name": test["name"], "cls": test["cls"]})
-        return {"ok": True, "student": student}
+        return {"ok": True, "student": student, "stk": _stk_make(sid, academy_of_student(student))}
 
     # app=treetalk: '이 학원이 트리톡을 쓰기로 했는가'를 공용 학생계정이 판단하게 한다.
     # 안 밝히면 검사를 건너뛰므로, 안 산 학원 학생도 그냥 들어온다.
@@ -897,7 +1009,7 @@ async def login_student(payload: dict = Body(...)):
     shared["id"] = sid
     shared["pw"] = pw
     student = upsert_shared_student(shared)
-    return {"ok": True, "student": student}
+    return {"ok": True, "student": student, "stk": _stk_make(sid, academy_of_student(student))}
 
 
 @app.post("/api/login/teacher")

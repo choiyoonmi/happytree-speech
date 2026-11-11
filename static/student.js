@@ -1848,6 +1848,7 @@ function Login({ onStudent, onBattle }) {
     setErr(""); setBusy(true);
     try {
       const r = await apiPost("/login/student", { id: sid, pw: spw });
+      setStuKey(r.stk || "");
       onStudent(r.student);
     } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -1953,6 +1954,7 @@ function App() {
         const pw = params.get("spw") || autoSid;
         apiPost("/login/student", { id: autoSid, pw })
           .then(r => {
+            setStuKey(r.stk || "");
             try { sessionStorage.setItem("tt_student", JSON.stringify(r.student)); } catch (e) {}
             setStudent(r.student); setRole("student");
           })
@@ -1964,7 +1966,7 @@ function App() {
   if (role === "autologin") return <div style={{ minHeight: "70vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#7a8a92", fontSize: 15 }}>로그인 중…</div>;
   if (role === "battle") return <BattlePlayer initialCode={battleParam} onExit={()=>setRole(null)} />;
   if (!role) return <PortalOnly failed={autoFail} onBattle={()=>setRole("battle")} />;
-  return <StudentView student={student} onLogout={()=>{ try { sessionStorage.removeItem("tt_student"); } catch (e) {} setRole(null); setStudent(null);}} />;
+  return <StudentView student={student} onLogout={()=>{ try { sessionStorage.removeItem("tt_student"); } catch (e) {} setStuKey(""); setRole(null); setStudent(null);}} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
