@@ -362,7 +362,8 @@ function build(){
   }
   if(SHORTMODE){
     // 단모음: 26자 소리표(매일) → 지난 단어(2일차~) → 모음 만나기 → 가족마다 기차·집짓기 → 듣기·받아쓰기·퀴즈
-    REVIEW = C.days.flatMap(d=>d.letters); NAMES.review = '소리표 26자';
+    // 1권이 PM1 목차(Game·Review 날이 앞 글자를 또 담음)가 된 뒤 겹친 글자까지 130칸이 나오던 것 → 26자 한 번씩(2026-11-11)
+    REVIEW = [...new Set(C.days.flatMap(d=>d.letters))].filter(k=>C.letters[k]).sort(); NAMES.review = '소리표 26자';
     // 2권은 Phonics Monster 2 목차 — Zero·Game·Review·Can You Read? 날은 활동이 다르다
     const kd = SD.kind || 'unit', push = a=>a.forEach(t=>STEPS.push({t}));
     if(kd==='read'){ push(['canread']); return }
@@ -370,6 +371,17 @@ function build(){
     if(kd==='game'){ push(['review','board','vfind','listen','quiz']); return }
     if(kd==='review'){ push(BK === C.short ? ['review','wreview','vfind','unscr','listen','spell','sread','quiz']
                                            : ['review','wreview','board','unscr','listen','spell','sread','quiz']); return }
+    if(KIN){
+      // ★유치부는 하루 칸이 너무 많아 힘들다(원장 2026-11-11): 19칸 → 약 8칸.
+      //   소리표는 26자 전체 말고 그날 단어에 나온 글자만, 가족마다 기차만, 섞어 놀기는 듣고 고르기 하나, 문장 활동 없음.
+      REVIEW = [...new Set(dayWords().flatMap(w=>w[0].toLowerCase().split('')))].filter(k=>C.letters[k]).sort();
+      NAMES.review = '오늘 소리';
+      STEPS.push({t:'review'});
+      if((!REVMODE || SD.meet) && !SD.nomeet) STEPS.push({t: (CONSMODE || REVMODE) ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});
+      SD.families.forEach((f,fi)=>STEPS.push({t:'train', f:fi}));
+      push(['listen','quiz']);
+      return;
+    }
     STEPS.push({t:'review'});
     if(BK.days.some(d=>d.day < DAY && (d.families||[]).length)) STEPS.push({t:'wreview'});   // 앞에 배운 단어가 있을 때만(2권 Zero Unit 다음 날 같은 경우)
     if((!REVMODE || SD.meet) && !SD.nomeet) STEPS.push({t: (CONSMODE || REVMODE) ? 'cmeet' : LONGMODE ? 'lmeet' : 'meet', k:SD.vowel});   // Magic e 날은 만나기 없음, 6권은 새 소리 날만
@@ -387,6 +399,13 @@ function build(){
   if(kd==='review'){ REVIEW = LET.slice(); push(['review','fsfind','fish','memory','quiz']); return }
   REVIEW = C.days.filter(d=>d.kind==='unit' && d.day < DAY).flatMap(d=>d.letters);
   if(REVIEW.length) STEPS.push({t:'review'});
+  if(KIN){
+    // ★유치부는 하루 18칸·녹음 20번이 너무 많아 힘들다(원장 2026-11-11) → 9칸·녹음 약 5번.
+    //   글자마다 만나기·앵무새만, 놀이는 버블·낚시·짝 찾기 중 날마다 하나(날짜로 정해 다시 열어도 같은 놀이), 퀴즈 5문항.
+    LET.forEach(k=>['meet','parrot'].forEach(t=>STEPS.push({t,k})));
+    push([['bubble','fish','memory'][DAY % 3], 'quiz']);
+    return;
+  }
   LET.forEach(k=>['meet','parrot','trace','words'].forEach(t=>STEPS.push({t,k})));
   ['fsfind','bubble','fish','memory','quiz'].forEach(t=>STEPS.push({t}));
 }
@@ -728,6 +747,11 @@ function shortQuiz(){
   return shuffle([sq('word', ws[0]), sq('word', ws[1]), sq('read', ws[2]), sq('read', ws[3]),
                   sq('vowel', ws[4]), sq('first', ws[5]), sentQ('sent', ss[0], SD.sents), sentQ('hsent', ss[1], SD.sents)])
          .concat([sq('say', ws[6])]);
+}
+// 유치부 5문항: 문장 활동을 안 하니 문장 문제도 없이 단어만(원장 2026-11-11)
+function kinShortQuiz(){
+  const w0 = shuffle(dayWords()), ws = Array.from({length:5}, (_,i)=>w0[i % w0.length]);
+  return shuffle([sq('word', ws[0]), sq('read', ws[1]), sq('first', ws[2]), sq('word', ws[3])]).concat([sq('say', ws[4])]);
 }
 
 // ── 🔗 그림 연결 ── 단어 4개 ↔ 그림 4개를 선으로 잇는다(가족마다 한 판)
@@ -1194,7 +1218,7 @@ const E2 = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&l
 function goShort(nextI, node){
   const idx = f => STEPS.map((s,i)=>f(s)?i:-1).filter(i=>i>=0);
   let lanes = `<div class="lane"><div class="lt" style="font-size:24px">매일</div>${idx(s=>['review','wreview'].includes(s.t)).map(node).join('')}
-    <span style="font-size:18px;color:#5f5440">26자 소리 녹음${DAY>1?' · 지난 단어':''}</span></div>`;
+    <span style="font-size:18px;color:#5f5440">${KIN ? '오늘 단어 글자 소리' : '26자 소리 녹음'+(DAY>1?' · 지난 단어':'')}</span></div>`;
   if(!REVMODE) lanes += `<div class="lane"><div class="lt en" ${CONSMODE?'style="font-size:22px;width:auto;min-width:64px"':''}>${CONSMODE ? [...new Set(SD.families.map(f=>f.pat))].join(' ') : SD.vowel.toUpperCase()+SD.vowel}</div>${idx(s=>['meet','lmeet','cmeet'].includes(s.t)).map(node).join('')}
     <span style="font-size:18px;color:#5f5440">${CONSMODE ? SD.kind : LONGMODE ? `긴 소리 '${BK.snd[SD.snd]}'` : `짧은 소리 '${C.letters[SD.vowel].ko}'`}</span></div>`;
   SD.families.forEach((f,fi)=>{
@@ -1202,7 +1226,8 @@ function goShort(nextI, node){
       <span class="en" style="font-size:18px;color:#8a7d60">${f.words.map(w=>w[0]).join(' · ')}</span></div>`;
   });
   lanes += `<div class="lane"><div class="lt" style="font-size:26px">섞어<br>놀기</div>${idx(s=>['unscr','listen','spell'].includes(s.t)).map(node).join('')}</div>`;
-  lanes += `<div class="lane"><div class="lt" style="font-size:26px">문장</div>${idx(s=>['sbuild','sread','quiz'].includes(s.t)).map(node).join('')}
+  lanes += KIN ? `<div class="lane"><div class="lt" style="font-size:26px">퀴즈</div>${idx(s=>s.t==='quiz').map(node).join('')}</div>`
+    : `<div class="lane"><div class="lt" style="font-size:26px">문장</div>${idx(s=>['sbuild','sread','quiz'].includes(s.t)).map(node).join('')}
     <div class="en sents">${SD.sents.map(x=>x.en).join('<br>')}</div></div>`;
   h(`<p class="guide">${SNAME?SNAME+', ':''}${REVMODE ? `총복습 · ${SD.kind}<small>앞에서 배운 소리를 다시 읽어요</small>` : CONSMODE ? `오늘은 <span class="en" style="font-size:32px">${SD.families.map(f=>f.name).join(' · ')}</span> 소리를 읽어요!`
        : `오늘은 ${LONGMODE?'긴':'짧은'} <span class="en" style="font-size:32px">${SD.vowel}</span> 소리 단어를 읽어요!`}<small>반짝이는 칸을 눌러요</small></p>
@@ -1680,7 +1705,12 @@ function quiz(){
   const snd = shuffle(ks.concat(ks)).slice(0,2);
   const qs = SIGHTMODE ? sightQuiz()
     : SHORTMODE && SD.kind==='zero' ? shuffle('aeiou'.split('').concat([pick('aeiou'.split(''))])).map(vsndQ)
+    : SHORTMODE && KIN && (SD.kind||'unit')==='unit' ? kinShortQuiz()
     : SHORTMODE ? shortQuiz().concat(BK === C.short ? [vsndQ(SD.vowel && SD.vowel.length===1 ? SD.vowel : pick('aeiou'.split('')))] : [])
+    : KIN && ((SD && SD.kind) || 'unit')==='unit' ? shuffle([   // 유치부 5문항(원장 2026-11-11)
+    fsndQ(pick(firsts.length?firsts:ks), ks), makeQ('snd', pick(ks), ks),
+    makeQ('pic', pick(firsts.length?firsts:ks), ks), makeQ('word', pick(ks), ks),
+  ]).concat([makeQ('say', pick(ks), ks)])
     : shuffle([
     fsndQ(pick(firsts.length?firsts:ks), ks), fsndQ(pick(firsts.length?firsts:ks), ks),
     ...snd.map(k=>makeQ('snd', k, ks)),
@@ -1866,7 +1896,7 @@ function examRun(){
   go('map');
   // 첫 재생이 느리지 않게 오늘 소리를 미리 만들어 둔다(서버는 한 번 만든 건 다시 안 만듦)
   const ids = [];
-  LET.forEach(k=>{ ids.push('chant-'+k,'snd-'+k,'name-'+k); C.letters[k].words.forEach(w=>ids.push('word-'+w[0])) });
+  LET.filter(k=>C.letters[k]).forEach(k=>{ ids.push('chant-'+k,'snd-'+k,'name-'+k); C.letters[k].words.forEach(w=>ids.push('word-'+w[0])) });   // 4·5권 LET 엔 'bl' 같은 패턴이 있어 여기서 멈추던 것
   if(BK && BK.dv){ Object.keys(BK.dv).forEach(k=>ids.push('dv-'+k)) }
   if(CONSMODE){ Object.keys(BK.dg).forEach(k=>ids.push('dg-'+k)); ['a','i','o','u','yu','e'].forEach(k=>ids.push('lv-'+k)) }
   if(LONGMODE){ ids.push('lchant-'+SD.vowel); [...new Set(SD.families.map(f=>f.snd))].forEach(k=>ids.push('lv-'+k)) }
