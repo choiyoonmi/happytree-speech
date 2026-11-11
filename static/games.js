@@ -110,7 +110,7 @@ function GameCountdown({ onDone }) {
 }
 
 /* 결과 화면. stats = 알약에 넣을 글자들, stars = 0~3(없으면 안 보임), headline = 점수 아래 한 줄 */
-function GameResult({ icon, label, title, points, stars, stats, headline, isNewBest, best, wrong, onAgain, onBack }) {
+function GameResult({ icon, label, title, points, stars, stats, headline, isNewBest, best, wrong, onAgain, onBack, wrongLabel }) {
   const kin = isKin();
   useEffect(() => { GameSfx.win(); }, []);
   return <>
@@ -133,7 +133,7 @@ function GameResult({ icon, label, title, points, stars, stats, headline, isNewB
       <div className="gm-ground">🌳<span>🌱</span>🌳<span>🌱</span>🌳</div>
     </div>
     {wrong && wrong.length > 0 && <>
-      <div style={{ fontWeight: 700, color: "var(--navy)", margin: "14px 4px 8px", fontSize: 14 }}>한 번 더 볼 단어 {kin ? "" : wrong.length + "개"}</div>
+      <div style={{ fontWeight: 700, color: "var(--navy)", margin: "14px 4px 8px", fontSize: 14 }}>{wrongLabel || "한 번 더 볼 단어"} {kin ? "" : wrong.length + "개"}</div>
       {wrong.map((p, k) => (
         <div key={k} className="card" style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", gap: 10 }}>
           <b style={{ color: "var(--navy)" }}>{p.word}</b><span className="muted" style={{ textAlign: "right" }}>{p.kor}</span>

@@ -941,21 +941,42 @@ function SentenceStudy({ assignment, student, voice, onClose }) {
   const [mode, setMode] = useState(null);
   const [rec, setRec] = useState(null);
   const [savedMsg, setSavedMsg] = useState("");
+  const [classic, setClassic] = useState(false);   // 게임 말고 예전 화면(차분하게 풀기)
   const reload = () => apiGet(`/vocab/${student.id}`).then(d => setRec(d[cur.id] || null)).catch(()=>{});
   useEffect(() => { reload(); }, []);
-  const pairs = cur.items.map((w, i) => ({ text: w, kor: (cur.meanings && cur.meanings[i]) || "" }));
-  const back = () => setMode(null);
+  // audio: 선생님이 붙인 문장 음원(있으면 기기 음성 대신 이걸 들려준다)
+  const pairs = cur.items.map((w, i) => ({ text: w, kor: (cur.meanings && cur.meanings[i]) || "", audio: (cur.exampleAudio && cur.exampleAudio[i]) || null }));
+  /* 게임판(sgames.js, 원장 2026-11-11 "문장익힘도 지겹지 않게, 유치하지 않게") — 단어익힘처럼 단계마다 '오늘의 게임'.
+     단계 키(smeaning·unscramble)·서버 기록(맞은 문장/문장 수)은 그대로라 완료 규칙·관리자 화면은 안 바뀐다.
+     뜻이 있고 두 낱말 이상인 문장만 게임에 쓴다. 모자라면 예전 화면으로. */
+  const gpairs = pairs.filter(p => String(p.kor).trim() && String(p.text).trim().split(/\s+/).length >= 2).map(p => ({ ...p, word: p.text }));
+  const korKinds = new Set(gpairs.map(p => String(p.kor).trim())).size;
+  const back = () => { setMode(null); setClassic(false); };
+  const sgame = (stage, onDone) => <GameStage stage={stage} pairs={gpairs} title={cur.title} voice={voice} uid={student.id} aid={cur.id}
+    limit={studyCount(gpairs.length)} onBack={back} onDone={onDone} onClassic={()=>setClassic(true)} />;
   const persist = async (body) => {
     try { const r = await apiPost(`/vocab/${cur.id}/${student.id}`, body); setRec(r); setSavedMsg("저장됐어요 ✓"); setTimeout(()=>setSavedMsg(""), 1600); }
     catch (e) { reload(); }
   };
-  if (mode === "meaning") return <SentenceFlash pairs={pairs} title={cur.title} voice={voice} onBack={back} onDone={()=>persist({ mode:"smeaning" })} />;
-  if (mode === "scramble") return <Unscramble pairs={pairs} title={cur.title} voice={voice} onBack={back} onDone={(c,t)=>persist({ mode:"unscramble", correct:c, total:t })} />;
+  const saveMeaning = () => persist({ mode:"smeaning" });
+  const saveScramble = (c,t) => persist({ mode:"unscramble", correct:c, total:t });
+  if (mode === "meaning") return (!classic && korKinds >= 3)
+    ? sgame("smeaning", saveMeaning)
+    : <SentenceFlash pairs={pairs} title={cur.title} voice={voice} onBack={back} onDone={saveMeaning} />;
+  if (mode === "scramble") return (!classic && gpairs.length >= 2)
+    ? sgame("unscramble", saveScramble)
+    : <Unscramble pairs={pairs} title={cur.title} voice={voice} onBack={back} onDone={saveScramble} />;
 
   const bm = (rec && rec.byMode) || {};
+  // 단계 이름 옆에 '오늘의 게임'(날마다 바뀜). 게임을 못 하는 숙제면 예전 설명 그대로.
+  const tg = (st) => todayGame(st, student.id, cur.id);
   const modes = [
-    ["meaning", "smeaning", "🃏 뜻 확인하기", "문장을 넘기며 한글 뜻을 확인해요 (발음 자동재생)"],
-    ["scramble", "unscramble", "🧩 문장 배열", "섞인 단어를 순서대로 배열해요" + (isKin() ? "" : " · 점수 기록")],
+    korKinds >= 3
+      ? ["meaning", "smeaning", `${tg("smeaning").icon} 뜻 확인하기`, `오늘의 게임: ${tg("smeaning").name} — ${tg("smeaning").short}`]
+      : ["meaning", "smeaning", "🃏 뜻 확인하기", "문장을 넘기며 한글 뜻을 확인해요 (발음 자동재생)"],
+    gpairs.length >= 2
+      ? ["scramble", "unscramble", `${tg("unscramble").icon} 문장 배열`, `오늘의 게임: ${tg("unscramble").name} — ${tg("unscramble").short}` + (isKin() ? "" : " · 점수 기록")]
+      : ["scramble", "unscramble", "🧩 문장 배열", "섞인 단어를 순서대로 배열해요" + (isKin() ? "" : " · 점수 기록")],
   ];
   return <>
     <div className="muted" style={{ marginBottom:12 }}>{pairs.length}문장{rec && rec.best!=null ? ` · 배열 최고 ${rec.best}점` : ""}</div>
@@ -982,7 +1003,7 @@ function SentenceFlash({ pairs, title, voice, onBack, onDone }) {
   const doneRef = useRef(false);
   const p = order[i];
   useEffect(() => {
-    if (p) speak(p.text, voice, 0.85);
+    if (p) playModel(p.audio, p.text, voice, 0.85);
     if (i === order.length - 1 && !doneRef.current) { doneRef.current = true; onDone && onDone(); }
   }, [i]);
   const move = (d) => { setFlip(false); setI(x => Math.max(0, Math.min(order.length - 1, x + d))); };
@@ -994,7 +1015,7 @@ function SentenceFlash({ pairs, title, voice, onBack, onDone }) {
       <div style={{ fontSize: flip ? 19 : 21, fontWeight:800, color:"var(--navy)", lineHeight:1.5, textAlign:"center" }}>{flip ? p.kor : p.text}</div>
       <div className="muted">{flip ? "영어 보기" : "뜻 보기"} (탭)</div>
     </button>
-    <button className="btn-ghost" style={{ width:"100%", marginTop:8 }} onClick={()=>speak(p.text, voice, 0.7)}>🔊 다시 듣기</button>
+    <button className="btn-ghost" style={{ width:"100%", marginTop:8 }} onClick={()=>playModel(p.audio, p.text, voice, 0.7)}>🔊 다시 듣기</button>
     <div className="row" style={{ gap:8, marginTop:8 }}>
       <button className="btn-ghost" style={{ flex:1 }} onClick={()=>move(-1)} disabled={i===0}>이전</button>
       <button className="btn" style={{ flex:1 }} onClick={()=>move(1)} disabled={i===order.length-1}>다음</button>
@@ -1031,7 +1052,7 @@ function Unscramble({ pairs, title, voice, onBack, onDone }) {
     const ok = answer === target;
     setChecked(ok ? "right" : "wrong");
     if (ok) { scoreRef.current += 1; setScoreView(scoreRef.current); }
-    speak(p.text, voice, 0.85);
+    playModel(p.audio, p.text, voice, 0.85);
   };
   const next = () => {
     if (i >= order.length - 1) { onDone && onDone(scoreRef.current, order.length); onBack(); }
