@@ -108,6 +108,12 @@
   function lastDay(ym){ var y = +ym.slice(0, 4), m = +ym.slice(5, 7); return ym + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0'); }
   function isKinder(st){ return !!(st && (st.kinder || /유치|7세/.test(String(st.cls || '') + ' ' + String(st.className || '')))); }
 
+  /* 이번 달이면 오늘까지만(2026-11-12) — 달 끝까지 잡으면 아직 마감 안 된 과제가 '미제출'로 세어져
+     제출률이 낮게·그래프가 0으로 떨어져 보였다(김의진 11월 36%). 지난 달은 말일까지 */
+  function endDay(ym){
+    var t = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+    return t.slice(0, 7) === ym ? t : lastDay(ym);
+  }
   function render(d){
     var stid = String(d.stid || ''), ym = String(d.ym || ''), nm = String(d.name || '');
     if(!stid || !/^\d{4}-\d{2}$/.test(ym)) return Promise.resolve({ok:false, msg:'stid·ym 이 필요해요'});
@@ -115,7 +121,7 @@
     var st = STUDENTS.filter(function(s){ return String(s.id) === stid; })[0];
     if(!st && nm){ var byName = STUDENTS.filter(function(s){ return String(s.name || '') === nm; }); if(byName.length === 1) st = byName[0]; }
     if(!st) return Promise.resolve({ok:true, empty:true});
-    return getJson('/api/report/' + encodeURIComponent(st.id) + '?start=' + ym + '-01&end=' + lastDay(ym)).then(function(rep){
+    return getJson('/api/report/' + encodeURIComponent(st.id) + '?start=' + ym + '-01&end=' + endDay(ym)).then(function(rep){
       var hasVocab = rep.vocab && rep.vocab.studiedSets > 0;
       if(!rep.totalAssigned && !hasVocab) return {ok:true, empty:true};
       var kin = isKinder(st);
