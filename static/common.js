@@ -228,23 +228,55 @@ function speak(text, voice, rate) {
    낱말 하나는 기기 음성 그대로(무료 한도를 문장에 쓰려고). */
 const NATURAL_TTS = "https://happytree-ttvoice.white21040.workers.dev/s?t=";
 let _curAudio = null;
+/* 듣기가 안 나오던 것(원장 2026-11-12 "홍리아 듣고 문제 풀기 게임에서 듣기가 안 나온다").
+   자막 맞추기 등은 첫 소리를 손으로 누른 순간이 아니라 카운트다운 뒤 타이머로 튼다. 아이패드·아이폰은
+   이렇게 '누르지 않고 튼' 새 Audio 를 막고, 대신 쓰는 기기 음성도 한 번도 손으로 연 적이 없으면 막는다 → 무음.
+   그래서 ① 소리 나는 통(Audio)을 하나만 만들어 계속 다시 쓰고 ② 화면을 처음 누를 때 그 통과 기기 음성을
+   무음으로 한 번 열어 둔다. 한 번 열린 통은 그 뒤 타이머로 틀어도 막히지 않는다. */
+const _SILENT_WAV = "data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA";
+let _sharedAudio = null, _soundUnlocked = false, _playTok = 0;
+function _getAudio() {
+  if (!_sharedAudio) { try { _sharedAudio = new Audio(); _sharedAudio.preload = "auto"; } catch (e) { _sharedAudio = null; } }
+  return _sharedAudio;
+}
+function unlockSound() {
+  if (_soundUnlocked) return;
+  _soundUnlocked = true;
+  const a = _getAudio();
+  if (a && (a.paused || a.ended) && !a.src) {   // 이미 무언가 틀고 있으면 건드리지 않는다(그 소리가 끊기니까)
+    try {
+      a.src = _SILENT_WAV;
+      const p = a.play();
+      if (p && p.catch) p.catch(e => { if (e && e.name === "NotAllowedError") _soundUnlocked = false; });
+    } catch (e) { _soundUnlocked = false; }
+  }
+  try {
+    if (window.speechSynthesis && !speechSynthesis.speaking && !speechSynthesis.pending) {
+      const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u);
+    }
+  } catch (e) {}
+}
+try { ["touchend", "pointerup", "click", "keydown"].forEach(ev => document.addEventListener(ev, unlockSound, true)); } catch (e) {}
 function _stopSounds() {
   try { if (_curAudio) _curAudio.pause(); } catch (e) {}
   try { if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel(); } catch (e) {}
 }
 function _playUrl(url, rate, onFail) {
   _stopSounds();
-  const a = new Audio(url);
+  const a = _getAudio() || new Audio();
+  const tok = ++_playTok;
   _curAudio = a;
   const pr = rate ? Math.max(0.5, Math.min(1.2, rate / 0.9)) : 1;
   const setRate = () => { try { a.preservesPitch = true; a.playbackRate = pr; } catch (e) {} };
-  setRate(); a.addEventListener("loadedmetadata", setRate);
   let gone = false;
-  const fail = () => { if (gone) return; gone = true; clearTimeout(t); try { a.pause(); } catch (e) {} if (_curAudio === a && onFail) onFail(); };
-  const t = setTimeout(() => { if (!a.ended && a.currentTime === 0) fail(); }, 6000);   // 6초 안에 소리가 안 나면 기기 음성
-  a.addEventListener("playing", () => clearTimeout(t));
-  a.addEventListener("error", fail);
-  try { const p = a.play(); if (p && p.catch) p.catch(fail); } catch (e) { fail(); }
+  const fail = () => { if (gone || tok !== _playTok) return; gone = true; clearTimeout(t); try { a.pause(); } catch (e) {} if (onFail) onFail(); };
+  a.onloadedmetadata = () => { if (tok === _playTok) setRate(); };
+  a.onplaying = () => { if (tok === _playTok) clearTimeout(t); };
+  a.onerror = () => { if (tok === _playTok) fail(); };
+  a.src = url;
+  setRate();
+  const t = setTimeout(() => { if (tok === _playTok && !a.ended && a.currentTime === 0) fail(); }, 6000);   // 6초 안에 소리가 안 나면 기기 음성
+  try { const p = a.play(); if (p && p.catch) p.catch(e => { if (!(e && e.name === "AbortError")) fail(); }); } catch (e) { fail(); }
 }
 function speakNatural(text, voice, rate) {
   const s = String(text || "").replace(/\s+/g, " ").trim();
