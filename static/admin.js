@@ -4785,6 +4785,154 @@ function LineChart({ data }) {
   );
 }
 
+// ---------- 성적표 한 장 — 선생님 화면과 학부모 포털 내보내기(htpub.js)가 같이 그린다 ----------
+//   noScores: 유치부(학원법 유아 평가 금지) — 점수·평균·그래프·약한 단어를 뺀다(학부모 포털용).
+function ReportSheet({ rep, note, noScores }) {
+  return (
+    <div className="ht-report-sheet" style={{ background:"#fff", padding:24, borderRadius:14 }}>
+              <div style={{ borderBottom:`3px solid var(--navy)`, paddingBottom:12, marginBottom:16 }}>
+                <div style={{ fontSize:12, color:"var(--gold)", fontWeight:800, letterSpacing:1 }}>HAPPYTREE ACADEMY</div>
+                <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginTop:2 }}>낭독 학습 성적표</div>
+                <div style={{ fontSize:13, color:"var(--navy-soft)", marginTop:6 }}>
+                  {rep.student.name} {rep.student.className ? `· ${rep.student.className}` : ""} &nbsp;|&nbsp; {rep.period.start} ~ {rep.period.end}
+                </div>
+              </div>
+
+              <div style={{ display:"flex", gap:10, marginBottom:10 }}>
+                {[
+                  ...(noScores ? [] : [["종합 발음", rep.overallAverage != null ? `${rep.overallAverage}점` : "-"]]),
+                  ["제출률", `${rep.submitRate}%`],
+                  ["완료 과제", `${rep.submittedCount} / ${rep.totalAssigned}`],
+                ].map(([l,v]) => (
+                  <div key={l} style={{ flex:1, background:"var(--navy)", borderRadius:10, padding:"12px 8px", textAlign:"center" }}>
+                    <div style={{ fontSize:11, color:"var(--gold-soft)", fontWeight:600 }}>{l}</div>
+                    <div style={{ fontSize:20, fontWeight:800, color:"#fff", marginTop:4 }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {!noScores && <div style={{ display:"flex", gap:10, marginBottom:18 }}>
+                {[
+                  ["정확도", rep.metrics?.accuracy, "소리를 얼마나 정확히 냈는지"],
+                  ["유창성", rep.metrics?.fluency, "끊김 없이 자연스럽게 읽는지"],
+                  ["완성도", rep.metrics?.completeness, "문장을 빠짐없이 읽었는지"],
+                ].map(([l,v,desc]) => (
+                  <div key={l} style={{ flex:1, background:"var(--cream)", borderRadius:10, padding:"10px 8px", textAlign:"center" }}>
+                    <div style={{ fontSize:11, color:"var(--navy-soft)", fontWeight:700 }}>{l}</div>
+                    <div style={{ fontSize:18, fontWeight:800, color:"var(--navy)", margin:"3px 0" }}>{v != null ? v : "-"}</div>
+                    <div style={{ fontSize:9, color:"var(--navy-soft)", lineHeight:1.3 }}>{desc}</div>
+                  </div>
+                ))}
+              </div>}
+
+              {!noScores && rep.daily.length > 0 && (
+                <div style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:4 }}>일자별 학습 추이</div>
+                  <div className="row" style={{ gap:12, marginBottom:8 }}>
+                    {[["종합 발음","#1B2E4C"],["정확도","#C9A227"],["유창성(억양)","#5B8C7B"],["성실도(제출률)","#B3432F"]].map(([l,c]) => (
+                      <span key={l} style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
+                        <span style={{ width:14, height:3, background:c, borderRadius:2, display:"inline-block" }} />{l}
+                      </span>
+                    ))}
+                  </div>
+                  <LineChart data={rep.daily} />
+                </div>
+              )}
+
+              <div style={{ marginBottom:18 }}>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>과제별 기록</div>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:"var(--cream)" }}>
+                      {(noScores ? ["과제","유형","마감","제출"] : ["과제","유형","마감","제출","평균"]).map(h => (
+                        <th key={h} style={{ padding:"7px 6px", textAlign:"left", color:"var(--navy-soft)", fontWeight:700 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rep.assignments.map((r,i) => (
+                      <tr key={i} style={{ borderBottom:"1px solid var(--line)" }}>
+                        <td style={{ padding:"7px 6px", fontWeight:600 }}>{r.title}</td>
+                        <td style={{ padding:"7px 6px" }}>{r.type==="word"?"단어":"문장"} {r.itemCount}개</td>
+                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.dueDate ? formatDue(r.dueDate) : "-"}</td>
+                        <td style={{ padding:"7px 6px", color: r.status==="none" ? "var(--danger)" : "var(--navy)" }}>
+                          {r.status==="none" ? "미제출" : "제출"}
+                        </td>
+                        {!noScores && <td style={{ padding:"7px 6px", fontWeight:700 }}>{r.average != null ? `${r.average}점` : "-"}</td>}
+                      </tr>
+                    ))}
+                    {!rep.assignments.length && (
+                      <tr><td colSpan={noScores ? 4 : 5} style={{ padding:14, textAlign:"center", color:"var(--navy-soft)" }}>해당 기간에 과제가 없어요.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {!noScores && rep.vocab && rep.vocab.studiedSets > 0 && (
+                <div style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>단어익힘 성취도</div>
+                  <div className="row" style={{ gap:10, marginBottom:10, flexWrap:"wrap" }}>
+                    {[["평균 최고점", rep.vocab.avgBest != null ? `${rep.vocab.avgBest}점` : "-"],
+                      ["익힌 단어장", `${rep.vocab.studiedSets}개`],
+                      ["뜻고르기", rep.vocab.byMode && rep.vocab.byMode.choice != null ? `${rep.vocab.byMode.choice}점` : "-"],
+                      ["스펠링", rep.vocab.byMode && rep.vocab.byMode.spell != null ? `${rep.vocab.byMode.spell}점` : "-"],
+                      ["미니테스트", rep.vocab.byMode && rep.vocab.byMode.test != null ? `${rep.vocab.byMode.test}점` : "-"]].map(([l,v]) => (
+                      <div key={l} style={{ flex:"1 1 90px", background:"var(--cream)", borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
+                        <div style={{ fontSize:10, color:"var(--navy-soft)" }}>{l}</div>
+                        <div style={{ fontSize:15, fontWeight:800, color:"var(--navy)", marginTop:2 }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                    <thead>
+                      <tr style={{ background:"var(--cream)" }}>
+                        {["단어장","최고점","뜻고르기","스펠링","미니테스트","시도"].map(h => (
+                          <th key={h} style={{ padding:"7px 6px", textAlign:"left", color:"var(--navy-soft)", fontWeight:700 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rep.vocab.rows.map((r,i) => (
+                        <tr key={i} style={{ borderBottom:"1px solid var(--line)" }}>
+                          <td style={{ padding:"7px 6px", fontWeight:600 }}>{r.title}</td>
+                          <td style={{ padding:"7px 6px", fontWeight:700 }}>{r.best != null ? `${r.best}점` : "-"}</td>
+                          <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.choice != null ? `${r.choice}` : "-"}</td>
+                          <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.spell != null ? `${r.spell}` : "-"}</td>
+                          <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.test != null ? `${r.test}` : "-"}</td>
+                          <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.attempts}회</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {!noScores && rep.weakWords.length > 0 && (
+                <div style={{ marginBottom:18 }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>더 연습하면 좋은 단어</div>
+                  <div className="row">
+                    {rep.weakWords.map(w => (
+                      <span key={w.word} style={{
+                        padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:600,
+                        background:"#F3E4B8", color:"#8A6D0F"
+                      }}>{w.word} <span style={{opacity:.7}}>{Math.round(w.accuracy)}</span></span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ background:"var(--cream)", borderLeft:"4px solid var(--gold)", padding:"12px 14px", borderRadius:8 }}>
+                <div style={{ fontSize:12, fontWeight:800, color:"var(--navy)", marginBottom:5 }}>선생님 총평</div>
+                <div style={{ fontSize:13, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{note}</div>
+              </div>
+
+              <div style={{ textAlign:"center", fontSize:11, color:"var(--navy-soft)", marginTop:16 }}>
+                해피트리학원 · 남천동 국영수 문해력센터
+              </div>
+    </div>
+  );
+}
+
 // ---------- Admin: report ----------
 
 function AdminReport({ students }) {
@@ -4862,147 +5010,7 @@ function AdminReport({ students }) {
             <textarea className="field" rows={4} value={note} onChange={e=>setNote(e.target.value)} />
           </div>
 
-          <div ref={sheetRef} style={{ background:"#fff", padding:24, borderRadius:14 }}>
-            <div style={{ borderBottom:`3px solid var(--navy)`, paddingBottom:12, marginBottom:16 }}>
-              <div style={{ fontSize:12, color:"var(--gold)", fontWeight:800, letterSpacing:1 }}>HAPPYTREE ACADEMY</div>
-              <div style={{ fontSize:22, fontWeight:800, color:"var(--navy)", marginTop:2 }}>낭독 학습 성적표</div>
-              <div style={{ fontSize:13, color:"var(--navy-soft)", marginTop:6 }}>
-                {rep.student.name} {rep.student.className ? `· ${rep.student.className}` : ""} &nbsp;|&nbsp; {rep.period.start} ~ {rep.period.end}
-              </div>
-            </div>
-
-            <div style={{ display:"flex", gap:10, marginBottom:10 }}>
-              {[
-                ["종합 발음", rep.overallAverage != null ? `${rep.overallAverage}점` : "-"],
-                ["제출률", `${rep.submitRate}%`],
-                ["완료 과제", `${rep.submittedCount} / ${rep.totalAssigned}`],
-              ].map(([l,v]) => (
-                <div key={l} style={{ flex:1, background:"var(--navy)", borderRadius:10, padding:"12px 8px", textAlign:"center" }}>
-                  <div style={{ fontSize:11, color:"var(--gold-soft)", fontWeight:600 }}>{l}</div>
-                  <div style={{ fontSize:20, fontWeight:800, color:"#fff", marginTop:4 }}>{v}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display:"flex", gap:10, marginBottom:18 }}>
-              {[
-                ["정확도", rep.metrics?.accuracy, "소리를 얼마나 정확히 냈는지"],
-                ["유창성", rep.metrics?.fluency, "끊김 없이 자연스럽게 읽는지"],
-                ["완성도", rep.metrics?.completeness, "문장을 빠짐없이 읽었는지"],
-              ].map(([l,v,desc]) => (
-                <div key={l} style={{ flex:1, background:"var(--cream)", borderRadius:10, padding:"10px 8px", textAlign:"center" }}>
-                  <div style={{ fontSize:11, color:"var(--navy-soft)", fontWeight:700 }}>{l}</div>
-                  <div style={{ fontSize:18, fontWeight:800, color:"var(--navy)", margin:"3px 0" }}>{v != null ? v : "-"}</div>
-                  <div style={{ fontSize:9, color:"var(--navy-soft)", lineHeight:1.3 }}>{desc}</div>
-                </div>
-              ))}
-            </div>
-
-            {rep.daily.length > 0 && (
-              <div style={{ marginBottom:18 }}>
-                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:4 }}>일자별 학습 추이</div>
-                <div className="row" style={{ gap:12, marginBottom:8 }}>
-                  {[["종합 발음","#1B2E4C"],["정확도","#C9A227"],["유창성(억양)","#5B8C7B"],["성실도(제출률)","#B3432F"]].map(([l,c]) => (
-                    <span key={l} style={{ fontSize:11, color:"var(--navy-soft)", display:"inline-flex", alignItems:"center", gap:4 }}>
-                      <span style={{ width:14, height:3, background:c, borderRadius:2, display:"inline-block" }} />{l}
-                    </span>
-                  ))}
-                </div>
-                <LineChart data={rep.daily} />
-              </div>
-            )}
-
-            <div style={{ marginBottom:18 }}>
-              <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>과제별 기록</div>
-              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
-                <thead>
-                  <tr style={{ background:"var(--cream)" }}>
-                    {["과제","유형","마감","제출","평균"].map(h => (
-                      <th key={h} style={{ padding:"7px 6px", textAlign:"left", color:"var(--navy-soft)", fontWeight:700 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rep.assignments.map((r,i) => (
-                    <tr key={i} style={{ borderBottom:"1px solid var(--line)" }}>
-                      <td style={{ padding:"7px 6px", fontWeight:600 }}>{r.title}</td>
-                      <td style={{ padding:"7px 6px" }}>{r.type==="word"?"단어":"문장"} {r.itemCount}개</td>
-                      <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.dueDate ? formatDue(r.dueDate) : "-"}</td>
-                      <td style={{ padding:"7px 6px", color: r.status==="none" ? "var(--danger)" : "var(--navy)" }}>
-                        {r.status==="none" ? "미제출" : "제출"}
-                      </td>
-                      <td style={{ padding:"7px 6px", fontWeight:700 }}>{r.average != null ? `${r.average}점` : "-"}</td>
-                    </tr>
-                  ))}
-                  {!rep.assignments.length && (
-                    <tr><td colSpan={5} style={{ padding:14, textAlign:"center", color:"var(--navy-soft)" }}>해당 기간에 과제가 없어요.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {rep.vocab && rep.vocab.studiedSets > 0 && (
-              <div style={{ marginBottom:18 }}>
-                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>단어익힘 성취도</div>
-                <div className="row" style={{ gap:10, marginBottom:10, flexWrap:"wrap" }}>
-                  {[["평균 최고점", rep.vocab.avgBest != null ? `${rep.vocab.avgBest}점` : "-"],
-                    ["익힌 단어장", `${rep.vocab.studiedSets}개`],
-                    ["뜻고르기", rep.vocab.byMode && rep.vocab.byMode.choice != null ? `${rep.vocab.byMode.choice}점` : "-"],
-                    ["스펠링", rep.vocab.byMode && rep.vocab.byMode.spell != null ? `${rep.vocab.byMode.spell}점` : "-"],
-                    ["미니테스트", rep.vocab.byMode && rep.vocab.byMode.test != null ? `${rep.vocab.byMode.test}점` : "-"]].map(([l,v]) => (
-                    <div key={l} style={{ flex:"1 1 90px", background:"var(--cream)", borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
-                      <div style={{ fontSize:10, color:"var(--navy-soft)" }}>{l}</div>
-                      <div style={{ fontSize:15, fontWeight:800, color:"var(--navy)", marginTop:2 }}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
-                  <thead>
-                    <tr style={{ background:"var(--cream)" }}>
-                      {["단어장","최고점","뜻고르기","스펠링","미니테스트","시도"].map(h => (
-                        <th key={h} style={{ padding:"7px 6px", textAlign:"left", color:"var(--navy-soft)", fontWeight:700 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rep.vocab.rows.map((r,i) => (
-                      <tr key={i} style={{ borderBottom:"1px solid var(--line)" }}>
-                        <td style={{ padding:"7px 6px", fontWeight:600 }}>{r.title}</td>
-                        <td style={{ padding:"7px 6px", fontWeight:700 }}>{r.best != null ? `${r.best}점` : "-"}</td>
-                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.choice != null ? `${r.choice}` : "-"}</td>
-                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.spell != null ? `${r.spell}` : "-"}</td>
-                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.test != null ? `${r.test}` : "-"}</td>
-                        <td style={{ padding:"7px 6px", color:"var(--navy-soft)" }}>{r.attempts}회</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {rep.weakWords.length > 0 && (
-              <div style={{ marginBottom:18 }}>
-                <div style={{ fontSize:13, fontWeight:800, color:"var(--navy)", marginBottom:8 }}>더 연습하면 좋은 단어</div>
-                <div className="row">
-                  {rep.weakWords.map(w => (
-                    <span key={w.word} style={{
-                      padding:"5px 11px", borderRadius:999, fontSize:12, fontWeight:600,
-                      background:"#F3E4B8", color:"#8A6D0F"
-                    }}>{w.word} <span style={{opacity:.7}}>{Math.round(w.accuracy)}</span></span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div style={{ background:"var(--cream)", borderLeft:"4px solid var(--gold)", padding:"12px 14px", borderRadius:8 }}>
-              <div style={{ fontSize:12, fontWeight:800, color:"var(--navy)", marginBottom:5 }}>선생님 총평</div>
-              <div style={{ fontSize:13, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{note}</div>
-            </div>
-
-            <div style={{ textAlign:"center", fontSize:11, color:"var(--navy-soft)", marginTop:16 }}>
-              해피트리학원 · 남천동 국영수 문해력센터
-            </div>
-          </div>
+          <div ref={sheetRef}><ReportSheet rep={rep} note={note} /></div>
         </>
       )}
     </div>
