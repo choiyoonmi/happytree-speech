@@ -5102,6 +5102,16 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
     _early = next((x for x in load_db_ro().get("assignments", []) if x.get("id") == assignment_id), None)
     if _too_early(_early):
         raise HTTPException(403, _too_early_msg(_early))
+    # ★녹음 먼저(원장 2026-11-12 "녹음을 하지 않으면 익힘을 할 수 없게 · 서버에도 막아줘").
+    #   같은 과제 녹음을 제출(submitted·reviewed)해야 익힘 결과를 받는다. 화면(StudentHome needRecord)과 같은 규칙:
+    #   단어·문장 과제만(진급시험 등은 제외), 익힘 단계를 이미 다 끝낸 과제는 복습이라 받아 준다.
+    if _early and _early.get("type", "word") in ("word", "sentence"):
+        _sst = (load_student_subs(student_id).get(assignment_id) or {}).get("status", "none")
+        if _sst not in ("submitted", "reviewed"):
+            _stg0 = ["smeaning", "unscramble"] if _early.get("type") == "sentence" else ["flash", "choice", "spell", "test"]
+            _by0 = (load_vocab(student_id).get(assignment_id) or {}).get("byMode") or {}
+            if not all(k in _by0 for k in _stg0):
+                raise HTTPException(403, ("문장" if _early.get("type") == "sentence" else "단어") + "녹음을 먼저 제출해야 익힘을 할 수 있어요.")
     with _sub_lock(student_id):
         data = load_vocab(student_id)
         rec = data.get(assignment_id) or {"attempts": 0, "best": 0, "byMode": {}}

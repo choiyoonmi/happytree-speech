@@ -976,7 +976,7 @@ function SentenceStudy({ assignment, student, voice, onClose }) {
     limit={studyCount(gpairs.length)} onBack={back} onDone={onDone} onClassic={()=>setClassic(true)} />;
   const persist = async (body) => {
     try { const r = await apiPost(`/vocab/${cur.id}/${student.id}`, body); setRec(r); setSavedMsg("저장됐어요 ✓"); setTimeout(()=>setSavedMsg(""), 1600); }
-    catch (e) { reload(); }
+    catch (e) { if (/녹음을 먼저/.test(e.message || "")) alert(e.message); reload(); }
   };
   const saveMeaning = () => persist({ mode:"smeaning" });
   const saveScramble = (c,t) => persist({ mode:"unscramble", correct:c, total:t });
@@ -1159,7 +1159,7 @@ function VocabSetStudy({ assignment, student, voice, onClose }) {
       setRec(r);
       setSavedMsg("저장됐어요 ✓"); setTimeout(()=>setSavedMsg(""), 1800);
       if (r.complete && !wasComplete) setDoneMsg(true);
-    } catch (e) { reloadProgress(); }
+    } catch (e) { if (/녹음을 먼저/.test(e.message || "")) alert(e.message); reloadProgress(); }
   };
   const saveResult = (correct, total) => persist({ mode, correct, total });
   const saveFlash = () => persist({ mode: "flash" });
