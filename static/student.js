@@ -821,8 +821,28 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
       <span style={{ fontSize:20 }}>🔒</span>
     </div>
   );
+  /* ★녹음 먼저(원장 2026-11-12 "단어·문장 녹음을 하지 않으면 단어익힘·문장익힘을 할 수 없게").
+     같은 과제의 녹음을 제출(제출완료·확인완료)해야 익힘이 열린다. 녹음이 없는 진급시험은 제외,
+     이미 익힘을 다 끝낸 과제는 복습할 수 있게 열어 둔다. 잠긴 카드를 누르면 그 과제 녹음으로 바로 간다. */
+  const recorded = (a) => { const st = statusMap[a.id] || "none"; return st === "submitted" || st === "reviewed"; };
+  const needRecord = (a) => isStudy && a.type !== "exam" && !recorded(a) && !studyDone(a);
+  const needRecordCard = (a) => (
+    <button key={a.id} onClick={()=>onOpenRecord(a)} className="card"
+      style={{ display:"flex", width:"100%", textAlign:"left", justifyContent:"space-between", alignItems:"center", gap:10,
+        background:"#F4F6F8", border:"1px dashed var(--line)" }}>
+      <div style={{ minWidth:0 }}>
+        <div className="row" style={{ marginBottom:5 }}>
+          <Badge tone="b-gray">{isSentence ? "문장익힘" : "단어익힘"}</Badge>
+          <span className="muted">{a.type === "sentence" ? "문장녹음" : "단어녹음"}을 먼저 해야 열려요</span>
+        </div>
+        <div style={{ fontWeight:700, fontSize:15, color:"var(--navy-soft)" }}>{a.title}</div>
+        <div style={{ fontSize:13, fontWeight:700, color:"var(--navy)", marginTop:6 }}>🎤 녹음하러 가기 ›</div>
+      </div>
+      <span style={{ fontSize:20 }}>🔒</span>
+    </button>
+  );
   const baseCard = isVocab ? vocabOrExam : isSentence ? sentenceCard : recordCard;
-  const card = (a) => lockedOf(a) ? lockedCard(a) : baseCard(a);
+  const card = (a) => lockedOf(a) ? lockedCard(a) : needRecord(a) ? needRecordCard(a) : baseCard(a);
 
   return (
     <>
