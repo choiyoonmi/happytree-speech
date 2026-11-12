@@ -1416,10 +1416,11 @@ async function cohort(R) {
 const LT_PORTAL = 'https://test.happytreeacademy.com';
 const LT_AP = (function () { try { return (new URLSearchParams(location.search).get('ap') || '').replace(/[^a-z0-9]/gi, '').slice(0, 16); } catch (e) { return ''; } })();
 /* 독해숨에서 열었으면(?back=dok, 11/12) 끝난 뒤 독해숨으로 돌아간다 — 거기서 결과 레벨로 바로 배정된다 */
-const LT_BACK = (function () { try { return new URLSearchParams(location.search).get('back') === 'dok'; } catch (e) { return false; } })();
-const LT_DOK = 'https://dokeng.onrender.com/?lt=1';
+const LT_BACK = (function () { try { const b = new URLSearchParams(location.search).get('back'); return b === 'dok' || b === 'gum' ? b : ''; } catch (e) { return ''; } })();
+const LT_DOK = LT_BACK === 'gum' ? 'https://gumunsum.onrender.com/?lt=1' : 'https://dokeng.onrender.com/?lt=1';
+const LT_APPN = LT_BACK === 'gum' ? '구문숨' : '독해숨';
 let ltBooted = false, ltSent = false;
-function ltSaved(ok) { const el = document.getElementById('lt-saved'); if (el) el.innerHTML = ok ? (LT_BACK ? '✓ 결과를 보냈어요 — 잠시 뒤 독해숨으로 돌아가요' : '✓ 결과가 선생님께 전달됐어요') : '⚠️ 결과를 보내지 못했어요 — 선생님께 말씀해 주세요'; }
+function ltSaved(ok) { const el = document.getElementById('lt-saved'); if (el) el.innerHTML = ok ? (LT_BACK ? '✓ 결과를 보냈어요 — 잠시 뒤 ' + LT_APPN + '으로 돌아가요' : '✓ 결과가 선생님께 전달됐어요') : '⚠️ 결과를 보내지 못했어요 — 선생님께 말씀해 주세요'; }
 function ltPost(kind, data, tries) {
   tries = tries || 0;
   fetch(LT_PORTAL + '/api/result', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ ap: LT_AP, kind: kind, data: data }) })
@@ -1444,7 +1445,7 @@ function ltEng(R, rid) {
   if (card && !document.getElementById('lt-saved')) card.insertAdjacentHTML('afterbegin',
     '<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eef4ff;border:1.5px solid #c9d8f5;border-radius:12px;padding:12px 14px;margin-bottom:14px;">'
     + '<span id="lt-saved" style="font-weight:700;color:#16305c;">결과를 선생님께 보내는 중…</span>'
-    + (LT_BACK ? '<a href="' + LT_DOK + '" style="padding:10px 16px;background:#2e7d5b;color:#fff;border-radius:9px;font-weight:800;text-decoration:none;">📖 독해숨으로 돌아가기</a></div>'
+    + (LT_BACK ? '<a href="' + LT_DOK + '" style="padding:10px 16px;background:#2e7d5b;color:#fff;border-radius:9px;font-weight:800;text-decoration:none;">📖 ' + LT_APPN + '으로 돌아가기</a></div>'
       : '<a href="' + LT_PORTAL + '/?ap=' + LT_AP + '" style="padding:10px 16px;background:#16305c;color:#fff;border-radius:9px;font-weight:800;text-decoration:none;">🧪 레벨테스트 목록으로</a></div>'));
   const r1 = x => Math.round((x || 0) * 10) / 10;
   let n = 0;
