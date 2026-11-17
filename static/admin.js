@@ -1393,7 +1393,7 @@ function AdminAssignments({ students, assignments, reload, voice }) {
               </div>
               <div style={{ marginTop:6, display:"flex", flexWrap:"wrap", gap:5 }}>
                 {preview.slice(0, type==="sentence" ? 4 : 6).map((p,i)=>(
-                  <button key={i} onClick={()=>speak(p.text, voice)}
+                  <button key={i} onClick={()=>speakNatural(p.text, voice)}
                     style={{ fontSize:11, padding:"4px 9px", borderRadius:999, background:"var(--cream-deep)", color:"var(--navy)",
                       textAlign:"left", maxWidth:"100%", flex: type==="sentence" ? "1 1 100%" : "0 0 auto" }}>
                     🔊 {p.text}{p.meaning ? " — " + p.meaning : ""}
@@ -6119,8 +6119,6 @@ function Login({ onAdmin }) {
           {err && <div className="err">{err}</div>}
           <div style={{height:14}} />
           <button className="btn full" onClick={go} disabled={busy}>{busy ? "확인 중..." : "로그인"}</button>
-          <button className="btn-ghost" style={{ fontSize:12, padding:"5px 10px", marginTop:10 }}
-            onClick={()=>{ setShared(!shared); setApw(""); setErr(""); }}>{shared ? "‹ 선생님 비밀번호로 로그인" : "로그인이 안 되면: 공용 비밀번호로 들어가기"}</button>
         </div>
       </div>
     </div>
