@@ -5945,6 +5945,10 @@ app.include_router(_ph_router(data_dir=DATA_DIR, azure_key=AZURE_KEY, azure_regi
                               load_db_ro=load_db_ro, load_student_subs=load_student_subs,
                               load_exam=load_exam, exam_report=exam_report))
 
+# 학교 교과서 대비 세트(초5 2학기 영어 평가 표현) — 보관함 원본만 넣는다(2026-11-17)
+from textbook_prep import seed as _tbk_seed
+_tbk_seed(lock=_lock, load_db=load_db, save_db=save_db)
+
 
 # ---------- static frontend (must be last) ----------
 STATIC_DIR = Path(__file__).parent / "static"
