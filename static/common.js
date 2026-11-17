@@ -281,8 +281,11 @@ function _playUrl(url, rate, onFail) {
 function speakNatural(text, voice, rate) {
   const s = String(text || "").replace(/\s+/g, " ").trim();
   if (!s) return;
-  if (s.indexOf(" ") < 0 || s.length > 300) return speak(s, voice, rate);
-  _playUrl(NATURAL_TTS + encodeURIComponent(s), rate, () => speak(s, voice, rate));
+  if (s.length > 300 || !/[A-Za-z]/.test(s) || /[ㄱ-ㆎ가-힣]/.test(s)) return speak(s, voice, rate);
+  // 2026-11-17 원장 "문장을 말하듯이 자연스럽게": 낱말도 사람 목소리로. 단, 낱말은 워커가 미리 만들어 둔 것만
+  // 받는다(&c=1, 없으면 곧바로 기기 음성) — 하루 무료 한도는 문장에 먼저 쓰고, 낱말은 매일 아침 남는 한도로 채운다.
+  const one = s.indexOf(" ") < 0;
+  _playUrl(NATURAL_TTS + encodeURIComponent(s) + (one ? "&c=1" : ""), rate, () => speak(s, voice, rate));
 }
 
 // 선생님이 올린 음원(url)이 있으면 그걸, 없으면 문장은 자연스러운 목소리, 낱말은 기기 음성
