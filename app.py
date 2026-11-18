@@ -2980,8 +2980,9 @@ def reschedule(payload: dict = Body(...)):
 
 @app.get("/api/student-submissions/{student_id}")
 def student_submissions(student_id: str):
-    """한 학생의 모든 과제 제출 상태를 한 번에 반환."""
+    """한 학생의 모든 과제 제출 상태를 한 번에 반환. full=녹음을 모든 항목·모든 회차 끝까지 했는지(익힘 잠금용)."""
     out = {}
+    _am = {x.get("id"): x for x in load_db_ro().get("assignments", [])}
     for aid, sub in load_student_subs(student_id).items():
         scores = []
         for takes in (sub.get("items") or []):
@@ -2992,8 +2993,30 @@ def student_submissions(student_id: str):
             "status": sub.get("status", "none"),
             "submittedAt": sub.get("submittedAt"),
             "average": round(sum(scores) / len(scores)) if scores else sub.get("phonicsScore"),   # 파닉스=퀴즈 점수
+            "full": _rec_full(_am.get(aid), sub),
         }
     return out
+
+
+def _rec_full(a, sub):
+    """녹음을 끝까지 다 했나 — 모든 항목 × 모든 회차(통문장 모드면 모든 회차)에 녹음이 있어야 True.
+    ★원장 2026-11-18 "녹음을 해야 익힘 게임을 할 수 있게 했는데 아직도 게임을 먼저 한다".
+      잠금이 '제출 버튼을 눌렀나'만 봐서, 0개·1회차만 녹음하고 '그래도 제출'을 누르면 게임이 열렸다(11/13~18 89건 중 20건)."""
+    if not a or not sub:
+        return False
+    n = int(a.get("rounds") or 3)
+    if a.get("type") == "sentence" and a.get("recordMode") == "whole":
+        w = sub.get("whole") or []
+        return all(k < len(w) and w[k] for k in range(n))
+    its = sub.get("items") or []
+    cnt = len(a.get("items") or [])
+    if cnt == 0:
+        return True
+    for i in range(cnt):
+        takes = its[i] if i < len(its) else None
+        if not isinstance(takes, list) or any(not (r < len(takes) and takes[r]) for r in range(n)):
+            return False
+    return True
 
 
 # ---------- submissions ----------
@@ -5106,12 +5129,13 @@ def save_vocab_result(assignment_id: str, student_id: str, payload: dict = Body(
     #   같은 과제 녹음을 제출(submitted·reviewed)해야 익힘 결과를 받는다. 화면(StudentHome needRecord)과 같은 규칙:
     #   단어·문장 과제만(진급시험 등은 제외), 익힘 단계를 이미 다 끝낸 과제는 복습이라 받아 준다.
     if _early and _early.get("type", "word") in ("word", "sentence"):
-        _sst = (load_student_subs(student_id).get(assignment_id) or {}).get("status", "none")
-        if _sst not in ("submitted", "reviewed"):
+        _ssub = load_student_subs(student_id).get(assignment_id) or {}
+        _sst = _ssub.get("status", "none")
+        if _sst not in ("submitted", "reviewed") or not _rec_full(_early, _ssub):   # 11/18 끝까지 다 녹음해야
             _stg0 = ["smeaning", "unscramble"] if _early.get("type") == "sentence" else ["flash", "choice", "spell", "test"]
             _by0 = (load_vocab(student_id).get(assignment_id) or {}).get("byMode") or {}
             if not all(k in _by0 for k in _stg0):
-                raise HTTPException(403, ("문장" if _early.get("type") == "sentence" else "단어") + "녹음을 먼저 제출해야 익힘을 할 수 있어요.")
+                raise HTTPException(403, ("문장" if _early.get("type") == "sentence" else "단어") + "녹음을 모든 회차 끝까지 하고 제출해야 익힘을 할 수 있어요.")
     with _sub_lock(student_id):
         data = load_vocab(student_id)
         rec = data.get(assignment_id) or {"attempts": 0, "best": 0, "byMode": {}}

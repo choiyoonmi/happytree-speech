@@ -277,8 +277,20 @@ function StudentView({ student, onLogout }) {
   const voice = useVoice();
   const [assignments, setAssignments] = useState([]);
   const [statusMap, setStatusMap] = useState({});
+  const [fullMap, setFullMap] = useState({});   // 녹음을 모든 항목·모든 회차 끝까지 했나(익힘 잠금, 2026-11-18)
   const [open, setOpen] = useState(null);
   const [sub, setSub] = useState(null);
+  // 녹음 화면에서 한 칸씩 채울 때마다 '끝까지 다 했나'를 다시 잰다 → 닫고 나오면 익힘 잠금이 바로 맞게 풀린다.
+  useEffect(() => {
+    if (!open || !sub) return;
+    const n = open.rounds || 3;
+    const isWhole = open.type === "sentence" && open.recordMode === "whole";
+    const full = isWhole
+      ? Array.from({ length: n }, (_, k) => !!(sub.whole || [])[k]).every(Boolean)
+      : (sub.items || []).length >= (open.items || []).length &&
+        (sub.items || []).every(it => Array.from({ length: n }, (_, r) => !!(it || [])[r]).every(Boolean));
+    setFullMap(m => (m[open.id] === full ? m : { ...m, [open.id]: full }));
+  }, [open, sub]);
   const [round, setRound] = useState(0);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
@@ -316,12 +328,14 @@ function StudentView({ student, onLogout }) {
         w.replace(/\s*\[[^\]]*\]/g, "").replace(/([A-Za-z])\(([A-Za-z]+)\)(?=$|[\s,])/g, "$1$2").trim();
       list.forEach(a => { if (a.type !== "sentence" && Array.isArray(a.items)) a.items = a.items.map(cleanItem); });
       setAssignments(list);
-      const map = {};
+      const map = {}, fm = {};
       list.forEach(a => {
         const s = subs[a.id];
         map[a.id] = (s && s.status) ? s.status : "none";
+        fm[a.id] = !!(s && s.full);
       });
       setStatusMap(map);
+      setFullMap(fm);
       setLoading(false);
     })();
   }, []);
@@ -329,7 +343,7 @@ function StudentView({ student, onLogout }) {
   const openA = async (a) => {
     // 재학습(완료한 과제 다시 열기): 완료 메시지 — 점수는 더 오르지 않음(다른 앱과 동일)
     const _st = statusMap[a.id];
-    if ((_st === "submitted" || _st === "reviewed") &&
+    if ((_st === "submitted" || _st === "reviewed") && fullMap[a.id] &&   // 덜 한 녹음은 '완료' 말고 그냥 이어서
         !confirm(isKin() ? "✅ 이 학습을 다 했어요!\n\n한 번 더 해 볼까요?" : "✅ 이 학습을 완료했어요!\n\n다시 하면 복습이에요. 점수는 더 오르지 않아요.\n복습할까요?")) return;
     setOpen(a);
     pingActivity(student.id, "record", a.title);
@@ -404,7 +418,7 @@ function StudentView({ student, onLogout }) {
       if (isWhole) { if (!(sub.whole||[])[r]) parts.push(`${r+1}회차`); }
       else { const miss = sub.items.filter(it => !it[r]).length; if (miss) parts.push(`${r+1}회차 ${miss}개`); }
     }
-    if (parts.length && !confirm(`아직 녹음하지 않은 ${isWhole ? "회차" : "항목"}가 있어요 (${parts.join(", ")}). 그래도 제출할까요?`)) return;
+    if (parts.length && !confirm(`아직 녹음하지 않은 ${isWhole ? "회차" : "항목"}가 있어요 (${parts.join(", ")}).\n\n⚠️ 끝까지 다 녹음해야 ${open.type === "sentence" ? "문장익힘" : "단어익힘"} 게임이 열려요.\n그래도 지금 제출할까요?`)) return;
     setMsg("제출 중...");
     try {
       await apiPost(`/submission/${open.id}/${student.id}`,
@@ -609,7 +623,7 @@ function StudentView({ student, onLogout }) {
             <span style={{ color:"var(--navy)", fontSize:20 }}>›</span>
           </button>
         )}
-        <StudentHome mine={mine} statusMap={statusMap} vocabProgress={vocabProgress} closedDays={closedDays} closedNames={closedNames}
+        <StudentHome mine={mine} statusMap={statusMap} fullMap={fullMap} vocabProgress={vocabProgress} closedDays={closedDays} closedNames={closedNames}
           onOpenRecord={openA} onOpenVocab={setOpenVocab} onOpenSentence={setOpenSentence} onOpenExam={setOpenExam}
           onOpenPhonics={setOpenPhonics} />
       </div>
@@ -619,7 +633,7 @@ function StudentView({ student, onLogout }) {
 
 // ---------- 학생 홈: 달력 + [녹음 / 단어익힘 / 문장익힘] 탭 (같은 달력 공유) ----------
 
-function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam, onOpenPhonics }) {
+function StudentHome({ mine, statusMap, fullMap = {}, vocabProgress, closedDays, closedNames, onOpenRecord, onOpenVocab, onOpenSentence, onOpenExam, onOpenPhonics }) {
   const today = new Date();
   const closedSet = new Set(closedDays || []);          // 학원 휴무일+공휴일
   const isClosed = (k) => closedSet.has(k);
@@ -824,7 +838,10 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
   /* ★녹음 먼저(원장 2026-11-12 "단어·문장 녹음을 하지 않으면 단어익힘·문장익힘을 할 수 없게").
      같은 과제의 녹음을 제출(제출완료·확인완료)해야 익힘이 열린다. 녹음이 없는 진급시험은 제외,
      이미 익힘을 다 끝낸 과제는 복습할 수 있게 열어 둔다. 잠긴 카드를 누르면 그 과제 녹음으로 바로 간다. */
-  const recorded = (a) => { const st = statusMap[a.id] || "none"; return st === "submitted" || st === "reviewed"; };
+  /* ★11/18: 제출 버튼만 누르면 열리던 것 → 모든 항목·모든 회차를 끝까지 녹음해야 연다(서버 _rec_full 과 같은 규칙).
+     0개·1회차만 녹음하고 '그래도 제출'로 게임부터 하던 아이들(11/13~18 89건 중 20건). */
+  const submittedOf = (a) => { const st = statusMap[a.id] || "none"; return st === "submitted" || st === "reviewed"; };
+  const recorded = (a) => submittedOf(a) && !!fullMap[a.id];
   const needRecord = (a) => isStudy && a.type !== "exam" && !recorded(a) && !studyDone(a);
   const needRecordCard = (a) => (
     <button key={a.id} onClick={()=>onOpenRecord(a)} className="card"
@@ -833,7 +850,7 @@ function StudentHome({ mine, statusMap, vocabProgress, closedDays, closedNames, 
       <div style={{ minWidth:0 }}>
         <div className="row" style={{ marginBottom:5 }}>
           <Badge tone="b-gray">{isSentence ? "문장익힘" : "단어익힘"}</Badge>
-          <span className="muted">{a.type === "sentence" ? "문장녹음" : "단어녹음"}을 먼저 해야 열려요</span>
+          <span className="muted">{a.type === "sentence" ? "문장녹음" : "단어녹음"}을 {submittedOf(a) ? "끝까지(모든 회차) 다 해야" : "먼저 해야"} 열려요</span>
         </div>
         <div style={{ fontWeight:700, fontSize:15, color:"var(--navy-soft)" }}>{a.title}</div>
         <div style={{ fontSize:13, fontWeight:700, color:"var(--navy)", marginTop:6 }}>🎤 녹음하러 가기 ›</div>
