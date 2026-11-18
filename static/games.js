@@ -1289,6 +1289,7 @@ function GameStage({ stage, pairs, title, voice, uid, aid, limit, onBack, onDone
   const [idx, setIdx] = useState(start);
   const [playing, setPlaying] = useState(false);
   const [round, setRound] = useState(0);
+  useEffect(() => { try { prefetchWords((pairs || []).filter(p => !p.audio).map(p => p.word)); } catch (e) {} }, [pairs && pairs.length]);
   const g = pool[idx % pool.length];
   const bestKey = g.id + "_" + (uid || "");
   if (!playing) return <GameReady icon={g.icon} name={g.name} how={g.how} best={gameBest(bestKey)} today={idx === start}

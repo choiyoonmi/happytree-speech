@@ -278,14 +278,40 @@ function _playUrl(url, rate, onFail) {
   const t = setTimeout(() => { if (tok === _playTok && !a.ended && a.currentTime === 0) fail(); }, 6000);   // 6초 안에 소리가 안 나면 기기 음성
   try { const p = a.play(); if (p && p.catch) p.catch(e => { if (!(e && e.name === "AbortError")) fail(); }); } catch (e) { fail(); }
 }
+/* 단어 게임 듣기가 계속 무음(원장 2026-11-18). 11/17 부터 낱말을 워커에 먼저 물었는데(&c=1) 낱말 대부분은
+   아직 안 만들어져 404 → 0.5~1초 뒤에야 기기 음성으로 넘겼다. 누른 순간이 지나 버린 그 기기 음성을
+   아이패드·아이폰이 막아 소리가 아예 안 났다. 이제 낱말은 ① 게임 시작 때 미리 받아 둔 것(_wordBlob)만
+   사람 목소리로 바로 틀고 ② 준비 안 된 낱말은 기다리지 않고 그 자리에서 기기 음성으로 읽는다(다음을 위해 뒤에서 받아 둠). */
+const _wordBlob = {}, _wordAsk = {};
+function _wordKey(w) { return String(w || "").replace(/\s+/g, " ").trim().toLowerCase(); }
+function _fetchWord(w) {
+  const k = _wordKey(w);
+  if (!k || k.indexOf(" ") >= 0 || _wordAsk[k]) return _wordAsk[k] || Promise.resolve();
+  _wordAsk[k] = fetch(NATURAL_TTS + encodeURIComponent(String(w).trim()) + "&c=1")
+    .then(r => (r.ok ? r.blob() : null))
+    .then(b => { if (b && b.size > 200) _wordBlob[k] = URL.createObjectURL(b); })
+    .catch(() => {});
+  return _wordAsk[k];
+}
+function prefetchWords(words) {
+  const list = [...new Set((words || []).map(w => String(w || "").trim()).filter(w => w && w.indexOf(" ") < 0 && /[A-Za-z]/.test(w) && !/[ㄱ-ㆎ가-힣]/.test(w)))];
+  let i = 0;
+  const next = () => { if (i >= list.length) return; const w = list[i++]; _fetchWord(w).then(next); };
+  for (let n = 0; n < 4; n++) next();   // 한 번에 4개씩
+}
 function speakNatural(text, voice, rate) {
   const s = String(text || "").replace(/\s+/g, " ").trim();
   if (!s) return;
   if (s.length > 300 || !/[A-Za-z]/.test(s) || /[ㄱ-ㆎ가-힣]/.test(s)) return speak(s, voice, rate);
-  // 2026-11-17 원장 "문장을 말하듯이 자연스럽게": 낱말도 사람 목소리로. 단, 낱말은 워커가 미리 만들어 둔 것만
-  // 받는다(&c=1, 없으면 곧바로 기기 음성) — 하루 무료 한도는 문장에 먼저 쓰고, 낱말은 매일 아침 남는 한도로 채운다.
-  const one = s.indexOf(" ") < 0;
-  _playUrl(NATURAL_TTS + encodeURIComponent(s) + (one ? "&c=1" : ""), rate, () => speak(s, voice, rate));
+  if (s.indexOf(" ") < 0) {
+    const b = _wordBlob[_wordKey(s)];
+    if (b) { _playUrl(b, rate, () => speak(s, voice, rate)); return; }
+    _stopSounds();
+    speak(s, voice, rate);   // 기다리지 않는다 — 누른 순간에 읽어야 휴대폰·태블릿이 막지 않는다
+    _fetchWord(s);
+    return;
+  }
+  _playUrl(NATURAL_TTS + encodeURIComponent(s), rate, () => speak(s, voice, rate));
 }
 
 // 선생님이 올린 음원(url)이 있으면 그걸, 없으면 문장은 자연스러운 목소리, 낱말은 기기 음성
