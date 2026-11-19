@@ -226,7 +226,8 @@ function speak(text, voice, rate) {
    한 번 만든 소리는 워커에 저장돼 다시 만들지 않고, 새로 만드는 건 하루 무료 한도 안에서만.
    한도를 넘었거나·느리거나·막히면 예전처럼 기기 음성으로 읽는다(소리가 안 나는 일은 없게).
    낱말 하나는 기기 음성 그대로(무료 한도를 문장에 쓰려고). */
-const NATURAL_TTS = "https://happytree-ttvoice.white21040.workers.dev/s?t=";
+// v=2: 11/19 끝이 잘린 채 저장됐던 소리를 다시 만들었다 — 아이들 기기에 1년 캐시된 옛 소리 대신 새 소리를 받게.
+const NATURAL_TTS = "https://happytree-ttvoice.white21040.workers.dev/s?v=2&t=";
 let _curAudio = null;
 /* 듣기가 안 나오던 것(원장 2026-11-12 "홍리아 듣고 문제 풀기 게임에서 듣기가 안 나온다").
    자막 맞추기 등은 첫 소리를 손으로 누른 순간이 아니라 카운트다운 뒤 타이머로 튼다. 아이패드·아이폰은
@@ -257,14 +258,83 @@ function unlockSound() {
   } catch (e) {}
 }
 try { ["touchend", "pointerup", "click", "keydown"].forEach(ev => document.addEventListener(ev, unlockSound, true)); } catch (e) {}
+/* 게임 소리가 너무 작아 안 들리던 것(원장 2026-11-19). 사람 목소리(Aura-2) 음원 자체가 작게 만들어진다
+   (평균 -22~-27dB, 보통 말소리보다 6~10dB 작음). 음성 엔진엔 볼륨 설정이 없어서, 틀 때 Web Audio 로
+   2.5배 키우고 제한기(compressor)로 찢어지지 않게 누른다. 문제 생기면(소리 통이 안 열림·디코드 실패) 예전 방식 그대로.
+   ⚠ 아이폰·아이패드는 Web Audio 가 무음 스위치를 따른다(<audio> 는 안 따름) → audioSession="playback" 을
+   지원하는 기기(iOS 16.4+)에서만 키운 길을 쓰고, 옛 기기는 예전 방식(작아도 소리는 나게). */
+const _isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+let _boost = null, _boostSrc = null;
+const _boostBuf = new Map();
+function _getBoost() {
+  if (_boost) return _boost;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (_isIOS && !(navigator.audioSession && "type" in navigator.audioSession)) return null;
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = "playback";
+    const c = new AC();
+    const g = c.createGain(); g.gain.value = 2.5;
+    const lim = c.createDynamicsCompressor();
+    lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.15;
+    g.connect(lim); lim.connect(c.destination);
+    _boost = { c, input: g };
+  } catch (e) { _boost = null; }
+  return _boost;
+}
+function _wakeBoost() {   // 누를 때마다: 소리 통이 잠들어 있으면(전화·잠금 뒤) 깨운다
+  const B = _getBoost();
+  if (!B) return;
+  try {
+    if (B.c.state !== "running") B.c.resume();
+    if (!B.primed) { const s = B.c.createBufferSource(); s.buffer = B.c.createBuffer(1, 1, 22050); s.connect(B.c.destination); s.start(0); B.primed = true; }
+  } catch (e) {}
+}
+try { ["touchend", "pointerup", "click", "keydown"].forEach(ev => document.addEventListener(ev, _wakeBoost, true)); } catch (e) {}
+function _decode(c, ab) {
+  return new Promise((ok, no) => { try { const p = c.decodeAudioData(ab, ok, no); if (p && p.then) p.then(ok, no); } catch (e) { no(e); } });
+}
 function _stopSounds() {
   try { if (_curAudio) _curAudio.pause(); } catch (e) {}
+  try { if (_boostSrc) { _boostSrc.onended = null; _boostSrc.stop(); } } catch (e) {}
+  _boostSrc = null;
   try { if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel(); } catch (e) {}
 }
 function _playUrl(url, rate, onFail) {
   _stopSounds();
-  const a = _getAudio() || new Audio();
   const tok = ++_playTok;
+  const pr = rate ? Math.max(0.5, Math.min(1.2, rate / 0.9)) : 1;
+  const B = _getBoost();
+  // 키운 길: 보통 속도일 때만(Web Audio 는 속도를 바꾸면 음 높이도 바뀌어서, 천천히 듣기는 예전 길)
+  if (B && B.c.state === "running" && pr === 1) {
+    let done = false;
+    const toEl = () => { if (done || tok !== _playTok) return; done = true; _playEl(url, rate, onFail, tok); };
+    const t = setTimeout(toEl, 2500);   // 받기·풀기가 늦으면 예전 길로(거기서 다시 6초 기다림)
+    const cached = _boostBuf.get(url);
+    (cached ? Promise.resolve(cached) : fetch(url).then(r => {
+      if (!r.ok) { const e = new Error("http " + r.status); e.http = true; throw e; }
+      return r.arrayBuffer();
+    }).then(ab => _decode(B.c, ab)).then(buf => {
+      _boostBuf.set(url, buf);
+      if (_boostBuf.size > 80) _boostBuf.delete(_boostBuf.keys().next().value);
+      return buf;
+    })).then(buf => {
+      if (done || tok !== _playTok) return;
+      done = true; clearTimeout(t);
+      const s = B.c.createBufferSource();
+      s.buffer = buf; s.connect(B.input);
+      _boostSrc = s; s.start(0);
+    }).catch(e => {
+      if (done || tok !== _playTok) return;
+      if (e && e.http) { done = true; clearTimeout(t); if (onFail) onFail(); return; }   // 404·429 = 음원 없음 → 바로 기기 음성
+      clearTimeout(t); toEl();
+    });
+    return;
+  }
+  _playEl(url, rate, onFail, tok);
+}
+function _playEl(url, rate, onFail, tok) {
+  const a = _getAudio() || new Audio();
   _curAudio = a;
   const pr = rate ? Math.max(0.5, Math.min(1.2, rate / 0.9)) : 1;
   const setRate = () => { try { a.preservesPitch = true; a.playbackRate = pr; } catch (e) {} };
