@@ -5618,7 +5618,38 @@ function StudentFinder({ students, active, onPick }) {
   );
 }
 
-function AdminView({ onLogout }) {
+/* 🧪 체험하기(2026-11-19 원장 "트리톡에서 체험") — 출입증(tt1)에 적힌 학원을 읽는다.
+   해피트리 선생님이면 「🧪 체험하기」, 연습학원이면 「↩ 내 계정으로」. 공용 비밀번호 로그인은 버튼 없음.
+   원래 출입증은 sessionStorage tt_admin_real 에 맡겨 둔다(탭 닫으면 같이 사라짐). */
+function ttAcademy() {
+  try {
+    if (!/^tt1\./.test(ADMIN_KEY)) return "";
+    const b = ADMIN_KEY.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const v = JSON.parse(decodeURIComponent(escape(atob(b + "===".slice((b.length + 3) % 4)))));
+    return String(v[1] || "");
+  } catch (e) { return ""; }
+}
+async function practiceEnterTT(onSwitch) {
+  if (!confirm("🧪 연습학원으로 들어갈까요?\n가짜 학생 6명에게 과제를 내고 기록을 마음껏 눌러 볼 수 있어요.\n진짜 학생·학부모에겐 아무것도 안 나가요.")) return;
+  try {
+    const r = await apiPost("/login/practice", {});
+    try { sessionStorage.setItem("tt_admin_real", ADMIN_KEY); sessionStorage.setItem("tt_who_real", ADMIN_WHO); } catch (e) {}
+    setAdminKey(r.token); setAdminWho(r.name);
+    onSwitch();
+  } catch (e) { alert(e.message || "연결이 잠깐 불안정해요. 다시 눌러 주세요."); }
+}
+function practiceLeaveTT(onSwitch, onLogout) {
+  let k = "", w = "";
+  try { k = sessionStorage.getItem("tt_admin_real") || ""; w = sessionStorage.getItem("tt_who_real") || ""; sessionStorage.removeItem("tt_admin_real"); sessionStorage.removeItem("tt_who_real"); } catch (e) {}
+  if (!k) { alert("원래 계정 정보가 없어요. 다시 로그인해 주세요."); onLogout(); return; }
+  setAdminKey(k); setAdminWho(w);
+  onSwitch();
+}
+
+function AdminView({ onLogout, onSwitch }) {
+  const pracAc = ttAcademy();
+  const inPractice = pracAc === "practice";
+  const logoutAll = () => { try { sessionStorage.removeItem("tt_admin_real"); sessionStorage.removeItem("tt_who_real"); } catch (e) {} onLogout(); };
   // 7탭 → 4탭 재구성. 기존 화면(컴포넌트)은 그대로 두고 묶기만 한다.
   //  현황 = 학습현황 + 제출확인 / 과제 / 학생·성적 = 학생관리 + 성적표 / 설정 = 설정 + 배틀
   const [tab, setTab] = useState("home");
@@ -5642,8 +5673,19 @@ function AdminView({ onLogout }) {
     <div className="wrap">
       <div className="hdr">
         <h1>트리톡 관리자</h1>
-        <button onClick={onLogout} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          {pracAc === "happytree" && <button onClick={()=>practiceEnterTT(onSwitch)} title="연습학원 가짜 학생으로 직접 눌러 봐요"
+            style={{ background:"#7c3aed", color:"#fff", border:0, borderRadius:8, padding:"5px 10px", fontSize:13, fontWeight:700 }}>🧪 체험하기</button>}
+          {inPractice && <button onClick={()=>practiceLeaveTT(onSwitch, logoutAll)} title="연습장에서 나와 원래 선생님 계정으로 돌아가요"
+            style={{ background:"#7c3aed", color:"#fff", border:0, borderRadius:8, padding:"5px 10px", fontSize:13, fontWeight:700 }}>↩ 내 계정으로</button>}
+          <button onClick={logoutAll} style={{ background:"none", color:"var(--cream)", fontSize:13 }}>로그아웃</button>
+        </div>
       </div>
+      {inPractice && <div style={{ position:"fixed", left:0, right:0, bottom:0, zIndex:2147483647, background:"#7c3aed", color:"#fff",
+        font:"700 13px/1.4 sans-serif", textAlign:"center", padding:"5px 10px", opacity:.95 }}>
+        🧪 연습장 — 연습학원 가짜 학생이에요. 마음껏 눌러 보세요 (진짜 학생·학부모에겐 안 나가요)
+        <button onClick={()=>practiceLeaveTT(onSwitch, logoutAll)} style={{ marginLeft:8, background:"#fff", color:"#7c3aed", border:0, borderRadius:6, padding:"2px 9px", fontWeight:800, fontSize:12 }}>↩ 내 계정으로</button>
+      </div>}
       <div className="tabs">
         {[["home","📊 현황"],["task","📚 과제"],["test","📝 시험지"],["people","👥 학생·성적"],["settings","⚙️ 설정"]].map(([id,l]) => (
           <button key={id} className={"tab" + (tab===id?" on":"")} onClick={()=>{ setTab(id); setFound(null); }}>{l}</button>
@@ -6127,8 +6169,9 @@ function Login({ onAdmin }) {
 
 function App() {
   const [ok, setOk] = useState(false);
+  const [gen, setGen] = useState(0);   // 🧪 체험 들어가기·나오기 때 관리자 화면을 새 출입증으로 처음부터 다시 그린다
   if (!ok) return <Login onAdmin={()=>setOk(true)} />;
-  return <AdminView onLogout={()=>{ setAdminKey(""); setAdminWho(""); setOk(false); }} />;
+  return <AdminView key={gen} onSwitch={()=>setGen(g=>g+1)} onLogout={()=>{ setAdminKey(""); setAdminWho(""); setOk(false); }} />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);

@@ -836,9 +836,14 @@ def _tt_sign(body: str) -> str:
     return base64.urlsafe_b64encode(sig).decode("ascii").rstrip("=")
 
 
-def _tt_make(name: str, ac: str) -> str:
+def _tt_make(name: str, ac: str, atk: str = "") -> str:
+    """atk = 학생계정 서버가 준 선생님 쪽지(해피트리.xxx). 🧪 체험하기(연습학원 입장)에 쓴다(2026-11-19).
+    본인 쪽지라 출입증에 같이 실어도 남의 권한이 늘지 않는다."""
     import time as _t
-    row = json.dumps([name, ac, int(_t.time()) + TT_TOKEN_HOURS * 3600], ensure_ascii=False)
+    v = [name, ac, int(_t.time()) + TT_TOKEN_HOURS * 3600]
+    if atk:
+        v.append(str(atk)[:80])
+    row = json.dumps(v, ensure_ascii=False)
     body = base64.urlsafe_b64encode(row.encode("utf-8")).decode("ascii").rstrip("=")
     return f"tt1.{body}.{_tt_sign(body)}"
 
@@ -852,10 +857,21 @@ def _tt_read(tok: str):
         _, body, sig = tok.split(".")
         if not hmac.compare_digest(sig, _tt_sign(body)):
             return None
-        name, ac, exp = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8"))
+        v = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8"))
+        name, ac, exp = v[0], v[1], v[2]
         return (name, ac) if exp > _t.time() else None
     except Exception:
         return None
+
+
+def _tt_atk(tok: str) -> str:
+    """출입증에 실린 학생계정 쪽지(없으면 ''). _tt_read 가 통과한 출입증에만 쓴다."""
+    try:
+        body = str(tok).split(".")[1]
+        v = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8"))
+        return str(v[3]) if len(v) > 3 else ""
+    except Exception:
+        return ""
 
 
 async def _check_teacher(name: str, tail: str):
@@ -868,7 +884,7 @@ async def _check_teacher(name: str, tail: str):
             r = res.json()
             fast_ok = True
         if r.get("ok") and r.get("name"):
-            return r["name"], (r.get("academy") or ACADEMY_DEFAULT)
+            return r["name"], (r.get("academy") or ACADEMY_DEFAULT), str(r.get("token") or "")
     except Exception as exc:
         print("[teacher-login] 포털 워커 오류:", exc)
     try:
@@ -878,7 +894,7 @@ async def _check_teacher(name: str, tail: str):
             return None
         raise
     if r.get("ok") and r.get("token"):
-        return name, (str(r["token"]).split(".")[0] or ACADEMY_DEFAULT)
+        return name, (str(r["token"]).split(".")[0] or ACADEMY_DEFAULT), str(r["token"])
     return None
 
 
@@ -1025,7 +1041,33 @@ async def login_teacher(payload: dict = Body(...)):
     if not hit:
         raise HTTPException(401, "이름이나 번호가 맞지 않아요. 관리자 포털과 같은 번호예요.")
     _audit("로그인", who=hit[0], ac=hit[1])
-    return {"ok": True, "name": hit[0], "token": _tt_make(hit[0], hit[1])}
+    return {"ok": True, "name": hit[0], "token": _tt_make(hit[0], hit[1], hit[2])}
+
+
+@app.post("/api/login/practice")
+async def login_practice(request: Request):
+    """🧪 체험하기(2026-11-19 원장 "트리톡에서 체험") — 해피트리 선생님 출입증으로 연습학원 출입증을 받는다.
+    학생계정 서버 practiceEnter 가 해피트리 쪽지를 확인하고 연습학원 쪽지를 준다.
+    그 쪽지로 연습학원 명단(가짜 학생 6명)을 맞춰 넣는다 — 다른 학원은 학생이 로그인해야 명단에 생기기 때문.
+    ★Render ACADEMY_PASSCODES 에 practice 를 넣지 않아도 된다(출입증에 학원이 적혀 있다)."""
+    got = _admin_got(request)
+    t = _tt_read(got)
+    if not t or t[1] != ACADEMY_DEFAULT:
+        raise HTTPException(403, "해피트리 선생님으로 로그인한 뒤에 체험할 수 있어요.")
+    atk = _tt_atk(got)
+    if not atk:
+        raise HTTPException(401, "체험하려면 로그아웃했다가 이름·번호로 다시 로그인해 주세요.")
+    r = await fetch_shared_accounts({"action": "practiceEnter", "tk": atk})
+    ptk = str(r.get("token") or "")
+    if not r.get("ok") or not ptk.startswith("practice."):
+        raise HTTPException(503, r.get("msg") or "연습학원이 지금 준비 중이에요. 잠시 뒤에 다시 해 주세요.")
+    try:
+        await _resync_academy(ptk)
+    except Exception as exc:
+        print("[practice] 연습 명단 맞추기 실패:", getattr(exc, "detail", exc))
+    pname = str(r.get("name") or "연습선생님")
+    _audit("체험 입장", who=t[0], ac="practice")
+    return {"ok": True, "name": pname, "token": _tt_make(pname, "practice", ptk)}
 
 
 @app.post("/api/login/admin")
