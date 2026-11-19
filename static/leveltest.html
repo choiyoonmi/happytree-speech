@@ -547,7 +547,7 @@ function placeUpd(P, r, ok) {
 function placeMean(P) { let a = 0; for (let i = 0; i < P.g.length; i++) a += P.g[i] * P.w[i]; return a; }
 const placeAsk  = P => Math.max(P.lo, Math.min(P.hi, Math.round(placeMean(P))));            /* 다음 문항 칸 */
 const placeJudge = P => Math.max(P.lo, Math.min(P.hi, Math.round(placeMean(P) - K70 * P.s))); /* 판정 칸(70%) */
-/* 독해 사다리 = 독해숨 LV1~LV10 그대로. 새로 쓰지 않았다 —
+/* 독해 사다리 = 리딩숨 LV1~LV10 그대로. 새로 쓰지 않았다 —
    500편이 이미 레벨별로 갈려 있고 어휘 창도 레벨마다 지켜져 왔다. */
 const RLV = Object.keys(READ).map(Number).sort((a, b) => a - b);
 /* 학년 → 독해 시작 칸. 초4 문장이 맞다 하셨고 그 세트가 6~10문장이었으니 LV3 에서 시작한다. */
@@ -713,7 +713,7 @@ function start(grade) {
   next();
 }
 
-/* 독해숨 데이터는 정답이 늘 첫 보기다 — 화면에서 반드시 섞는다. */
+/* 리딩숨 데이터는 정답이 늘 첫 보기다 — 화면에서 반드시 섞는다. */
 function shuffleQ(q) {
   const idx = q.c.map((_, i) => i);
   for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; }
@@ -1415,10 +1415,10 @@ async function cohort(R) {
    쓰기 글은 여기서 잠정 — 확정은 채점 화면(rid 를 같이 보내 둔다). */
 const LT_PORTAL = 'https://test.happytreeacademy.com';
 const LT_AP = (function () { try { return (new URLSearchParams(location.search).get('ap') || '').replace(/[^a-z0-9]/gi, '').slice(0, 16); } catch (e) { return ''; } })();
-/* 독해숨에서 열었으면(?back=dok, 11/12) 끝난 뒤 독해숨으로 돌아간다 — 거기서 결과 레벨로 바로 배정된다 */
+/* 리딩숨에서 열었으면(?back=dok, 11/12) 끝난 뒤 리딩숨으로 돌아간다 — 거기서 결과 레벨로 바로 배정된다 */
 const LT_BACK = (function () { try { const b = new URLSearchParams(location.search).get('back'); return b === 'dok' || b === 'gum' ? b : ''; } catch (e) { return ''; } })();
 const LT_DOK = LT_BACK === 'gum' ? 'https://gumunsum.onrender.com/?lt=1' : 'https://dokeng.onrender.com/?lt=1';
-const LT_APPN = LT_BACK === 'gum' ? '구문숨' : '독해숨';
+const LT_APPN = LT_BACK === 'gum' ? '구문숨' : '리딩숨';
 let ltBooted = false, ltSent = false;
 function ltSaved(ok) { const el = document.getElementById('lt-saved'); if (el) el.innerHTML = ok ? (LT_BACK ? '✓ 결과를 보냈어요 — 잠시 뒤 ' + LT_APPN + '으로 돌아가요' : '✓ 결과가 선생님께 전달됐어요') : '⚠️ 결과를 보내지 못했어요 — 선생님께 말씀해 주세요'; }
 function ltPost(kind, data, tries) {
