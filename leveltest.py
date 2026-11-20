@@ -246,6 +246,53 @@ def make_router(*, data_dir: Path, azure_key, azure_region, admin_only, is_admin
             raise HTTPException(404, "not found")
         return FileResponse(p, media_type="audio/webm", headers={"X-Robots-Tag": "noindex"})
 
+    # ── 중간 저장(2026-11-20 원장 "기기에만 저장되는 것 전부 서버로") ──
+    # 응시 번호(ap, 레벨테스트 포털이 준 것)마다 하다 만 시험 하나. 다른 태블릿에서 열어도 그 문항부터.
+    run_dir = data_dir / "leveltest_run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    def _run_path(ap):
+        ap = "".join(c for c in str(ap or "") if c.isalnum())[:16]
+        if len(ap) < 6:
+            raise HTTPException(400, "응시 번호가 없어요.")
+        return run_dir / f"{ap}.json"
+
+    @r.get("/api/lt/run/{ap}")
+    def lt_run_get(ap: str):
+        p = _run_path(ap)
+        try:
+            return {"ok": True, "run": json.loads(p.read_text(encoding="utf-8"))}
+        except Exception:
+            return {"ok": True, "run": None}
+
+    @r.post("/api/lt/run/{ap}")
+    async def lt_run_set(ap: str, request: Request):
+        p = _run_path(ap)
+        raw = await request.body()
+        if len(raw) > 400_000:
+            raise HTTPException(413, "너무 커요.")
+        try:
+            b = json.loads(raw or b"{}")
+        except Exception:
+            raise HTTPException(400, "형식이 아니에요.")
+        if b.get("clear"):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+            return {"ok": True}
+        run = b.get("run")
+        if not isinstance(run, dict) or not run.get("at"):
+            raise HTTPException(400, "저장할 것이 없어요.")
+        try:
+            old = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            old = None
+        if old and int(old.get("at") or 0) > int(run.get("at") or 0):
+            return {"ok": True, "kept": "server"}      # 서버 것이 더 새것
+        p.write_text(json.dumps(run, ensure_ascii=False), encoding="utf-8")
+        return {"ok": True}
+
     @r.post("/api/lt/result")
     async def lt_result(request: Request):
         raw = await request.body()

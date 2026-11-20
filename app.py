@@ -950,6 +950,51 @@ def require_admin(request: Request):
 ADMIN_ONLY = [Depends(require_admin)]
 
 
+# ---------- 게임 최고점(2026-11-20 원장 "기기에만 저장되는 것 전부 서버로. 기기는 계속 바꿔서 한다고 생각해") ----------
+# 기기(localStorage tt_gbest_)에만 있어 다른 기기에선 최고점이 0 이었다. 학생 파일 하나에 {게임열쇠: 점수}, 큰 값만 남긴다.
+GBEST_DIR = DATA_DIR / "gbest"
+GBEST_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _gbest_me(request: Request, sid: str) -> str:
+    got = _stk_read((request.headers.get("x-tt-stk") or "").strip())
+    if not got or got[0] != sid:
+        raise HTTPException(401, "다시 로그인해 주세요.")
+    return re.sub(r"[^0-9A-Za-z_-]", "", sid)[:40] or "x"
+
+
+@app.get("/api/gbest/{sid}")
+def gbest_get(sid: str, request: Request):
+    p = GBEST_DIR / (_gbest_me(request, sid) + ".json")
+    try:
+        return {"ok": True, "best": json.loads(p.read_text(encoding="utf-8"))}
+    except Exception:
+        return {"ok": True, "best": {}}
+
+
+@app.post("/api/gbest/{sid}")
+def gbest_set(sid: str, request: Request, payload: dict = Body(...)):
+    p = GBEST_DIR / (_gbest_me(request, sid) + ".json")
+    try:
+        cur = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        cur = {}
+    add = payload.get("best") if isinstance(payload.get("best"), dict) else {}
+    ch = False
+    for k, v in list(add.items())[:100]:
+        k = re.sub(r"[^0-9A-Za-z_-]", "", str(k))[:60]
+        try:
+            v = int(v)
+        except Exception:
+            continue
+        if k and 0 < v < 10_000_000 and v > int(cur.get(k) or 0):
+            cur[k] = v
+            ch = True
+    if ch:
+        p.write_text(json.dumps(cur, ensure_ascii=False), encoding="utf-8")
+    return {"ok": True, "best": cur}
+
+
 @app.get("/api/health")
 def health(detail: str = ""):
     request_detail = detail == "1"

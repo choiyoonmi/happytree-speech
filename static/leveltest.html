@@ -1429,10 +1429,11 @@ function ltPost(kind, data, tries) {
 }
 function ltStrip(h) { const d = document.createElement('div'); d.innerHTML = String(h == null ? '' : h); return (d.textContent || '').replace(/\s+/g, ' ').trim(); }
 function ltEngBoot() {
-  fetch(LT_PORTAL + '/api/ap?id=' + LT_AP, { cache: 'no-store' }).then(r => r.json()).then(r => {
+  fetch(LT_PORTAL + '/api/ap?id=' + LT_AP, { cache: 'no-store' }).then(r => r.json()).then(async r => {
     if (!r || !r.ok) throw 0;
+    await runPull();
     const o = loadRun();
-    if (o && o.ap !== LT_AP) clearRun();          /* 이 기기에 다른 학생이 하다 만 시험 — 지운다 */
+    if (o && o.ap !== LT_AP) { try { localStorage.removeItem(RUN_KEY); } catch (e) {} }          /* 이 기기에 다른 학생이 하다 만 시험 — 지운다 */
     if (loadRun()) return home();                 /* 이 학생이 하다 만 시험 — 이어 하기 */
     let g = r.grade === '초1' ? '초2' : r.grade;
     if (!START[g]) g = Object.keys(START)[0];
@@ -1468,12 +1469,31 @@ function ltEng(R, rid) {
    이 기기 브라우저에만 둔다(다른 기기·다른 사람에겐 안 보인다). 하루 지나면 버린다.
    보는 중이던 문항은 시간을 처음부터 다시 잰다 — 자리를 비운 시간이 풀이 시간에 섞이지 않게. */
 const RUN_KEY = 'ht_englt_run_v2';   /* 서버판(듣기 포함) — 아티팩트판 저장(v1)과 섞이지 않게 */
+/* ★11/20 응시 번호(ap)가 있으면 서버(/api/lt/run/ap)가 정본 — 태블릿을 바꿔도 그 문항부터. 기기 값은 사본. */
+let runTimer = null;
+function runPush(body) {
+  if (!LT_AP) return;
+  fetch('/api/lt/run/' + LT_AP, { method: 'POST', keepalive: body.length < 60000, headers: { 'Content-Type': 'application/json' }, body: body }).catch(() => {});
+}
 function saveRun(view) {
   if (!S) return;
   try {
-    localStorage.setItem(RUN_KEY, JSON.stringify(Object.assign({}, S,
-      { used: [...S.used], gused: [...S.gused], rused: [...S.rused], hused: [...S.hused], view: view, at: Date.now() })));
+    const js = JSON.stringify(Object.assign({}, S,
+      { used: [...S.used], gused: [...S.gused], rused: [...S.rused], hused: [...S.hused], view: view, at: Date.now() }));
+    try { localStorage.setItem(RUN_KEY, js); } catch (e) {}
+    if (LT_AP && S.ap === LT_AP) { clearTimeout(runTimer); runTimer = setTimeout(() => runPush('{"run":' + js + '}'), 800); }
   } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && runTimer) { clearTimeout(runTimer); runTimer = null; try { const js = localStorage.getItem(RUN_KEY); if (js && S && S.ap === LT_AP) runPush('{"run":' + js + '}'); } catch (e) {} } });
+/* 서버 것이 기기 것보다 새것이면 기기에 써 넣는다 */
+function runPull() {
+  if (!LT_AP) return Promise.resolve();
+  return fetch('/api/lt/run/' + LT_AP, { cache: 'no-store' }).then(r => r.json()).then(d => {
+    const sv = d && d.run;
+    if (!sv || !sv.at || sv.ap !== LT_AP) return;
+    let lo = null; try { lo = JSON.parse(localStorage.getItem(RUN_KEY) || 'null'); } catch (e) {}
+    if (!lo || lo.ap !== LT_AP || (lo.at || 0) < sv.at) { try { localStorage.setItem(RUN_KEY, JSON.stringify(sv)); } catch (e) {} }
+  }).catch(() => {});
 }
 function loadRun() {
   try {
@@ -1484,7 +1504,7 @@ function loadRun() {
     return o;
   } catch (e) { return null; }
 }
-function clearRun() { try { localStorage.removeItem(RUN_KEY); } catch (e) {} }
+function clearRun() { try { localStorage.removeItem(RUN_KEY); } catch (e) {} clearTimeout(runTimer); runTimer = null; if (LT_AP) runPush('{"clear":1}'); }
 function resumeRun() {
   const o = loadRun();
   if (!o) return home();

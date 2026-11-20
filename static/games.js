@@ -67,8 +67,31 @@ const GameSfx = (() => {
 })();
 
 // 이 기기에 남기는 '내 최고 기록'(게임 포인트). 막혀 있어도 게임은 그대로 돈다.
-function gameBest(key) { try { return Number(localStorage.getItem("tt_gbest_" + key) || 0) || 0; } catch (e) { return 0; } }
-function setGameBest(key, v) { try { localStorage.setItem("tt_gbest_" + key, String(v)); } catch (e) {} }
+function gameBest(key) { gbestPull(); try { return Number(localStorage.getItem("tt_gbest_" + key) || 0) || 0; } catch (e) { return 0; } }
+/* ★11/20 최고점은 서버가 정본(학생마다) — 기기를 바꿔도 최고점이 남는다. 기기 값은 사본. */
+function gbestSid() { try { const s = JSON.parse(sessionStorage.getItem("tt_student") || "null"); return s && s.id ? String(s.id) : ""; } catch (e) { return ""; } }
+function gbestPush(sid, best) {
+  if (!sid || !STU_KEY) return Promise.resolve(null);
+  return fetch("/api/gbest/" + encodeURIComponent(sid), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ best }) })
+    .then(r => r.ok ? r.json() : null).catch(() => null);
+}
+function setGameBest(key, v) {
+  try { localStorage.setItem("tt_gbest_" + key, String(v)); } catch (e) {}
+  gbestPush(gbestSid(), { [key]: v });
+}
+/* 학생마다 한 번: 서버 것과 합친다(기기에만 있던 큰 점수는 서버로). 게임 준비 화면이 처음 최고점을 물을 때 */
+let GBEST_PULLED = "";
+function gbestPull() {
+  const sid = gbestSid();
+  if (!sid || !STU_KEY || GBEST_PULLED === sid) return;
+  GBEST_PULLED = sid;
+  const mine = {};
+  try { Object.keys(localStorage).forEach(k => { if (k.indexOf("tt_gbest_") === 0 && k.slice(-sid.length - 1) === "_" + sid) mine[k.slice(9)] = Number(localStorage.getItem(k)) || 0; }); } catch (e) {}
+  gbestPush(sid, mine).then(d => {
+    if (!d || !d.best) return;
+    try { Object.keys(d.best).forEach(k => { if ((Number(localStorage.getItem("tt_gbest_" + k)) || 0) < d.best[k]) localStorage.setItem("tt_gbest_" + k, String(d.best[k])); }); } catch (e) {}
+  });
+}
 
 function MuteBtn() {
   const [m, setM] = useState(GameSfx.isMuted());
