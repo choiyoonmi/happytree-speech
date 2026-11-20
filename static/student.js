@@ -12,6 +12,8 @@ function micErrText(e) {
     return "마이크를 찾지 못했어요. 이어폰·블루투스를 빼고 다시 해 보세요." + tag;
   if (name === "NotReadableError" || name === "AbortError")
     return "다른 앱(전화·카메라·녹음 앱)이 마이크를 쓰고 있어요. 그 앱을 닫고 다시 눌러 주세요." + tag;
+  if (name === "InvalidStateError")
+    return "녹음기를 켜지 못했어요. 음악·영상·통화를 끄고, 페이지를 새로고침한 뒤 다시 눌러 주세요." + tag;
   if (kakao)
     return "카카오톡 안에서는 녹음이 잘 안 돼요. 오른쪽 아래 ⋯ → '다른 브라우저로 열기'(사파리)로 열어 주세요." + tag;
   if (ios)
@@ -34,14 +36,14 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunksRef.current = [];
-      const mr = new MediaRecorder(stream);
+      const { stream, mr } = await startMicRecorder();   // common.js — 아이폰 소리 모드까지 맞춰서 연다
       mrRef.current = mr;
       mr.ondataavailable = e => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
       mr.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
         stream.getTracks().forEach(t => t.stop());
+        micSessionOff();
         try {
           const fd = new FormData();
           fd.append("audio", blob, "take.webm");
@@ -116,7 +118,6 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
         }
         setBusy(false);
       };
-      mr.start();
       setRec(true);
     } catch (e) {
       setErr(micErrText(e));

@@ -272,7 +272,7 @@ function _getBoost() {
   if (!AC) return null;
   if (_isIOS && !(navigator.audioSession && "type" in navigator.audioSession)) return null;
   try {
-    if (navigator.audioSession) navigator.audioSession.type = "playback";
+    if (navigator.audioSession && !window.__micOn) navigator.audioSession.type = "playback";
     const c = new AC();
     const g = c.createGain(); g.gain.value = 2.5;
     const lim = c.createDynamicsCompressor();
@@ -281,6 +281,38 @@ function _getBoost() {
     _boost = { c, input: g };
   } catch (e) { _boost = null; }
   return _boost;
+}
+/* ★녹음이 아이폰에서 InvalidStateError 로 죽던 것(2026-11-20). 위 "playback" 은 '재생만 하는 페이지'라는 뜻이라
+   마이크는 열려도 녹음기 시작을 아이폰이 거절한다. 녹음 직전엔 "play-and-record", 끝나면 되돌린다. */
+function micSessionOn() {
+  window.__micOn = true;
+  try { _stopSounds(); } catch (e) {}
+  try { if (navigator.audioSession && "type" in navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch (e) {}
+}
+function micSessionOff() {
+  window.__micOn = false;
+  try { if (navigator.audioSession && "type" in navigator.audioSession) navigator.audioSession.type = _boost ? "playback" : "auto"; } catch (e) {}
+}
+/* 마이크 열고 녹음기 시작까지. 아이폰이 한 번 거절(InvalidStateError)하면 마이크를 닫았다 다시 열어 한 번 더. */
+async function startMicRecorder() {
+  micSessionOn();
+  let lastErr = null;
+  for (let i = 0; i < 2; i++) {
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      mr.start();
+      return { stream, mr };
+    } catch (e) {
+      lastErr = e;
+      try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch (x) {}
+      if (!e || e.name !== "InvalidStateError") break;
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+  micSessionOff();
+  throw lastErr;
 }
 function _wakeBoost() {   // 누를 때마다: 소리 통이 잠들어 있으면(전화·잠금 뒤) 깨운다
   const B = _getBoost();
