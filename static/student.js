@@ -1,5 +1,26 @@
 // 자동 생성 — tools/split_admin.py. 학생 화면.
 
+/* 마이크가 안 열릴 때 기기에 맞는 안내(2026-11-20). 전엔 PC 크롬용 '자물쇠 아이콘' 한 줄뿐이라
+   아이폰에서는 어디를 눌러야 할지 몰랐다. 오류 이름도 끝에 붙여 원인을 바로 알 수 있게. */
+function micErrText(e) {
+  const name = (e && e.name) || "";
+  const ua = navigator.userAgent || "";
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const kakao = /KAKAOTALK/i.test(ua);
+  const tag = name ? ` (${name})` : "";
+  if (name === "NotFoundError" || name === "OverconstrainedError")
+    return "마이크를 찾지 못했어요. 이어폰·블루투스를 빼고 다시 해 보세요." + tag;
+  if (name === "NotReadableError" || name === "AbortError")
+    return "다른 앱(전화·카메라·녹음 앱)이 마이크를 쓰고 있어요. 그 앱을 닫고 다시 눌러 주세요." + tag;
+  if (kakao)
+    return "카카오톡 안에서는 녹음이 잘 안 돼요. 오른쪽 아래 ⋯ → '다른 브라우저로 열기'(사파리)로 열어 주세요." + tag;
+  if (ios)
+    return "마이크가 막혀 있어요. ① 주소창 왼쪽 'ᴀA'(또는 ⋯) → 웹사이트 설정 → 마이크 '허용' " +
+      "② 그래도 안 되면 설정 앱 → 앱 → Safari → 마이크 '허용' " +
+      "③ 스크린타임을 쓰면 설정 → 스크린 타임 → 콘텐츠 및 개인정보 보호 → 마이크 '허용'. 바꾼 뒤 새로고침해 주세요." + tag;
+  return "마이크 접근이 거부되었어요. 주소창 왼쪽 자물쇠 아이콘에서 마이크를 허용해주세요." + tag;
+}
+
 function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl, label, bgScore, aid, sid, mode }) {
   const [rec, setRec] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -98,7 +119,7 @@ function Recorder({ index, text, meaning, take, round, onSaved, voice, audioUrl,
       mr.start();
       setRec(true);
     } catch (e) {
-      setErr("마이크 접근이 거부되었어요. 주소창 왼쪽 자물쇠 아이콘에서 마이크를 허용해주세요.");
+      setErr(micErrText(e));
     }
   };
 
