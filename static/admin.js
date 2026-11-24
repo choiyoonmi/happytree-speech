@@ -2424,7 +2424,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
         try { const j = await res.json(); detail = j.detail || detail; } catch (_) {}
         throw new Error(detail);
       }
-      const blob = await res.blob();
+      const { blob } = await withGradeCover(await res.blob(), book);   // 단어급수 교재면 그 권 표지를 앞에
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -5382,13 +5382,52 @@ function SkipDayBar({ reload }) {
 // ★단어급수 시험지(원장 2026-11-04 "시험지 출력할 수 있게") — 교재 달력에 들어가지 않고 급수·권·Day만 골라 뽑는다.
 // 교재 상세의 📝 는 그 교재 과제를 전부 넣어서, 학생별 사본·조각이 많은 권(LV2 1권 109개)은 같은 Day가 여러 장 나왔다.
 // 그래서 Day 번호로 묶어 한 Day 한 장으로 줄인다. 통째 과제가 없으면 (1/2)(2/2) 조각을 이어 붙인다.
+// ★급수·권은 book 이름에서 읽는다. LV7~15 는 「브릭스에듀 단어급수 LV7 1권」(11/20 이름 바꿈)이라 앞말을 허용한다.
+function gradeOf(book) {
+  const m = /^(?:.*단어급수\s+)?LV(\d+) (\d+)권$/.exec(book || "");
+  return m ? { lv: +m[1], vol: +m[2] } : null;
+}
+// 시험지 PDF 맨 앞에 그 급수·권 교재 표지(/covers/lvNN-M.jpg, A4 비율로 맞춰 둔 것)를 붙인다(원장 2026-11-24).
+// pdf-lib 는 시험지를 뽑을 때만 받는다. 표지를 못 붙여도 시험지는 그대로 준다(covered:false).
+let _pdfLibP = null;
+function loadPdfLib() {
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  if (!_pdfLibP) _pdfLibP = new Promise((ok, no) => {
+    const el = document.createElement("script");
+    el.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
+    el.onload = () => ok(window.PDFLib);
+    el.onerror = () => { _pdfLibP = null; el.remove(); no(new Error("pdf-lib")); };
+    document.head.appendChild(el);
+  });
+  return _pdfLibP;
+}
+async function withGradeCover(blob, book) {
+  const g = gradeOf(book);
+  if (!g) return { blob, covered: false };
+  try {
+    const L = await loadPdfLib();
+    const res = await fetch(`/covers/lv${String(g.lv).padStart(2, "0")}-${g.vol}.jpg`);
+    if (!res.ok) throw new Error("표지 없음 " + res.status);
+    const doc = await L.PDFDocument.load(await blob.arrayBuffer());
+    const img = await doc.embedJpg(await res.arrayBuffer());
+    const [w, h] = [595.28, 841.89];
+    doc.insertPage(0, [w, h]).drawImage(img, { x: 0, y: 0, width: w, height: h });
+    return { blob: new Blob([await doc.save()], { type: "application/pdf" }), covered: true };
+  } catch (e) {
+    console.warn("시험지 표지", e);
+    return { blob, covered: false };
+  }
+}
+
 function gradeBooks(assignments) {
   const books = {};
   for (const a of assignments) {
-    const m = /^LV(\d+) (\d+)권$/.exec(a.book || "");
+    const m = gradeOf(a.book);
     const d = /Day (\d+)/.exec(a.title || "");
     if (!m || !d || a.type !== "word" || !(a.items || []).length) continue;
-    const b = (books[a.book] = books[a.book] || { book: a.book, lv: +m[1], vol: +m[2], days: {} });
+    const key = m.lv + "-" + m.vol;
+    const b = (books[key] = books[key] || { book: a.book, lv: m.lv, vol: m.vol, days: {} });
+    if (a.book.length > b.book.length) b.book = a.book;
     (b.days[+d[1]] = b.days[+d[1]] || []).push(a);
   }
   const pieceOf = (a) => { const p = /\((\d+)\/\d+\)\s*$/.exec(a.title); return p ? +p[1] : 0; };
@@ -5416,6 +5455,7 @@ function GradeTestPanel({ assignments }) {
   const [picked, setPicked] = useState([]);       // 고른 Day 번호
   const [dir, setDir] = useState("kor_to_eng");
   const [shuffle, setShuffle] = useState(false);
+  const [cover, setCover] = useState(true);       // 맨 앞에 그 권 표지
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [pdf, setPdf] = useState(null);           // {url, name, pages}
@@ -5442,9 +5482,12 @@ function GradeTestPanel({ assignments }) {
         try { const j = await res.json(); detail = j.detail || detail; } catch (_) {}
         throw new Error(detail);
       }
-      const url = URL.createObjectURL(await res.blob());
+      const raw = await res.blob();
+      const out = cover ? await withGradeCover(raw, cur.book) : { blob: raw, covered: false };
+      if (cover && !out.covered) setErr("표지를 못 붙여서 시험지만 만들었어요. 다시 눌러 보세요.");
+      const url = URL.createObjectURL(out.blob);
       const span = days.length === 1 ? `Day${days[0].n}` : `Day${days[0].n}-${days[days.length - 1].n}`;
-      setPdf({ url, pages: days.length, name: `${cur.book.replace(/\s+/g, "_")}_${span}_단어시험지.pdf` });
+      setPdf({ url, pages: days.length, covered: out.covered, name: `${cur.book.replace(/\s+/g, "_")}_${span}_단어시험지.pdf` });
     } catch (e) {
       setErr("시험지를 못 만들었어요: " + e.message);
     }
@@ -5477,7 +5520,7 @@ function GradeTestPanel({ assignments }) {
         {cur.days.map(d => (
           <label key={d.n} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", fontSize: 14, cursor: "pointer" }}>
             <input type="checkbox" checked={picked.includes(d.n)} onChange={() => toggle(d.n)} />
-            <span>{d.title.replace(cur.book + " · ", "")}</span>
+            <span>{d.title.replace(/^.*?LV\d+ \d+권\s*·\s*/, "")}</span>
             <span style={{ marginLeft: "auto", fontSize: 12, color: "#888" }}>{d.words.length}단어</span>
           </label>
         ))}
@@ -5489,6 +5532,9 @@ function GradeTestPanel({ assignments }) {
         <label style={{ fontSize: 13, display: "flex", gap: 5, alignItems: "center", marginLeft: 6 }}>
           <input type="checkbox" checked={shuffle} onChange={e => { setShuffle(e.target.checked); dropPdf(); }} /> 단어 순서 섞기
         </label>
+        <label style={{ fontSize: 13, display: "flex", gap: 5, alignItems: "center", marginLeft: 6 }}>
+          <input type="checkbox" checked={cover} onChange={e => { setCover(e.target.checked); dropPdf(); }} /> 표지 넣기
+        </label>
       </div>
       <button className="btn" disabled={busy || !picked.length} onClick={make}>
         {busy ? "만드는 중… 서버가 자고 있으면 1분쯤 걸려요" : picked.length ? `시험지 만들기 (${picked.length}장)` : "Day를 골라 주세요"}
@@ -5496,7 +5542,7 @@ function GradeTestPanel({ assignments }) {
       {err && <div style={{ color: "#C0392B", fontSize: 13, marginTop: 8 }}>{err}</div>}
       {pdf && (
         <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
-          <span style={{ fontSize: 13 }}>✅ {pdf.pages}장 완성</span>
+          <span style={{ fontSize: 13 }}>✅ {pdf.covered ? "표지 + " : ""}{pdf.pages}장 완성</span>
           <a className="btn" href={pdf.url} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>🖨 열어서 인쇄</a>
           <a className="btn-ghost" href={pdf.url} download={pdf.name} style={{ textDecoration: "none" }}>⬇ 내려받기</a>
         </div>
