@@ -2415,7 +2415,7 @@ function BookDetail({ book, group, list, reload, onBack, students, all }) {
       const res = await fetch("/api/vocab-test", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          academy_name: "해피트리학원 국영수문해력센터",
+          academy_name: testAcademy(book),
           book_title: book, units, direction: "kor_to_eng",
         }),
       });
@@ -5389,6 +5389,11 @@ function gradeOf(book) {
 }
 // 시험지 PDF 맨 앞에 그 급수·권 교재 표지(/covers/lvNN-M.jpg, A4 비율로 맞춰 둔 것)를 붙인다(원장 2026-11-24).
 // pdf-lib 는 시험지를 뽑을 때만 받는다. 표지를 못 붙여도 시험지는 그대로 준다(covered:false).
+// 시험지 머리글 학원 이름 — LV7부터는 브릭스에듀(원장 2026-11-24)
+function testAcademy(book) {
+  const g = gradeOf(book);
+  return g && g.lv >= 7 ? "브릭스에듀" : "해피트리학원 국영수문해력센터";
+}
 let _pdfLibP = null;
 function loadPdfLib() {
   if (window.PDFLib) return Promise.resolve(window.PDFLib);
@@ -5473,7 +5478,7 @@ function GradeTestPanel({ assignments }) {
       const res = await fetch("/api/vocab-test", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          book_title: cur.book, direction: dir, shuffle,
+          academy_name: testAcademy(cur.book), book_title: cur.book, direction: dir, shuffle,
           units: days.map(d => ({ unit_title: d.title, words: d.words })),
         }),
       });
