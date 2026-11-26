@@ -5383,7 +5383,7 @@ function SkipDayBar({ reload }) {
 // 교재 상세의 📝 는 그 교재 과제를 전부 넣어서, 학생별 사본·조각이 많은 권(LV2 1권 109개)은 같은 Day가 여러 장 나왔다.
 // 그래서 Day 번호로 묶어 한 Day 한 장으로 줄인다. 통째 과제가 없으면 (1/2)(2/2) 조각을 이어 붙인다.
 // ★급수·권은 book 이름에서 읽는다. LV7~15 는 「브릭스에듀 단어급수 LV7 1권」(11/20 이름 바꿈)이라 앞말을 허용한다.
-function gradeOf(book) {
+function bookGradeOf(book) {
   const m = /^(?:.*단어급수\s+)?LV(\d+) (\d+)권$/.exec(book || "");
   return m ? { lv: +m[1], vol: +m[2] } : null;
 }
@@ -5391,7 +5391,7 @@ function gradeOf(book) {
 // pdf-lib 는 시험지를 뽑을 때만 받는다. 표지를 못 붙여도 시험지는 그대로 준다(covered:false).
 // 시험지 머리글 학원 이름 — LV7부터는 브릭스에듀(원장 2026-11-24)
 function testAcademy(book) {
-  const g = gradeOf(book);
+  const g = bookGradeOf(book);
   return g && g.lv >= 7 ? "브릭스에듀" : "해피트리학원 국영수문해력센터";
 }
 let _pdfLibP = null;
@@ -5407,7 +5407,7 @@ function loadPdfLib() {
   return _pdfLibP;
 }
 async function withGradeCover(blob, book) {
-  const g = gradeOf(book);
+  const g = bookGradeOf(book);
   if (!g) return { blob, covered: false };
   try {
     const L = await loadPdfLib();
@@ -5427,7 +5427,7 @@ async function withGradeCover(blob, book) {
 function gradeBooks(assignments) {
   const books = {};
   for (const a of assignments) {
-    const m = gradeOf(a.book);
+    const m = bookGradeOf(a.book);
     const d = /Day (\d+)/.exec(a.title || "");
     if (!m || !d || a.type !== "word" || !(a.items || []).length) continue;
     const key = m.lv + "-" + m.vol;
