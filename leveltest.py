@@ -103,6 +103,11 @@ def score_speak(item, out):
     text = (out.get("recognizedText") or "").lower()
     if acc is None and pron is None:
         return {"score": 0, "content": 0, "delivery": 0, "words": 0, "text": text, "note": out.get("note")}
+    # ★11/27 소리가 거의 안 잡히면 받아쓰기가 "." 같은 문장부호뿐이다 — 0점으로 넘기지 말고 다시 녹음하게
+    #   (저장된 영어 결과 3건 중 2건이 첫 문항 '.' 0점이었다. 화면은 note 가 있고 점수가 0이면 다시 녹음을 띄운다)
+    if not any(ch.isalnum() for ch in text):
+        return {"score": 0, "content": 0, "delivery": 0, "words": 0, "text": text,
+                "note": "소리가 잘 안 들렸어요. 마이크 가까이에서 또박또박 다시 말해 주세요."}
     if item.get("type") == "read":
         sc = 0.5 * (acc or 0) + 0.25 * (flu or 0) + 0.25 * (comp or 0)
         return {"score": round(sc), "accuracy": acc, "fluency": flu, "completeness": comp, "text": text}
